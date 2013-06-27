@@ -707,7 +707,8 @@ static int gov_resume(struct devfreq *df)
 }
 
 static int devfreq_bw_hwmon_get_freq(struct devfreq *df,
-					unsigned long *freq)
+					unsigned long *freq,
+					u32 *flag)
 {
 	struct hwmon_node *node = df->data;
 
