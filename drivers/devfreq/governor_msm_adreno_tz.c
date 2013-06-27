@@ -352,7 +352,7 @@ static inline int devfreq_get_freq_level(struct devfreq *devfreq,
 	return -EINVAL;
 }
 
-static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
+static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq, u32 *flag)
 {
 	int result = 0;
 	struct devfreq_msm_adreno_tz_data *priv = devfreq->data;

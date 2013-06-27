@@ -226,7 +226,8 @@ int update_cache_hwmon(struct cache_hwmon *hwmon)
 }
 
 static int devfreq_cache_hwmon_get_freq(struct devfreq *df,
-					unsigned long *freq)
+					unsigned long *freq,
+					u32 *flag)
 {
 	struct mrps_stats stat;
 	struct cache_hwmon_node *node = df->data;
