@@ -124,7 +124,8 @@ struct devfreq_governor {
 
 	const char name[DEVFREQ_NAME_LEN];
 	const unsigned int immutable;
-	int (*get_target_freq)(struct devfreq *this, unsigned long *freq);
+	int (*get_target_freq)(struct devfreq *this, unsigned long *freq,
+				u32 *flag);
 	int (*event_handler)(struct devfreq *devfreq,
 				unsigned int event, void *data);
 };
