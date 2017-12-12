@@ -120,3 +120,4 @@ all.config
 *.list
 out/*
 scripts/rkp_cfp/tmp/*
+net/wireguard/
