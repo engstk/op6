@@ -119,5 +119,5 @@ out/
 # Kdevelop4
 *.kdev4
 
-# fetched Android config fragments
-kernel/configs/android-*.cfg
+# Exclude wireguard dir
+net/wireguard/
