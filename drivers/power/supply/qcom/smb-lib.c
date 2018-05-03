@@ -4359,10 +4359,16 @@ static void smblib_handle_apsd_done(struct smb_charger *chg, bool rising)
 			schedule_delayed_work(&chg->re_det_work,
 				msecs_to_jiffies(TIME_1000MS));
 		} else {
-			if (chg->probe_done)
-				schedule_delayed_work(
-				&chg->non_standard_charger_check_work,
-				msecs_to_jiffies(TIME_1000MS));
+			if (chg->probe_done) {
+				if (apsd_result->bit == FLOAT_CHARGER_BIT)
+					schedule_delayed_work(
+						&chg->check_switch_dash_work,
+						msecs_to_jiffies(500));
+				else
+					schedule_delayed_work(
+					&chg->non_standard_charger_check_work,
+						msecs_to_jiffies(TIME_1000MS));
+				}
 		}
 	}
 	chg->op_apsd_done = true;
@@ -5795,8 +5801,7 @@ static void op_check_allow_switch_dash_work(struct work_struct *work)
 
 	apsd_result = smblib_get_apsd_result(chg);
 	if (((apsd_result->bit != SDP_CHARGER_BIT
-		&& apsd_result->bit != CDP_CHARGER_BIT
-		&& apsd_result->bit != FLOAT_CHARGER_BIT)
+		&& apsd_result->bit != CDP_CHARGER_BIT)
 		&& apsd_result->bit)
 		|| chg->non_std_chg_present)
 		switch_fast_chg(chg);
