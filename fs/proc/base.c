@@ -1049,93 +1049,7 @@ static ssize_t oom_adj_read(struct file *file, char __user *buf, size_t count,
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
 
-static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
-{
-	static DEFINE_MUTEX(oom_adj_mutex);
-	struct mm_struct *mm = NULL;
-	struct task_struct *task;
-	int err = 0;
-
-	task = get_proc_task(file_inode(file));
-	if (!task)
-		return -ESRCH;
-
-	mutex_lock(&oom_adj_mutex);
-	if (legacy) {
-		if (oom_adj < task->signal->oom_score_adj &&
-				!capable(CAP_SYS_RESOURCE)) {
-			err = -EACCES;
-			goto err_unlock;
-		}
-		/*
-		 * /proc/pid/oom_adj is provided for legacy purposes, ask users to use
-		 * /proc/pid/oom_score_adj instead.
-		 */
-		pr_warn_once("%s (%d): /proc/%d/oom_adj is deprecated, please use /proc/%d/oom_score_adj instead.\n",
-			  current->comm, task_pid_nr(current), task_pid_nr(task),
-			  task_pid_nr(task));
-	} else {
-		if ((short)oom_adj < task->signal->oom_score_adj_min &&
-				!capable(CAP_SYS_RESOURCE)) {
-			err = -EACCES;
-			goto err_unlock;
-		}
-	}
-
-	/*
-	 * Make sure we will check other processes sharing the mm if this is
-	 * not vfrok which wants its own oom_score_adj.
-	 * pin the mm so it doesn't go away and get reused after task_unlock
-	 */
-	if (!task->vfork_done) {
-		struct task_struct *p = find_lock_task_mm(task);
-
-		if (p) {
-			if (atomic_read(&p->mm->mm_users) > 1) {
-				mm = p->mm;
-				atomic_inc(&mm->mm_count);
-			}
-			task_unlock(p);
-		}
-	}
-
-	task->signal->oom_score_adj = oom_adj;
-	if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
-		task->signal->oom_score_adj_min = (short)oom_adj;
-	trace_oom_score_adj_update(task);
-
-	if (mm) {
-		struct task_struct *p;
-
-		rcu_read_lock();
-		for_each_process(p) {
-			if (same_thread_group(task, p))
-				continue;
-
-			/* do not touch kernel threads or the global init */
-			if (p->flags & PF_KTHREAD || is_global_init(p))
-				continue;
-
-			task_lock(p);
-			if (!p->vfork_done && process_shares_mm(p, mm)) {
-				pr_info("updating oom_score_adj for %d (%s) from %d to %d because it shares mm with %d (%s). Report if this is unexpected.\n",
-						task_pid_nr(p), p->comm,
-						p->signal->oom_score_adj, oom_adj,
-						task_pid_nr(task), task->comm);
-				p->signal->oom_score_adj = oom_adj;
-				if (!legacy && has_capability_noaudit(current, CAP_SYS_RESOURCE))
-					p->signal->oom_score_adj_min = (short)oom_adj;
-			}
-			task_unlock(p);
-		}
-		rcu_read_unlock();
-		mmdrop(mm);
-	}
-err_unlock:
-	mutex_unlock(&oom_adj_mutex);
-	put_task_struct(task);
-	return err;
-}
+static DEFINE_MUTEX(oom_adj_mutex);
 
 /*
  * /proc/pid/oom_adj exists solely for backwards compatibility with previous
@@ -1150,6 +1064,7 @@ err_unlock:
 static ssize_t oom_adj_write(struct file *file, const char __user *buf,
 			     size_t count, loff_t *ppos)
 {
+	struct task_struct *task;
 	char buffer[PROC_NUMBUF];
 	int oom_adj;
 	int err;
@@ -1171,6 +1086,12 @@ static ssize_t oom_adj_write(struct file *file, const char __user *buf,
 		goto out;
 	}
 
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		err = -ESRCH;
+		goto out;
+	}
+
 	/*
 	 * Scale /proc/pid/oom_score_adj appropriately ensuring that a maximum
 	 * value is always attainable.
@@ -1180,7 +1101,26 @@ static ssize_t oom_adj_write(struct file *file, const char __user *buf,
 	else
 		oom_adj = (oom_adj * OOM_SCORE_ADJ_MAX) / -OOM_DISABLE;
 
-	err = __set_oom_adj(file, oom_adj, true);
+	mutex_lock(&oom_adj_mutex);
+	if (oom_adj < task->signal->oom_score_adj &&
+	    !capable(CAP_SYS_RESOURCE)) {
+		err = -EACCES;
+		goto err_unlock;
+	}
+
+	/*
+	 * /proc/pid/oom_adj is provided for legacy purposes, ask users to use
+	 * /proc/pid/oom_score_adj instead.
+	 */
+	pr_warn_once("%s (%d): /proc/%d/oom_adj is deprecated, please use /proc/%d/oom_score_adj instead.\n",
+		  current->comm, task_pid_nr(current), task_pid_nr(task),
+		  task_pid_nr(task));
+
+	task->signal->oom_score_adj = oom_adj;
+	trace_oom_score_adj_update(task);
+err_unlock:
+	mutex_unlock(&oom_adj_mutex);
+	put_task_struct(task);
 out:
 	return err < 0 ? err : count;
 }
@@ -1210,6 +1150,7 @@ static ssize_t oom_score_adj_read(struct file *file, char __user *buf,
 static ssize_t oom_score_adj_write(struct file *file, const char __user *buf,
 					size_t count, loff_t *ppos)
 {
+	struct task_struct *task;
 	char buffer[PROC_NUMBUF];
 	int oom_score_adj;
 	int err;
@@ -1231,7 +1172,28 @@ static ssize_t oom_score_adj_write(struct file *file, const char __user *buf,
 		goto out;
 	}
 
-	err = __set_oom_adj(file, oom_score_adj, false);
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		err = -ESRCH;
+		goto out;
+	}
+
+	mutex_lock(&oom_adj_mutex);
+	if ((short)oom_score_adj < task->signal->oom_score_adj_min &&
+			!capable(CAP_SYS_RESOURCE)) {
+		err = -EACCES;
+		goto err_unlock;
+	}
+
+	task->signal->oom_score_adj = (short)oom_score_adj;
+	if (has_capability_noaudit(current, CAP_SYS_RESOURCE))
+		task->signal->oom_score_adj_min = (short)oom_score_adj;
+
+	trace_oom_score_adj_update(task);
+
+err_unlock:
+	mutex_unlock(&oom_adj_mutex);
+	put_task_struct(task);
 out:
 	return err < 0 ? err : count;
 }
@@ -3167,7 +3129,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #endif
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
 	REG("oom_adj",    S_IRUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+	REG("oom_score_adj", S_IRUGO, proc_oom_score_adj_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),

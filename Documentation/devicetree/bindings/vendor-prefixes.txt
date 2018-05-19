@@ -100,6 +100,7 @@ everest	Everest Semiconductor Co. Ltd.
 everspin	Everspin Technologies, Inc.
 excito	Excito
 ezchip	EZchip Semiconductor
+ec4016  wipower charge
 fcs	Fairchild Semiconductor
 firefly	Firefly
 focaltech	FocalTech Systems Co.,Ltd
@@ -315,3 +316,7 @@ zarlink	Zarlink Semiconductor
 zii	Zodiac Inflight Innovations
 zte	ZTE Corp.
 zyxel	ZyXEL Communications Corp.
+oneplus OnePlus Corp.
+HWK	synaptics Corp.
+fpc 	fpc Corp.
+oem 	oneplus Corp.

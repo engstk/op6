@@ -1,0 +1,15 @@
+rf_cable
+Required Properties:
+- compatible:                   Must be "compatible = "oem,rf_cable".
+
+
+Example:
+
+        tri_state_key {
+		compatible = "oem,rf_cable";
+		interrupt-parent = <&tlmm>;
+		rf,cable-gpio = <&tlmm 33 0>;
+		pinctrl-names = "oem_rf_cable_active", "oem_rf_cable_suspend";
+		pinctrl-0 = <&oem_rf_cable_active>;
+		pinctrl-1 = <&oem_rf_cable_suspend>;
+};

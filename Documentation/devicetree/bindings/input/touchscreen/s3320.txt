@@ -1,0 +1,31 @@
+HWK,synaptics,s3320
+
+
+Required properties:
+
+- compatible : should be compatible = "HWK,synaptics,s3320";
+
+example:
+	synaptics-rmi-ts@20 {
+		compatible = "HWK,synaptics,s3320";
+		reg = <0x20>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 0x2008>;
+		//vcc_i2c_1v8-supply = <&pm8998_l6>;
+		vdd_2v8-supply = <&pm8998_l28>;
+		synaptics,tx-rx-num = <15 30>;
+		//synaptics,vdd-voltage = <1808000 1808000>;
+		synaptics,avdd-voltage = <3008000 3008000>;
+		//synaptics,vdd-current = <40000>;
+		synaptics,avdd-current = <20000>;
+		synaptics,display-coords = <1080 2160>;
+		synaptics,panel-coords = <1080 2160>;
+		synaptics,reset-gpio = <&tlmm 99 0x00>;
+		synaptics,irq-gpio = <&tlmm 125 0x2008>;
+		synaptics,1v8-gpio = <&tlmm 88 0x2008>;
+		oem,support_1080x2160_tp;
+		oem,support_hw_poweroff;
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend";
+		pinctrl-0 = <&ts_active>;
+		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+	};

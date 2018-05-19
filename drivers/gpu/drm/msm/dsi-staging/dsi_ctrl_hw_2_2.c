@@ -20,7 +20,9 @@
 #include "dsi_catalog.h"
 
 /* Equivalent to register DISP_CC_MISC_CMD */
-#define DISP_CC_CLAMP_REG_OFF 0x00
+//#define DISP_CC_CLAMP_REG_OFF 0x00
+#define DISP_CC_CLAMP_REG_OFF 0x5000
+#define DISP_CC_CORE_GDSCR 0x00
 
 /* register to configure DMA scheduling */
 #define DSI_DMA_SCHEDULE_CTRL 0x100
@@ -34,14 +36,20 @@ void dsi_ctrl_hw_22_phy_reset_config(struct dsi_ctrl_hw *ctrl,
 		bool enable)
 {
 	u32 reg = 0;
+	u32 gdscr_reg = 0;
 
 	reg = DSI_DISP_CC_R32(ctrl, DISP_CC_CLAMP_REG_OFF);
 
 	/* Mask/unmask disable PHY reset bit */
-	if (enable)
+	if (enable){
 		reg &= ~BIT(ctrl->index);
-	else
-		reg |= BIT(ctrl->index);
+	/* Enable GDSC retention flops during idle exit */
+	gdscr_reg = DSI_DISP_CC_R32(ctrl, DISP_CC_CORE_GDSCR);
+	gdscr_reg |= BIT(11);
+	DSI_DISP_CC_W32(ctrl, DISP_CC_CORE_GDSCR, gdscr_reg);
+	} else {
+			reg |= BIT(ctrl->index);
+	}
 	DSI_DISP_CC_W32(ctrl, DISP_CC_CLAMP_REG_OFF, reg);
 }
 

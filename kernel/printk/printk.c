@@ -43,6 +43,8 @@
 #include <linux/poll.h>
 #include <linux/irq_work.h>
 #include <linux/utsname.h>
+#include <linux/rtc.h>
+#include <linux/time.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
 
@@ -59,6 +61,20 @@
 #ifdef CONFIG_EARLY_PRINTK_DIRECT
 extern void printascii(char *);
 #endif
+
+
+/*zyh we use dynamic add console , so we can't use __init  __exit, this will cause can't find func*/
+#ifdef __init
+#undef __init
+#endif
+
+#ifdef __exit
+#undef __exit
+#endif
+
+#define __init
+#define __exit
+
 
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
@@ -1054,6 +1070,13 @@ static void __init log_buf_add_cpu(void)
 #else /* !CONFIG_SMP */
 static inline void log_buf_add_cpu(void) {}
 #endif /* CONFIG_SMP */
+static int __init ftm_console_silent_setup(char *str)
+{
+	pr_info("ftm_silent_log \n");
+	console_silent();
+	return 0;
+}
+early_param("ftm_console_silent", ftm_console_silent_setup);
 
 void __init setup_log_buf(int early)
 {
@@ -1175,21 +1198,9 @@ static inline void boot_delay_msec(int level)
 static bool printk_time = IS_ENABLED(CONFIG_PRINTK_TIME);
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
 
-static size_t print_time(u64 ts, char *buf)
-{
-	unsigned long rem_nsec;
+static bool print_wall_time = 1;
+module_param_named(print_wall_time, print_wall_time, bool, 0644);
 
-	if (!printk_time)
-		return 0;
-
-	rem_nsec = do_div(ts, 1000000000);
-
-	if (!buf)
-		return snprintf(NULL, 0, "[%5lu.000000] ", (unsigned long)ts);
-
-	return sprintf(buf, "[%5lu.%06lu] ",
-		       (unsigned long)ts, rem_nsec / 1000);
-}
 
 static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 {
@@ -1209,8 +1220,6 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 				len++;
 		}
 	}
-
-	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
 	return len;
 }
 
@@ -1717,8 +1726,6 @@ static size_t cont_print_text(char *text, size_t size)
 	size_t len;
 
 	if (cont.cons == 0 && (console_prev & LOG_NEWLINE)) {
-		textlen += print_time(cont.ts_nsec, text);
-		size -= textlen;
 	}
 
 	len = cont.len - cont.cons;
@@ -1773,6 +1780,8 @@ asmlinkage int vprintk_emit(int facility, int level,
 			    const char *fmt, va_list args)
 {
 	static bool recursion_bug;
+	static char texttmp[LOG_LINE_MAX];
+	static bool last_new_line = true;
 	static char textbuf[LOG_LINE_MAX];
 	char *text = textbuf;
 	size_t text_len = 0;
@@ -1784,7 +1793,10 @@ asmlinkage int vprintk_emit(int facility, int level,
 	bool in_sched = false;
 	/* cpu currently holding logbuf_lock in this function */
 	static unsigned int logbuf_cpu = UINT_MAX;
+	u64 ts_sec = local_clock();
+	unsigned long rem_nsec;
 
+	rem_nsec = do_div(ts_sec, 1000000000);
 	if (level == LOGLEVEL_SCHED) {
 		level = LOGLEVEL_DEFAULT;
 		in_sched = true;
@@ -1873,6 +1885,44 @@ asmlinkage int vprintk_emit(int facility, int level,
 			text += 2;
 		}
 	}
+
+	if (last_new_line) {
+		if (print_wall_time && ts_sec >= 20) {
+			struct timespec64 tspec;
+			struct rtc_time tm;
+
+			__getnstimeofday64(&tspec);
+
+			if (sys_tz.tz_minuteswest < 0
+				|| (tspec.tv_sec-sys_tz.tz_minuteswest*60) >= 0)
+				tspec.tv_sec -= sys_tz.tz_minuteswest * 60;
+			rtc_time_to_tm(tspec.tv_sec, &tm);
+
+			text_len = scnprintf(texttmp, sizeof(texttmp),
+				"[%02d%02d%02d_%02d:%02d:%02d.%06ld]@%d %s",
+				tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+				tm.tm_hour, tm.tm_min, tm.tm_sec,
+				tspec.tv_nsec / 1000, this_cpu, text);
+		} else {
+			text_len = scnprintf(texttmp, sizeof(texttmp),
+				"[%5lu.%06lu]@%d %s", (unsigned long)ts_sec,
+				rem_nsec / 1000, this_cpu, text);
+		}
+
+		text = texttmp;
+
+		/* mark and strip a trailing newline */
+		if (text_len && text[text_len-1] == '\n') {
+			text_len--;
+			lflags |= LOG_NEWLINE;
+		}
+	}
+
+	if (lflags & LOG_NEWLINE)
+		last_new_line = true;
+	else
+		last_new_line = false;
+
 
 #ifdef CONFIG_EARLY_PRINTK_DIRECT
 	printascii(text);
@@ -2115,6 +2165,13 @@ static int __init console_setup(char *str)
 	return 1;
 }
 __setup("console=", console_setup);
+
+int force_oem_console_setup(char *str)
+{
+	console_setup(str);
+	return 1;
+}
+EXPORT_SYMBOL(force_oem_console_setup);
 
 /**
  * add_preferred_console - add a device to the list of preferred consoles.

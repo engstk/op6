@@ -1039,10 +1039,11 @@
 	cam_fd: qcom,fd@ac5a000 {
 		cell-index = <0>;
 		compatible = "qcom,fd41";
-		reg-names = "fd_core", "fd_wrapper";
+		reg-names = "fd_core", "fd_wrapper", "cam_cc";
 		reg = <0xac5a000 0x1000>,
-			<0xac5b000 0x400>;
-		reg-cam-base = <0x5a000 0x5b000>;
+			<0xac5b000 0x400>,
+			<0xad0b000 0x200>;
+		reg-cam-base = <0x5a000 0x5b000 0xb000>;
 		interrupt-names = "fd";
 		interrupts = <0 462 0>;
 		regulator-names = "camss-vdd";

@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013, Sony Mobile Communications AB.
- * Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,7 @@
 #include "pinctrl-msm.h"
 #include "../pinctrl-utils.h"
 
+#include <linux/power/oem_external_fg.h>
 #define MAX_NR_GPIO 300
 #define PS_HOLD_OFFSET 0x820
 
@@ -430,10 +431,17 @@ static int msm_gpio_get(struct gpio_chip *chip, unsigned offset)
 	struct msm_pinctrl *pctrl = gpiochip_get_data(chip);
 	u32 val;
 
+	if (dash_adapter_update_is_rx_gpio(offset)) {
+		g = &pctrl->soc->groups[offset];
+		val = readl_dash(pctrl->regs + g->io_reg);
+		return !!(val & BIT(g->in_bit));
+
+	} else {
 	g = &pctrl->soc->groups[offset];
 
 	val = readl(pctrl->regs + g->io_reg);
 	return !!(val & BIT(g->in_bit));
+	}
 }
 
 static void msm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
@@ -442,19 +450,26 @@ static void msm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 	struct msm_pinctrl *pctrl = gpiochip_get_data(chip);
 	unsigned long flags;
 	u32 val;
-
+	val = 0;
 	g = &pctrl->soc->groups[offset];
+	if (dash_adapter_update_is_tx_gpio(offset)) {
+		if (value)
+			val |= BIT(g->out_bit);
+		else
+			val &= ~BIT(g->out_bit);
+		writel_dash(val, pctrl->regs + g->io_reg);
+	} else {
+		spin_lock_irqsave(&pctrl->lock, flags);
 
-	spin_lock_irqsave(&pctrl->lock, flags);
+		val = readl(pctrl->regs + g->io_reg);
+		if (value)
+			val |= BIT(g->out_bit);
+		else
+			val &= ~BIT(g->out_bit);
+		writel(val, pctrl->regs + g->io_reg);
 
-	val = readl(pctrl->regs + g->io_reg);
-	if (value)
-		val |= BIT(g->out_bit);
-	else
-		val &= ~BIT(g->out_bit);
-	writel(val, pctrl->regs + g->io_reg);
-
-	spin_unlock_irqrestore(&pctrl->lock, flags);
+		spin_unlock_irqrestore(&pctrl->lock, flags);
+	}
 }
 
 #ifdef CONFIG_DEBUG_FS
@@ -489,7 +504,9 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 	drive = (ctl_reg >> g->drv_bit) & 7;
 	pull = (ctl_reg >> g->pull_bit) & 3;
 
-	seq_printf(s, " %-8s: %-3s %d", g->name, is_out ? "out" : "in", func);
+	seq_printf(s, " %-8s: %-3s fun%d", g->name, is_out ? "out" : "in", func);
+	if (gpio <= 149)//the ship real gpio
+		seq_printf(s, " %s", chip->get(chip, offset) ? "hi":"lo");
 	seq_printf(s, " %dmA", msm_regval_to_drive(drive));
 	seq_printf(s, " %s", pulls[pull]);
 }
@@ -500,6 +517,8 @@ static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	unsigned i;
 
 	for (i = 0; i < chip->ngpio; i++, gpio++) {
+		if( gpio ==0 || gpio ==1 || gpio ==2 || gpio == 3 || gpio ==81 || gpio ==82 || gpio ==83 || gpio == 84)
+		continue;
 		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
 		seq_puts(s, "\n");
 	}
@@ -595,6 +614,11 @@ static void msm_gpio_irq_unmask(struct irq_data *d)
 	g = &pctrl->soc->groups[d->hwirq];
 
 	spin_lock_irqsave(&pctrl->lock, flags);
+
+
+	val = readl(pctrl->regs + g->intr_status_reg);
+	val &= ~BIT(g->intr_status_bit);
+	writel(val, pctrl->regs + g->intr_status_reg);
 
 	val = readl(pctrl->regs + g->intr_cfg_reg);
 	val |= BIT(g->intr_enable_bit);
@@ -806,9 +830,22 @@ static void msm_dirconn_irq_unmask(struct irq_data *d)
 			irq_get_irq_data(irq_find_mapping(parent_data->domain,
 						dir_conn_irq));
 
-		if (dir_conn_data && dir_conn_data->chip->irq_unmask)
+		if (!dir_conn_data)
+			return;
+
+		if (dir_conn_data->chip->irq_set_irqchip_state)
+			dir_conn_data->chip->irq_set_irqchip_state(
+					dir_conn_data,
+					IRQCHIP_STATE_PENDING, 0);
+
+		if (dir_conn_data->chip->irq_unmask)
 			dir_conn_data->chip->irq_unmask(dir_conn_data);
 	}
+
+	/* yangfangbiao@bsp, 20180129 salve fake irq issue */
+	if (parent_data->chip->irq_set_irqchip_state)
+		parent_data->chip->irq_set_irqchip_state(parent_data,
+						IRQCHIP_STATE_PENDING, 0);
 	if (parent_data->chip->irq_unmask)
 		parent_data->chip->irq_unmask(parent_data);
 }

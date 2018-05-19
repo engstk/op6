@@ -35,6 +35,23 @@
 #include "gadget.h"
 #include "io.h"
 
+#include <linux/power/oem_external_fg.h>
+
+static struct notify_usb_enumeration_status
+		*usb_enumeration_status = NULL;
+
+void regsister_notify_usb_enumeration_status(
+	struct notify_usb_enumeration_status *status)
+{
+	if (usb_enumeration_status) {
+		usb_enumeration_status = status;
+		pr_err("multiple usb_enumeration_status called\n");
+	} else {
+		usb_enumeration_status = status;
+	}
+}
+EXPORT_SYMBOL(regsister_notify_usb_enumeration_status);
+
 static void __dwc3_ep0_do_control_status(struct dwc3 *dwc, struct dwc3_ep *dep);
 static void __dwc3_ep0_do_control_data(struct dwc3 *dwc,
 		struct dwc3_ep *dep, struct dwc3_request *req);
@@ -782,6 +799,11 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 		ret = dwc3_ep0_handle_feature(dwc, ctrl, 1);
 		break;
 	case USB_REQ_SET_ADDRESS:
+
+		if (usb_enumeration_status
+			&& usb_enumeration_status->notify_usb_enumeration) {
+			usb_enumeration_status->notify_usb_enumeration(true);
+		}
 		dwc3_trace(trace_dwc3_ep0, "USB_REQ_SET_ADDRESS");
 		ret = dwc3_ep0_set_address(dwc, ctrl);
 		break;

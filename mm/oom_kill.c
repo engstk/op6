@@ -206,8 +206,10 @@ unsigned long oom_badness(struct task_struct *p, struct mem_cgroup *memcg,
 	 * Root processes get 3% bonus, just like the __vm_enough_memory()
 	 * implementation used by LSMs.
 	 */
-	if (has_capability_noaudit(p, CAP_SYS_ADMIN))
-		points -= (points * 3) / 100;
+	// delete by xcb for fix race condition
+	// between oom_badness and do_exit of task
+	//if (has_capability_noaudit(p, CAP_SYS_ADMIN))
+	//	points -= (points * 3) / 100;
 
 	/* Normalize to oom_score_adj units */
 	adj *= totalpages / 1000;

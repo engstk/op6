@@ -293,6 +293,12 @@ Required properties:
 
  - compatible : "qcom,msm-pcm-hostless"
 
+* audio_apr
+
+Required properties:
+
+ - compatible : "qcom,msm-audio-apr"
+
 * msm-ocmem-audio
 
 Required properties:
@@ -649,6 +655,10 @@ Example:
 		qcom,msm_bus,vectors =
 			<11 604 0 0>,
 			<11 604 32505856 325058560>;
+	};
+
+	audio_apr: qcom,msm-audio-apr {
+		compatible = "qcom,msm-audio-apr";
 	};
 
 	wcd9xxx_intc: wcd9xxx-irq {

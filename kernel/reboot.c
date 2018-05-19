@@ -16,6 +16,7 @@
 #include <linux/syscalls.h>
 #include <linux/syscore_ops.h>
 #include <linux/uaccess.h>
+#include <linux/delay.h>
 
 /*
  * this indicates whether you can reboot with ctrl-alt-del: the default is yes
@@ -43,6 +44,7 @@ int reboot_default = 1;
 int reboot_cpu;
 enum reboot_type reboot_type = BOOT_ACPI;
 int reboot_force;
+
 
 /*
  * If set, this is used for preparing the system to power off.
@@ -220,6 +222,7 @@ void kernel_restart(char *cmd)
 		pr_emerg("Restarting system\n");
 	else
 		pr_emerg("Restarting system with command '%s'\n", cmd);
+
 	kmsg_dump(KMSG_DUMP_RESTART);
 	machine_restart(cmd);
 }

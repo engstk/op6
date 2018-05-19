@@ -413,7 +413,7 @@ int dwc3_send_gadget_ep_cmd(struct dwc3_ep *dep, unsigned cmd,
 		dwc3_trace(trace_dwc3_gadget, "Command Timed Out");
 		dev_err(dwc->dev, "%s command timeout for %s\n",
 			dwc3_gadget_ep_cmd_string(cmd), dep->name);
-		if (!(cmd & DWC3_DEPCMD_ENDTRANSFER)) {
+		if (cmd != DWC3_DEPCMD_ENDTRANSFER) {
 			dwc->ep_cmd_timeout_cnt++;
 			dwc3_notify_event(dwc,
 				DWC3_CONTROLLER_RESTART_USB_SESSION);
@@ -3125,8 +3125,6 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	dwc3_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_OTG_EVENT);
 
 	dwc3_usb3_phy_suspend(dwc, false);
-	usb_gadget_vbus_draw(&dwc->gadget, 100);
-
 	dwc3_reset_gadget(dwc);
 
 	reg = dwc3_readl(dwc->regs, DWC3_DCTL);

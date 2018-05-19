@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -449,6 +449,17 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 		return -EINVAL;
 
 	cmd_enc->pp_timeout_report_cnt++;
+
+	if (sde_encoder_phys_cmd_is_master(phys_enc)) {
+		 /* trigger the retire fence if it was missed */
+		if (atomic_add_unless(&phys_enc->pending_retire_fence_cnt,
+				-1, 0))
+			phys_enc->parent_ops.handle_frame_done(
+				phys_enc->parent,
+				phys_enc,
+				SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE);
+		atomic_add_unless(&phys_enc->pending_ctlstart_cnt, -1, 0);
+	}
 
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->hw_pp->idx - PINGPONG_0,
 			cmd_enc->pp_timeout_report_cnt,
@@ -938,12 +949,20 @@ static bool sde_encoder_phys_cmd_is_autorefresh_enabled(
 static void sde_encoder_phys_cmd_connect_te(
 		struct sde_encoder_phys *phys_enc, bool enable)
 {
+	u32 vsync_cfg;
+
 	if (!phys_enc || !phys_enc->hw_pp ||
 			!phys_enc->hw_pp->ops.connect_external_te)
 		return;
 
 	SDE_EVT32(DRMID(phys_enc->parent), enable);
-	phys_enc->hw_pp->ops.connect_external_te(phys_enc->hw_pp, enable);
+	vsync_cfg = phys_enc->hw_pp->ops.connect_external_te(phys_enc->hw_pp, enable);
+
+	/* panic only if frame pending - vsync enable is not configured */
+	if (((vsync_cfg & BIT(19)) == 0) && enable &&
+			atomic_read(&phys_enc->pending_kickoff_cnt))
+		SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
+
 }
 
 static int sde_encoder_phys_cmd_get_line_count(

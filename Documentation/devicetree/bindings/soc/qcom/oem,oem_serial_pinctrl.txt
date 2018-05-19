@@ -1,0 +1,13 @@
+oem serial_pinctrl
+Required Properties:
+- compatible:                   Must be "compatible = "oem,oem_serial_pinctrl".
+
+
+Example:
+
+	oem_serial_pinctrl {
+		compatible = "oem,oem_serial_pinctrl";
+		pinctrl-names = "uart_pinctrl_active","uart_pinctrl_deactive";
+		pinctrl-0 = <&qupv3_se10_2uart_active>;
+		pinctrl-1 = <&qupv3_se10_2uart_sleep>;
+	};

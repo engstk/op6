@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,6 +11,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/vmalloc.h>
 #include "cam_sensor_util.h"
 #include <cam_mem_mgr.h>
 #include "cam_res_mgr_api.h"
@@ -36,13 +37,26 @@ static struct i2c_settings_list*
 	else
 		return NULL;
 
-	tmp->i2c_settings.reg_setting = (struct cam_sensor_i2c_reg_array *)
-		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) *
-		size, GFP_KERNEL);
-	if (tmp->i2c_settings.reg_setting == NULL) {
-		list_del(&(tmp->list));
-		kfree(tmp);
-		return NULL;
+	if ((sizeof(struct cam_sensor_i2c_reg_array) * size) < PAGE_SIZE) {
+		tmp->i2c_settings.reg_setting =
+			(struct cam_sensor_i2c_reg_array *)
+			kzalloc(sizeof(struct cam_sensor_i2c_reg_array) *
+			size, GFP_KERNEL);
+		if (tmp->i2c_settings.reg_setting == NULL) {
+			list_del(&(tmp->list));
+			kfree(tmp);
+			return NULL;
+		}
+	} else {
+		tmp->i2c_settings.reg_setting =
+			(struct cam_sensor_i2c_reg_array *)
+			vzalloc(sizeof(struct cam_sensor_i2c_reg_array) *
+				size);
+		if (tmp->i2c_settings.reg_setting == NULL) {
+			list_del(&(tmp->list));
+			kfree(tmp);
+			return NULL;
+		}
 	}
 	tmp->i2c_settings.size = size;
 
@@ -61,7 +75,14 @@ int32_t delete_request(struct i2c_settings_array *i2c_array)
 
 	list_for_each_entry_safe(i2c_list, i2c_next,
 		&(i2c_array->list_head), list) {
-		kfree(i2c_list->i2c_settings.reg_setting);
+
+		if ((sizeof(struct cam_sensor_i2c_reg_array) *
+			i2c_list->i2c_settings.size) < PAGE_SIZE) {
+			kfree(i2c_list->i2c_settings.reg_setting);
+		} else {
+			vfree(i2c_list->i2c_settings.reg_setting);
+		}
+
 		list_del(&(i2c_list->list));
 		kfree(i2c_list);
 	}
@@ -130,7 +151,7 @@ int32_t cam_sensor_handle_poll(
 		CAM_ERR(CAM_SENSOR, "Failed in allocating mem for list");
 		return -ENOMEM;
 	}
-
+	(*offset) = 0;//add by HHK fox fix delayus invalid 
 	i2c_list->op_code = CAM_SENSOR_I2C_POLL;
 	i2c_list->i2c_settings.data_type =
 		cond_wait->data_type;
@@ -147,7 +168,7 @@ int32_t cam_sensor_handle_poll(
 		sizeof(uint32_t);
 	(*byte_cnt) += sizeof(struct cam_cmd_conditional_wait);
 
-	(*offset) += 1;
+	*offset = 1;
 	*list_ptr = &(i2c_list->list);
 
 	return rc;
@@ -178,7 +199,7 @@ int32_t cam_sensor_handle_random_write(
 		cam_cmd_i2c_random_wr->header.addr_type;
 	i2c_list->i2c_settings.data_type =
 		cam_cmd_i2c_random_wr->header.data_type;
-
+	(*offset) = 0;//add by HHK fox fix delayus invalid 
 	for (cnt = 0; cnt < (cam_cmd_i2c_random_wr->header.count);
 		cnt++) {
 		i2c_list->i2c_settings.reg_setting[cnt].reg_addr =
@@ -191,7 +212,7 @@ int32_t cam_sensor_handle_random_write(
 		i2c_list->i2c_settings.
 			reg_setting[cnt].data_mask = 0;
 	}
-	(*offset) += cnt;
+	*offset = cnt;
 	*list = &(i2c_list->list);
 
 	return rc;
@@ -233,7 +254,7 @@ static int32_t cam_sensor_handle_continuous_write(
 		cam_cmd_i2c_continuous_wr->header.data_type;
 	i2c_list->i2c_settings.size =
 		cam_cmd_i2c_continuous_wr->header.count;
-
+	(*offset) = 0;//add by HHK fox fix delayus invalid 
 	for (cnt = 0; cnt < (cam_cmd_i2c_continuous_wr->header.count);
 		cnt++) {
 		i2c_list->i2c_settings.reg_setting[cnt].reg_addr =
@@ -246,7 +267,7 @@ static int32_t cam_sensor_handle_continuous_write(
 		i2c_list->i2c_settings.
 			reg_setting[cnt].data_mask = 0;
 	}
-	(*offset) += cnt;
+	*offset = cnt;
 	*list = &(i2c_list->list);
 
 	return rc;
@@ -1349,7 +1370,8 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 
 			rc = msm_cam_sensor_handle_reg_gpio(
 				power_setting->seq_type,
-				gpio_num_info, 1);
+				gpio_num_info,
+				(int) power_setting->config_val);
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR,
 					"Error in handling VREG GPIO");
@@ -1476,6 +1498,9 @@ power_up_failed:
 				power_setting->data[0] =
 						soc_info->rgltr[vreg_idx];
 
+				regulator_put(
+					soc_info->rgltr[vreg_idx]);
+				soc_info->rgltr[vreg_idx] = NULL;
 			}
 			else
 				CAM_ERR(CAM_SENSOR, "seq_val:%d > num_vreg: %d",
@@ -1575,8 +1600,12 @@ static int cam_config_mclk_reg(struct cam_sensor_power_ctrl_t *ctrl,
 					soc_info->rgltr_op_mode[j],
 					soc_info->rgltr_delay[j]);
 
-					ps->data[0] =
-						soc_info->rgltr[j];
+				ps->data[0] =
+					soc_info->rgltr[j];
+
+				regulator_put(
+					soc_info->rgltr[j]);
+				soc_info->rgltr[j] = NULL;
 			}
 		}
 	}
@@ -1667,6 +1696,10 @@ int msm_camera_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 
 					ps->data[0] =
 						soc_info->rgltr[ps->seq_val];
+
+					regulator_put(
+						soc_info->rgltr[ps->seq_val]);
+					soc_info->rgltr[ps->seq_val] = NULL;
 				}
 				else
 					CAM_ERR(CAM_SENSOR,

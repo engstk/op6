@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -68,6 +68,7 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	struct sde_connector *c_conn;
 	int bl_lvl;
 	struct drm_event event;
+	int rc = 0;
 
 	brightness = bd->props.brightness;
 
@@ -93,10 +94,10 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 		event.length = sizeof(u32);
 		msm_mode_object_event_notify(&c_conn->base.base,
 				c_conn->base.dev, &event, (u8 *)&brightness);
-		c_conn->ops.set_backlight(c_conn->display, bl_lvl);
+		rc = c_conn->ops.set_backlight(c_conn->display, bl_lvl);
 	}
 
-	return 0;
+	return rc;
 }
 
 static int sde_backlight_device_get_brightness(struct backlight_device *bd)
@@ -471,8 +472,11 @@ static int _sde_connector_update_power_locked(struct sde_connector *c_conn)
 	}
 	c_conn->last_panel_power_mode = mode;
 
-	if (mode != SDE_MODE_DPMS_ON)
+	if (mode != SDE_MODE_DPMS_ON) {
+		mutex_unlock(&c_conn->lock);
 		sde_connector_schedule_status_work(connector, false);
+		mutex_lock(&c_conn->lock);
+    }
 
 	return rc;
 }
@@ -1725,6 +1729,7 @@ status_dead:
 	event.length = sizeof(bool);
 	msm_mode_object_event_notify(&conn->base.base,
 		conn->base.dev, &event, (u8 *)&panel_dead);
+	sde_encoder_display_failure_notification(conn->encoder);
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {

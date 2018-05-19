@@ -1086,6 +1086,8 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 			true : false;
 
 		cmdbuf = (u8 *)(dsi_ctrl->vaddr);
+        if (cmdbuf == NULL)
+            goto error;
 
 		for (cnt = 0; cnt < length; cnt++)
 			cmdbuf[dsi_ctrl->cmd_len + cnt] = buffer[cnt];
@@ -2687,9 +2689,6 @@ int dsi_ctrl_validate_timing(struct dsi_ctrl *dsi_ctrl,
 		pr_err("Invalid params\n");
 		return -EINVAL;
 	}
-
-	mutex_lock(&dsi_ctrl->ctrl_lock);
-	mutex_unlock(&dsi_ctrl->ctrl_lock);
 
 	return rc;
 }

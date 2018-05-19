@@ -1748,6 +1748,14 @@ struct task_struct {
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
 
+	unsigned int kill_flag;
+	struct timespec ttu;
+	int compensate_time;
+	int compensate_need;
+
+
+    bool dump_fd_leak;
+
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
 	int on_cpu;

@@ -154,6 +154,11 @@ static struct msm_vidc_common_data sdm845_common_data[] = {
 		.key = "qcom,debug-timeout",
 		.value = 0,
 	},
+	//qcom's patch to fix wfd encodering init failed
+	{
+	.key = "qcom,enable-idle-indicator",
+	.value = 1,
+	},
 };
 
 static struct msm_vidc_common_data sdm670_common_data_v0[] = {
@@ -205,6 +210,11 @@ static struct msm_vidc_common_data sdm670_common_data_v0[] = {
 		.key = "qcom,hw-resp-timeout",
 		.value = 1000,
 	},
+	//qcom's patch to fix wfd encodering init failed
+	{
+	.key = "qcom,enable-idle-indicator",
+	.value = 1,
+	},
 };
 
 static struct msm_vidc_common_data sdm670_common_data_v1[] = {
@@ -255,6 +265,11 @@ static struct msm_vidc_common_data sdm670_common_data_v1[] = {
 	{
 		.key = "qcom,hw-resp-timeout",
 		.value = 1000,
+	},
+	//qcom's patch to fix wfd encodering init failed
+	{
+	.key = "qcom,enable-idle-indicator",
+	.value = 1,
 	},
 };
 

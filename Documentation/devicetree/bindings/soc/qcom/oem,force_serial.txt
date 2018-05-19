@@ -1,0 +1,10 @@
+oem force_serial
+Required Properties:
+- compatible:                   Must be "compatible = "oem,force_serial".
+
+
+Example:
+
+	force_enable_serial {
+		compatible = "oem,force_serial";
+	};

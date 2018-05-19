@@ -1119,6 +1119,7 @@ struct dwc3 {
 	unsigned		disable_clk_gating:1;
 	unsigned		enable_bus_suspend:1;
 
+	unsigned		enable_supper_speed:1;
 	atomic_t		in_lpm;
 	int			tx_fifo_size;
 	bool			b_suspend;

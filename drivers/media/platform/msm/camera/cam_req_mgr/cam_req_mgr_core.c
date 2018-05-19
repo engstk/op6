@@ -183,6 +183,7 @@ static int __cam_req_mgr_traverse(struct cam_req_mgr_traverse *traverse_data)
 	int32_t                      curr_idx = traverse_data->idx;
 	struct cam_req_mgr_req_tbl  *tbl;
 	struct cam_req_mgr_apply    *apply_data;
+	struct cam_req_mgr_tbl_slot *slot = NULL;
 
 	if (!traverse_data->tbl || !traverse_data->apply_data) {
 		CAM_ERR(CAM_CRM, "NULL pointer %pK %pK",
@@ -193,17 +194,18 @@ static int __cam_req_mgr_traverse(struct cam_req_mgr_traverse *traverse_data)
 
 	tbl = traverse_data->tbl;
 	apply_data = traverse_data->apply_data;
+	slot = &tbl->slot[curr_idx];
 	CAM_DBG(CAM_CRM,
 		"Enter pd %d idx %d state %d skip %d status %d skip_idx %d",
 		tbl->pd, curr_idx, tbl->slot[curr_idx].state,
 		tbl->skip_traverse, traverse_data->in_q->slot[curr_idx].status,
 		traverse_data->in_q->slot[curr_idx].skip_idx);
 
-	if ((tbl->inject_delay > 0) &&
+	if ((slot->inject_delay > 0) &&
 		(traverse_data->self_link == true)) {
 		CAM_DBG(CAM_CRM, "Injecting Delay of one frame");
 		apply_data[tbl->pd].req_id = -1;
-		tbl->inject_delay--;
+		slot->inject_delay--;
 		/* This pd table is not ready to proceed with asked idx */
 		SET_FAILURE_BIT(traverse_data->result, tbl->pd);
 		return -EAGAIN;
@@ -659,7 +661,7 @@ static int __cam_req_mgr_validate_sof_cnt(
 		link->link_hdl, link->sof_counter,
 		sync_link->sof_counter, sync_diff, link->sync_self_ref);
 
-	if (sync_diff != link->sync_self_ref) {
+	if (sync_diff > SYNC_LINK_SOF_CNT_MAX_LMT) {
 		link->sync_link->frame_skip_flag = true;
 		CAM_WARN(CAM_CRM,
 			"Detected anomaly, skip link_hdl %x self_counter=%lld other_counter=%lld sync_self_ref=%lld",
@@ -703,6 +705,14 @@ static int __cam_req_mgr_process_sync_req(
 		link->link_hdl, req_id, link->sync_self_ref, link->sof_counter,
 		link->frame_skip_flag, link->sync_link->sync_self_ref);
 
+	if (sync_link->sync_link_sof_skip) {
+		CAM_DBG(CAM_CRM,
+			"No req applied on corresponding SOF on sync link: %x",
+			sync_link->link_hdl);
+		sync_link->sync_link_sof_skip = false;
+		return -EINVAL;
+	}
+
 	if (link->sof_counter == -1) {
 		__cam_req_mgr_sof_cnt_initialize(link);
 	} else if ((link->frame_skip_flag) &&
@@ -720,6 +730,7 @@ static int __cam_req_mgr_process_sync_req(
 		CAM_DBG(CAM_CRM,
 			"Req: %lld [My link]not available link: %x, rc=%d",
 			req_id, link->link_hdl, rc);
+		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -768,6 +779,7 @@ static int __cam_req_mgr_process_sync_req(
 			"Req: %lld [Other link] not ready to apply on link: %x",
 			req_id, sync_link->link_hdl);
 		rc = -EPERM;
+		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -883,6 +895,9 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 			link->state = CAM_CRM_LINK_STATE_READY;
 		}
 		spin_unlock_bh(&link->link_state_spin_lock);
+
+		if (link->sync_link_sof_skip)
+			link->sync_link_sof_skip = false;
 
 		if (link->trigger_mask == link->subscribe_event) {
 			slot->status = CRM_SLOT_STATUS_REQ_APPLIED;
@@ -1567,10 +1582,13 @@ int cam_req_mgr_process_add_req(void *priv, void *data)
 		goto end;
 	}
 
-	if (add_req->skip_before_applying > tbl->inject_delay)
-		tbl->inject_delay = add_req->skip_before_applying;
-
 	slot = &tbl->slot[idx];
+	if (add_req->skip_before_applying > slot->inject_delay) {
+		slot->inject_delay = add_req->skip_before_applying;
+		CAM_DBG(CAM_CRM, "Req_id %llu injecting delay %u",
+			add_req->req_id, add_req->skip_before_applying);
+	}
+
 	if (slot->state != CRM_REQ_STATE_PENDING &&
 		slot->state != CRM_REQ_STATE_EMPTY) {
 		CAM_WARN(CAM_CRM, "Unexpected state %d for slot %d map %x",
@@ -2514,11 +2532,13 @@ int cam_req_mgr_sync_config(
 	link1->sof_counter = -1;
 	link1->sync_self_ref = -1;
 	link1->frame_skip_flag = false;
+	link1->sync_link_sof_skip = false;
 	link1->sync_link = link2;
 
 	link2->sof_counter = -1;
 	link2->sync_self_ref = -1;
 	link2->frame_skip_flag = false;
+	link2->sync_link_sof_skip = false;
 	link2->sync_link = link1;
 
 	cam_session->sync_mode = sync_info->sync_mode;
@@ -2619,7 +2639,7 @@ int cam_req_mgr_link_control(struct cam_req_mgr_link_control *control)
 		link = (struct cam_req_mgr_core_link *)
 			cam_get_device_priv(control->link_hdls[i]);
 		if (!link) {
-			CAM_ERR(CAM_CRM, "Link(%d) is NULL on session 0x%x",
+			CAM_ERR_RATE_LIMIT(CAM_CRM, "Link(%d) is NULL on session 0x%x",
 				i, control->session_hdl);
 			rc = -EINVAL;
 			break;

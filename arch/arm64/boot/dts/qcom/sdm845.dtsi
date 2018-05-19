@@ -1550,7 +1550,6 @@
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
 		qcom,sysmon-id = <0>;
-		qcom,minidump-id = <3>;
 		qcom,ssctl-instance-id = <0x12>;
 		qcom,override-acc;
 		qcom,signal-aop;
@@ -1908,11 +1907,6 @@
 		restart_reason@65c {
 			compatible = "qcom,msm-imem-restart_reason";
 			reg = <0x65c 4>;
-		};
-
-		dload_type@1c {
-			compatible = "qcom,msm-imem-dload-type";
-			reg = <0x1c 0x4>;
 		};
 
 		boot_stats@6b0 {
@@ -3458,8 +3452,9 @@
 
 		gpu-virt-max-step {
 			polling-delay-passive = <10>;
-			polling-delay = <100>;
+			polling-delay = <0>;
 			thermal-governor = "step_wise";
+			disable-thermal-zone;
 			trips {
 				gpu_trip0: gpu-trip0 {
 					temperature = <95000>;
@@ -3776,57 +3771,57 @@
 		compatible = "qcom,mem-dump";
 		memory-region = <&dump_mem>;
 
-		rpmh {
+		rpmh_dump {
 			qcom,dump-size = <0x2000000>;
 			qcom,dump-id = <0xec>;
 		};
 
-		fcm {
-			qcom,dump-size = <0x8400>;
+		fcm_dump {
+			qcom,dump-size = <0x400>;
 			qcom,dump-id = <0xee>;
 		};
 
-		rpm_sw {
+		rpm_sw_dump {
 			qcom,dump-size = <0x28000>;
 			qcom,dump-id = <0xea>;
 		};
 
-		pmic {
+		pmic_dump {
 			qcom,dump-size = <0x10000>;
 			qcom,dump-id = <0xe4>;
 		};
 
-		tmc_etf {
+		tmc_etf_dump {
 			qcom,dump-size = <0x10000>;
 			qcom,dump-id = <0xf0>;
 		};
 
-		tmc_etfswao {
+		tmc_etf_swao_dump {
 			qcom,dump-size = <0x8400>;
 			qcom,dump-id = <0xf1>;
 		};
 
-		tmc_etr_reg {
+		tmc_etr_reg_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x100>;
 		};
 
-		tmc_etf_reg {
+		tmc_etf_reg_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x101>;
 		};
 
-		etfswao_reg {
+		tmc_etf_swao_reg_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x102>;
 		};
 
-		misc_data {
+		misc_data_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0xe8>;
 		};
 
-		tpdm_swao {
+		tpdm_swao_dump {
 			qcom,dump-size = <0x512>;
 			qcom,dump-id = <0xf2>;
 		};

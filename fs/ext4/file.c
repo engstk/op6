@@ -97,6 +97,8 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	int overwrite = 0;
 	ssize_t ret;
 
+	long long begin = ktime_get_ns();
+	long long size = from->count;
 	inode_lock(inode);
 	ret = generic_write_checks(iocb, from);
 	if (ret <= 0)
@@ -168,6 +170,16 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (ret > 0)
 		ret = generic_write_sync(iocb, ret);
 
+	if (memcmp(current->group_leader->comm, "logd", 4) &&
+		memcmp(current->group_leader->comm, "logcat", 6) &&
+		memcmp(current->group_leader->comm, "crash_dump", 10)) {
+		long long write_time = ktime_get_ns() - begin;
+		current->compensate_need = 1;
+		if (size > 256)
+			current->compensate_time += 4000000;
+		else
+			current->compensate_time += write_time;
+	}
 	return ret;
 
 out:

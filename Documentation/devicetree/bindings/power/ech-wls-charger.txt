@@ -1,0 +1,17 @@
+"ec4016,wls-charger-ec4016"
+
+
+
+Required properties:
+
+- compatible : should be ""ec4016,wls-charger-ec4016""
+
+
+Example:
+	       ech_wls_chrg@6E {
+               status = "ok";
+               compatible = "ec4016,wls-charger-ec4016";
+               reg = <0x6E>;
+               gpios = <&tlmm 85 0x1>, /* INT_IN */
+                               <&tlmm 29 0x0>; /* RESET_OUT_INIT_LOW */
+                       /*<&tlmm 123 0x0>;  VSYS_OUT_INIT_LOW */

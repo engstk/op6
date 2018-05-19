@@ -1,0 +1,19 @@
+oneplus,fpdetect
+
+
+Required properties:
+
+- compatible : should be compatible = "oneplus,fpdetect" ;
+
+example:
+
+	fingerprint_detect {
+		compatible = "oneplus,fpdetect";
+		fp-gpio-id0    = <&tlmm 91 0>;
+		fp-gpio-id1    = <&tlmm 92 0>;
+		fp-gpio-id2    = <&tlmm 95 0>;
+		pinctrl-names = "fp_en_init", "fp_id_init";
+		pinctrl-0 = <&fp_en_init>;
+		pinctrl-1 = <&fp_id0_init &fp_id1_init &fp_id2_init>;
+		oem,dumpling;
+	};

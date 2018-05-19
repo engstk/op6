@@ -33,7 +33,7 @@ struct msm_commit {
 	struct kthread_work commit_work;
 };
 
-static BLOCKING_NOTIFIER_HEAD(msm_drm_notifier_list);
+BLOCKING_NOTIFIER_HEAD(msm_drm_notifier_list);
 
 /**
  * msm_drm_register_client - register a client notifier
@@ -48,6 +48,7 @@ int msm_drm_register_client(struct notifier_block *nb)
 	return blocking_notifier_chain_register(&msm_drm_notifier_list,
 						nb);
 }
+EXPORT_SYMBOL(msm_drm_register_client);
 
 /**
  * msm_drm_unregister_client - unregister a client notifier
@@ -61,6 +62,7 @@ int msm_drm_unregister_client(struct notifier_block *nb)
 	return blocking_notifier_chain_unregister(&msm_drm_notifier_list,
 						  nb);
 }
+EXPORT_SYMBOL(msm_drm_unregister_client);
 
 /**
  * msm_drm_notifier_call_chain - notify clients of drm_events
@@ -68,11 +70,12 @@ int msm_drm_unregister_client(struct notifier_block *nb)
  * @v: notifier data, inculde display id and display blank
  *     event(unblank or power down).
  */
-static int msm_drm_notifier_call_chain(unsigned long val, void *v)
+int msm_drm_notifier_call_chain(unsigned long val, void *v)
 {
 	return blocking_notifier_call_chain(&msm_drm_notifier_list, val,
 					    v);
 }
+EXPORT_SYMBOL(msm_drm_notifier_call_chain);
 
 /* block until specified crtcs are no longer pending update, and
  * atomically mark them as pending update
@@ -341,6 +344,7 @@ void msm_atomic_helper_commit_modeset_disables(struct drm_device *dev,
  * and do the plane commits at the end. This is useful for drivers doing runtime
  * PM since planes updates then only happen when the CRTC is actually enabled.
  */
+int connector_state_crtc_index;
 static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 		struct drm_atomic_state *old_state)
 {
@@ -407,6 +411,7 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 		notifier_data.data = &blank;
 		notifier_data.id =
 			connector->state->crtc->index;
+		connector_state_crtc_index = connector->state->crtc->index;
 		msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
 					    &notifier_data);
 		/*

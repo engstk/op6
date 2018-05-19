@@ -337,7 +337,6 @@ static int __rtc_set_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 	 * the is alarm set for the next second and the second ticks
 	 * over right here, before we set the alarm.
 	 */
-
 	if (!rtc->ops)
 		err = -ENODEV;
 	else if (!rtc->ops->set_alarm)
@@ -784,7 +783,7 @@ static int rtc_timer_enqueue(struct rtc_device *rtc, struct rtc_timer *timer)
 	}
 
 	timerqueue_add(&rtc->timerqueue, &timer->node);
-	if (!next) {
+	if (!next || ktime_before(timer->node.expires, next->expires)) {
 		struct rtc_wkalrm alarm;
 		int err;
 		alarm.time = rtc_ktime_to_tm(timer->node.expires);
