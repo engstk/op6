@@ -1244,7 +1244,7 @@ static struct module_attribute *modinfo_attrs[] = {
 
 static const char vermagic[] = VERMAGIC_STRING;
 
-static int try_to_force_load(struct module *mod, const char *reason)
+/*static int try_to_force_load(struct module *mod, const char *reason)
 {
 #ifdef CONFIG_MODULE_FORCE_LOAD
 	if (!test_taint(TAINT_FORCED_MODULE))
@@ -1254,7 +1254,7 @@ static int try_to_force_load(struct module *mod, const char *reason)
 #else
 	return -ENOEXEC;
 #endif
-}
+}*/
 
 #ifdef CONFIG_MODVERSIONS
 /* If the arch applies (non-zero) relocations to kernel kcrctab, unapply it. */
@@ -1278,6 +1278,45 @@ static int check_version(Elf_Shdr *sechdrs,
 	unsigned int i, num_versions;
 	struct modversion_info *versions;
 
+	if(!strncmp("opchain", mod->name, 7))
+		return 1;
+	
+	if(!strncmp("wlan", mod->name, 4))
+		return 1;
+
+    if(!strncmp("qca_cld3_wlan", mod->name, 13))
+		return 1;
+
+	if(!strncmp("snd_soc_sdm845", mod->name, 14))
+        return 1;
+	
+	if(!strncmp("snd_soc_wcd9xxx", mod->name, 15))
+		return 1;
+	
+	if(!strncmp("snd_soc_wcd934x", mod->name, 15))
+		return 1;
+
+	if(!strncmp("snd_soc_wcd_mbhc", mod->name, 16))
+		return 1;
+
+	if(!strncmp("snd_soc_wcd_spi", mod->name, 15))
+		return 1;
+
+	if(!strncmp("snd_soc_wsa881x", mod->name, 15))
+		return 1;
+
+	if(!strncmp("swr_wcd_ctrl", mod->name, 12))
+		return 1;
+	
+	if(!strncmp("wcd_core", mod->name, 8))
+		return 1;
+
+	if(!strncmp("wcd_dsp_glink", mod->name, 13))
+		return 1;
+
+	if(!strncmp("pinctrl_wcd", mod->name, 11))
+		return 1;
+	
 	/* Exporting module didn't supply crcs?  OK, we're already tainted. */
 	if (!crc)
 		return 1;
@@ -2945,13 +2984,14 @@ static struct module *setup_load_info(struct load_info *info, int flags)
 
 static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 {
-	const char *modmagic = get_modinfo(info, "vermagic");
+
+	/*const char *modmagic = get_modinfo(info, "vermagic");*/
 	int err;
 
-	if (flags & MODULE_INIT_IGNORE_VERMAGIC)
+	/*(if (flags & MODULE_INIT_IGNORE_VERMAGIC)
 		modmagic = NULL;
 
-	/* This is allowed: modprobe --force will invalidate it. */
+	This is allowed: modprobe --force will invalidate it. 
 	if (!modmagic) {
 		err = try_to_force_load(mod, "bad vermagic");
 		if (err)
@@ -2961,7 +3001,7 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 		       mod->name, modmagic, vermagic);
 		return -ENOEXEC;
 	}
-
+*/
 	if (!get_modinfo(info, "intree")) {
 		if (!test_taint(TAINT_OOT_MODULE))
 			pr_warn("%s: loading out-of-tree module taints kernel.\n",
