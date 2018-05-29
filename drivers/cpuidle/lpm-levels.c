@@ -117,7 +117,7 @@ static DEFINE_PER_CPU(struct lpm_history, hist);
 static DEFINE_PER_CPU(struct lpm_cpu*, cpu_lpm);
 static bool suspend_in_progress;
 static struct hrtimer lpm_hrtimer;
-static struct hrtimer histtimer;
+static DEFINE_PER_CPU(struct hrtimer, histtimer);
 static struct lpm_debug *lpm_debug;
 static phys_addr_t lpm_debug_phys;
 static const int num_dbg_elements = 0x100;
@@ -363,7 +363,15 @@ static enum hrtimer_restart lpm_hrtimer_cb(struct hrtimer *h)
 
 static void histtimer_cancel(void)
 {
-	hrtimer_try_to_cancel(&histtimer);
+	unsigned int cpu = raw_smp_processor_id();
+	struct hrtimer *cpu_histtimer = &per_cpu(histtimer, cpu);
+	ktime_t time_rem;
+
+	time_rem = hrtimer_get_remaining(cpu_histtimer);
+	if (ktime_to_us(time_rem) <= 0)
+		return;
+
+	hrtimer_try_to_cancel(cpu_histtimer);
 }
 
 static enum hrtimer_restart histtimer_fn(struct hrtimer *h)
@@ -379,9 +387,11 @@ static void histtimer_start(uint32_t time_us)
 {
 	uint64_t time_ns = time_us * NSEC_PER_USEC;
 	ktime_t hist_ktime = ns_to_ktime(time_ns);
+	unsigned int cpu = raw_smp_processor_id();
+	struct hrtimer *cpu_histtimer = &per_cpu(histtimer, cpu);
 
-	histtimer.function = histtimer_fn;
-	hrtimer_start(&histtimer, hist_ktime, HRTIMER_MODE_REL_PINNED);
+	cpu_histtimer->function = histtimer_fn;
+	hrtimer_start(cpu_histtimer, hist_ktime, HRTIMER_MODE_REL_PINNED);
 }
 
 static void cluster_timer_init(struct lpm_cluster *cluster)
@@ -405,11 +415,21 @@ static void clusttimer_cancel(void)
 {
 	int cpu = raw_smp_processor_id();
 	struct lpm_cluster *cluster = per_cpu(cpu_lpm, cpu)->parent;
+	ktime_t time_rem;
 
-	hrtimer_try_to_cancel(&cluster->histtimer);
+	time_rem = hrtimer_get_remaining(&cluster->histtimer);
+	if (ktime_to_us(time_rem) > 0)
+		hrtimer_try_to_cancel(&cluster->histtimer);
 
-	if (cluster->parent)
+	if (cluster->parent) {
+		time_rem = hrtimer_get_remaining(
+			&cluster->parent->histtimer);
+
+		if (ktime_to_us(time_rem) <= 0)
+			return;
+
 		hrtimer_try_to_cancel(&cluster->parent->histtimer);
+	}
 }
 
 static enum hrtimer_restart clusttimer_fn(struct hrtimer *h)
@@ -1395,11 +1415,11 @@ exit:
 	dev->last_residency = ktime_us_delta(ktime_get(), start);
 	update_history(dev, idx);
 	trace_cpu_idle_exit(idx, success);
-	local_irq_enable();
 	if (lpm_prediction) {
 		histtimer_cancel();
 		clusttimer_cancel();
 	}
+	local_irq_enable();
 	return idx;
 }
 
@@ -1650,6 +1670,8 @@ static int lpm_probe(struct platform_device *pdev)
 {
 	int ret;
 	int size;
+	unsigned int cpu = raw_smp_processor_id();
+	struct hrtimer *cpu_histtimer = &per_cpu(histtimer, cpu);
 	struct kobject *module_kobj = NULL;
 	struct md_region md_entry;
 
@@ -1673,7 +1695,10 @@ static int lpm_probe(struct platform_device *pdev)
 	 */
 	suspend_set_ops(&lpm_suspend_ops);
 	hrtimer_init(&lpm_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-	hrtimer_init(&histtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	for_each_possible_cpu(cpu) {
+		cpu_histtimer = &per_cpu(histtimer, cpu);
+		hrtimer_init(cpu_histtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	}
 	cluster_timer_init(lpm_root_node);
 
 	size = num_dbg_elements * sizeof(struct lpm_debug);
