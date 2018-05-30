@@ -38,7 +38,7 @@ enum print_reason {
 #define TEMP_REGION_MAX               9
 #define NON_STANDARD_CHARGER_CHECK_S 100
 #define TIME_1000MS 1000
-#define REDET_COUTNT 5
+#define REDET_COUTNT 1
 #define APSD_CHECK_COUTNT 15
 #define DASH_CHECK_COUNT 4
 #define BOOST_BACK_COUNT 2
