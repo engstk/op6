@@ -4331,7 +4331,7 @@ static void smblib_handle_apsd_done(struct smb_charger *chg, bool rising)
 		if (chg->usb_type_redet_done)
 			current_limit_ua = DEFAULT_DCP_MA*1000;
 		else
-			current_limit_ua = DEFAULT_SDP_MA*1000;
+			current_limit_ua = DEFAULT_AGAING_CHG_MA*1000;
 	} else if ((apsd_result->bit) == OCP_CHARGER_BIT)
 		current_limit_ua = DEFAULT_DCP_MA*1000;
 
