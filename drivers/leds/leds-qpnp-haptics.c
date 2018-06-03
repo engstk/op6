@@ -1626,6 +1626,9 @@ static ssize_t qpnp_haptics_store_activate(struct device *dev,
 	if (val != 0 && val != 1)
 		return count;
 
+	if (chip->vmax_mv <= HAP_VMAX_MIN_MV && (val != 0))
+		return count;
+
 	if (val) {
 		hrtimer_cancel(&chip->stop_timer);
 		if (is_sw_lra_auto_resonance_control(chip))
