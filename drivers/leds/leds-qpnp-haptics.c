@@ -366,6 +366,7 @@ struct hap_chip {
 	bool				lra_auto_mode;
 	bool				play_irq_en;
 	bool				auto_res_err_recovery_hw;
+	int				vmax_override;
 };
 
 struct hap_chip *gchip;
@@ -1830,6 +1831,9 @@ static ssize_t qpnp_haptics_store_vmax(struct device *dev,
 	if (rc < 0)
 		return rc;
 
+	if (chip->vmax_override)
+		return count;
+
 	old_vmax_mv = chip->vmax_mv;
 	chip->vmax_mv = data;
 	rc = qpnp_haptics_vmax_config(chip, chip->vmax_mv, false);
@@ -1837,6 +1841,65 @@ static ssize_t qpnp_haptics_store_vmax(struct device *dev,
 		chip->vmax_mv = old_vmax_mv;
 		return rc;
 	}
+
+	return count;
+}
+
+static ssize_t qpnp_haptics_show_vmax_mv_user(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct hap_chip *chip = container_of(cdev, struct hap_chip, cdev);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", chip->vmax_mv);
+}
+
+static ssize_t qpnp_haptics_store_vmax_mv_user(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct hap_chip *chip = container_of(cdev, struct hap_chip, cdev);
+	int data, rc, old_vmax_mv;
+
+	rc = kstrtoint(buf, 10, &data);
+	if (rc < 0)
+		return rc;
+
+	old_vmax_mv = chip->vmax_mv;
+	chip->vmax_mv = data;
+	rc = qpnp_haptics_vmax_config(chip, chip->vmax_mv, false);
+	if (rc < 0) {
+		chip->vmax_mv = old_vmax_mv;
+		return rc;
+	}
+
+	return count;
+}
+
+static ssize_t qpnp_haptics_show_vmax_override(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct hap_chip *chip = container_of(cdev, struct hap_chip, cdev);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", chip->vmax_override);
+}
+
+static ssize_t qpnp_haptics_store_vmax_override(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct hap_chip *chip = container_of(cdev, struct hap_chip, cdev);
+	int data, rc;
+
+	rc = kstrtoint(buf, 10, &data);
+	if (rc < 0)
+		return rc;
+
+	if (data != 0 && data != 1)
+		return count;
+
+	chip->vmax_override = !!data;
 
 	return count;
 }
@@ -1908,6 +1971,8 @@ static struct device_attribute qpnp_haptics_attrs[] = {
 	__ATTR(wf_s_rep_count, 0664, qpnp_haptics_show_wf_s_rep_count,
 		qpnp_haptics_store_wf_s_rep_count),
 	__ATTR(vmax_mv, 0664, qpnp_haptics_show_vmax, qpnp_haptics_store_vmax),
+	__ATTR(vmax_override, 0664, qpnp_haptics_show_vmax_override, qpnp_haptics_store_vmax_override),
+	__ATTR(vmax_mv_user, 0664, qpnp_haptics_show_vmax_mv_user, qpnp_haptics_store_vmax_mv_user),
 	__ATTR(dump_regs, 0664, qpnp_hap_dump_regs_show, NULL),
 	__ATTR(rf_hz, 0664, qpnp_haptics_show_rf_hz, qpnp_haptics_store_rf_hz),
 	__ATTR(lra_auto_mode, 0664, qpnp_haptics_show_lra_auto_mode,
