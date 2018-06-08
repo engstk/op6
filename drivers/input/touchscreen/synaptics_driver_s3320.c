@@ -67,6 +67,9 @@
 #include "synaptics_dsx_core.h"
 #include <linux/oneplus/boot_mode.h>
 #include <linux/pm_qos.h>
+
+#include <linux/moduleparam.h>
+
 /*------------------------------------------------Global Define--------------------------------------------*/
 
 #define TP_UNKNOWN 0
@@ -190,6 +193,11 @@ int Enable_gesture =0;
 static int gesture_switch = 0;
 //ruanbanmao@BSP add for tp gesture 2015-05-06, end
 #endif
+
+bool haptic_feedback_disable = false;
+module_param(haptic_feedback_disable, bool, 0644);
+
+void qpnp_hap_ignore_next_request(void);
 
 /*********************for Debug LOG switch*******************/
 #define TPD_ERR(a, arg...)  pr_debug(TPD_DEVICE ": " a, ##arg)
@@ -1528,6 +1536,9 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 		input_sync(ts->input_dev);
 		input_report_key(ts->input_dev, keyCode, 0);
 		input_sync(ts->input_dev);
+
+		if (haptic_feedback_disable)
+			qpnp_hap_ignore_next_request();
 	}else{
 
 		ret = i2c_smbus_read_i2c_block_data( ts->client, F12_2D_CTRL20, 3, &(reportbuf[0x0]) );
