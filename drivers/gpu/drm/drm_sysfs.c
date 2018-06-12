@@ -223,12 +223,7 @@ static ssize_t acl_show(struct device *dev,
 
 	acl_mode = dsi_display_get_acl_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "acl mode = %d\n"
-											"0--acl mode(off)\n"
-											"1--acl mode(5)\n"
-											"2--acl mode(10)\n"
-											"3--acl mode(15)\n",
-											acl_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", acl_mode);
 	return ret;
 }
 
@@ -261,14 +256,7 @@ static ssize_t hbm_show(struct device *dev,
 
 	hbm_mode = dsi_display_get_hbm_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "hbm mode = %d\n"
-											"0--hbm mode(off)\n"
-											"1--hbm mode(464)\n"
-											"2--hbm mode(498)\n"
-											"3--hbm mode(532)\n"
-											"4--hbm mode(566)\n"
-											"5--hbm mode(600)\n",
-											hbm_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", hbm_mode);
 	return ret;
 }
 
@@ -301,13 +289,7 @@ static ssize_t aod_show(struct device *dev,
 
 	aod_mode = dsi_display_get_aod_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "AOD mode = %d\n"
-											"0--AOD off\n"
-											"1--AOD(10nit-alpm)\n"
-											"2--AOD(50nit-alpm)\n"
-									        "3--AOD(10nit-hlpm)\n"
-											"4--AOD(50nit-hlpm)\n",
-											aod_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", aod_mode); 
 	return ret;
 }
 
@@ -340,10 +322,7 @@ static ssize_t aod_disable_show(struct device *dev,
 
 	aod_disable = dsi_display_get_aod_disable(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "AOD disable = %d\n"
-											"0--AOD enable\n"
-											"1--AOD disable\n",
-											aod_disable);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", aod_disable); 
 	return ret;
 }
 
@@ -376,10 +355,7 @@ static ssize_t SRGB_show(struct device *dev,
 
 	srgb_mode = dsi_display_get_srgb_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "sRGB mode = %d\n"
-											"0--sRGB mode Off\n"
-											"1--sRGB mode On\n",
-											srgb_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", srgb_mode);
 	return ret;
 }
 
@@ -412,10 +388,7 @@ static ssize_t DCI_P3_show(struct device *dev,
 
 	dci_p3_mode = dsi_display_get_dci_p3_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "dci-p3 mode = %d\n"
-											"0--dci-p3 mode Off\n"
-											"1--dci-p3 mode On\n",
-											dci_p3_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", dci_p3_mode);
 	return ret;
 }
 
@@ -448,10 +421,7 @@ static ssize_t night_mode_show(struct device *dev,
 
 	night_mode = dsi_display_get_night_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "night mode = %d\n"
-											"0--night mode Off\n"
-											"1--night mode On\n",
-											night_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", night_mode);
 	return ret;
 }
 
@@ -484,10 +454,7 @@ static ssize_t oneplus_mode_show(struct device *dev,
 
 	oneplus_mode = dsi_display_get_oneplus_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "oneplus mode = %d\n"
-											"0--oneplus mode Off\n"
-											"1--oneplus mode On\n",
-											oneplus_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", oneplus_mode);
 	return ret;
 }
 
@@ -520,10 +487,7 @@ static ssize_t adaption_mode_show(struct device *dev,
 
 	adaption_mode = dsi_display_get_adaption_mode(connector);
 
-	ret = scnprintf(buf, PAGE_SIZE, "adaption mode = %d\n"
-											"0--adaption mode Off\n"
-											"1--adaption mode On\n",
-											adaption_mode);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", adaption_mode);
 	return ret;
 }
 
