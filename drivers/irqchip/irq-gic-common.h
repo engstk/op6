@@ -30,10 +30,16 @@ struct gic_quirk {
 extern bool from_suspend;
 extern struct irq_chip gic_arch_extn;
 
+#ifdef CONFIG_QCOM_SHOW_RESUME_IRQ
+extern int msm_show_resume_irq_mask;
+#else
+#define msm_show_resume_irq_mask 0
+#endif
+
 int gic_configure_irq(unsigned int irq, unsigned int type,
-                       void __iomem *base, void (*sync_access)(void));
+		void __iomem *base, void (*sync_access)(void));
 void gic_dist_config(void __iomem *base, int gic_irqs,
-		     void (*sync_access)(void));
+		void (*sync_access)(void));
 void gic_cpu_config(void __iomem *base, void (*sync_access)(void));
 void gic_enable_quirks(u32 iidr, const struct gic_quirk *quirks,
 		void *data);
