@@ -3923,7 +3923,12 @@ static void *def_tavil_mbhc_cal(void)
 		return NULL;
 
 #define S(X, Y) ((WCD_MBHC_CAL_PLUG_TYPE_PTR(tavil_wcd_cal)->X) = (Y))
+#ifndef VENDOR_EDIT
+/*wangdongdong@AudioDrv,2018-06-14,avoid JBL lock device not to enter standby*/
 	S(v_hs_max, 1600);
+#else
+	S(v_hs_max, 1700);
+#endif
 #undef S
 #define S(X, Y) ((WCD_MBHC_CAL_BTN_DET_PTR(tavil_wcd_cal)->X) = (Y))
 	S(num_btn, WCD_MBHC_DEF_BUTTONS);
