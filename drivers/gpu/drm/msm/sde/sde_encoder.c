@@ -1870,6 +1870,7 @@ static void sde_encoder_input_event_handler(struct input_handle *handle,
 	struct sde_encoder_virt *sde_enc = NULL;
 	struct msm_drm_thread *disp_thread = NULL;
 	struct msm_drm_private *priv = NULL;
+	unsigned long lock_flags;
 
 	if (!handle || !handle->handler || !handle->handler->private) {
 		SDE_ERROR("invalid encoder for the input event\n");
@@ -1884,18 +1885,19 @@ static void sde_encoder_input_event_handler(struct input_handle *handle,
 
 	priv = drm_enc->dev->dev_private;
 	sde_enc = to_sde_encoder_virt(drm_enc);
+	spin_lock_irqsave(&sde_enc->enc_spinlock, lock_flags);
 	if (!sde_enc->crtc || (sde_enc->crtc->index
 			>= ARRAY_SIZE(priv->disp_thread))) {
+	spin_unlock_irqrestore(&sde_enc->enc_spinlock, lock_flags);
 		SDE_DEBUG_ENC(sde_enc,
 			"invalid cached CRTC: %d or crtc index: %d\n",
 			sde_enc->crtc == NULL,
 			sde_enc->crtc ? sde_enc->crtc->index : -EINVAL);
 		return;
 	}
-
-	SDE_EVT32_VERBOSE(DRMID(drm_enc));
-
 	disp_thread = &priv->disp_thread[sde_enc->crtc->index];
+	spin_unlock_irqrestore(&sde_enc->enc_spinlock, lock_flags);
+	SDE_EVT32_VERBOSE(DRMID(drm_enc));
 
 	kthread_queue_work(&disp_thread->worker,
 				&sde_enc->input_event_work);
@@ -2651,6 +2653,7 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	struct drm_connector *drm_conn = NULL;
 	enum sde_intf_mode intf_mode;
 	int i = 0;
+	unsigned long lock_flags;
 
 	if (!drm_enc) {
 		SDE_ERROR("invalid encoder\n");
@@ -2732,7 +2735,9 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	 * clear the cached crtc in sde_enc on use case finish, after all the
 	 * outstanding events and timers have been completed
 	 */
+	spin_lock_irqsave(&sde_enc->enc_spinlock, lock_flags);
 	sde_enc->crtc = NULL;
+	spin_unlock_irqrestore(&sde_enc->enc_spinlock, lock_flags);
 
 	SDE_DEBUG_ENC(sde_enc, "encoder disabled\n");
 
