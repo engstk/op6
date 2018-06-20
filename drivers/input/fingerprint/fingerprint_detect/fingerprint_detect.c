@@ -184,7 +184,7 @@ static int fingerprint_detect_probe(struct platform_device *pdev)
 	pr_info("%s: %d%d%d\n", __func__, id0, id1, id2);
 	if (id0 && id1 && id2) {
 		if (fp_detect->project_version == 0x02)
-			push_component_info(FINGERPRINTS, "fpc1022", "FPC(OF)");
+			push_component_info(FINGERPRINTS, "fpc1228", "FPC");
 		else
 			push_component_info(FINGERPRINTS, "fpc1245", "FPC(OF)");
 		fp_detect->sensor_version = 0x01;
