@@ -537,6 +537,7 @@ int cam_vfe_start(void *hw_priv, void *start_args, uint32_t arg_size)
 	struct cam_hw_info                *vfe_hw  = hw_priv;
 	struct cam_isp_resource_node      *isp_res;
 	int rc = 0;
+    struct cam_irq_bh_api              irq_bh_api;
 
 	if (!hw_priv || !start_args ||
 		(arg_size != sizeof(struct cam_isp_resource_node))) {
@@ -547,6 +548,9 @@ int cam_vfe_start(void *hw_priv, void *start_args, uint32_t arg_size)
 	core_info = (struct cam_vfe_hw_core_info *)vfe_hw->core_info;
 	isp_res = (struct cam_isp_resource_node  *)start_args;
 	core_info->tasklet_info = isp_res->tasklet_info;
+    irq_bh_api.bottom_half_enqueue_func = cam_tasklet_enqueue_cmd;
+    irq_bh_api.get_bh_payload_func = cam_tasklet_get_cmd;
+    irq_bh_api.put_bh_payload_func = cam_tasklet_put_cmd;
 
 	mutex_lock(&vfe_hw->hw_mutex);
 	if (isp_res->res_type == CAM_ISP_RESOURCE_VFE_IN) {
@@ -560,7 +564,7 @@ int cam_vfe_start(void *hw_priv, void *start_args, uint32_t arg_size)
 					cam_vfe_irq_top_half,
 					cam_ife_mgr_do_tasklet,
 					isp_res->tasklet_info,
-					cam_tasklet_enqueue_cmd);
+					&irq_bh_api);
 			if (isp_res->irq_handle < 1)
 				rc = -ENOMEM;
 		} else if (isp_res->rdi_only_ctx) {
@@ -573,7 +577,7 @@ int cam_vfe_start(void *hw_priv, void *start_args, uint32_t arg_size)
 					cam_vfe_irq_top_half,
 					cam_ife_mgr_do_tasklet,
 					isp_res->tasklet_info,
-					cam_tasklet_enqueue_cmd);
+					&irq_bh_api);
 			if (isp_res->irq_handle < 1)
 				rc = -ENOMEM;
 		}
@@ -606,7 +610,7 @@ int cam_vfe_start(void *hw_priv, void *start_args, uint32_t arg_size)
 				cam_vfe_irq_err_top_half,
 				cam_ife_mgr_do_tasklet,
 				core_info->tasklet_info,
-				cam_tasklet_enqueue_cmd);
+				&irq_bh_api);
 		if (core_info->irq_err_handle < 1) {
 			CAM_ERR(CAM_ISP, "Error handle subscribe failure");
 			rc = -ENOMEM;

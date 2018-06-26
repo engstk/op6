@@ -42,7 +42,7 @@ struct cam_irq_evt_handler {
 	CAM_IRQ_HANDLER_TOP_HALF           top_half_handler;
 	CAM_IRQ_HANDLER_BOTTOM_HALF        bottom_half_handler;
 	void                              *bottom_half;
-	CAM_IRQ_BOTTOM_HALF_ENQUEUE_FUNC   bottom_half_enqueue_func;
+	struct cam_irq_bh_api              irq_bh_api;
 	struct list_head                   list_node;
 	struct list_head                   th_list_node;
 	int                                index;
@@ -232,7 +232,7 @@ int cam_irq_controller_subscribe_irq(void *irq_controller,
 	CAM_IRQ_HANDLER_TOP_HALF           top_half_handler,
 	CAM_IRQ_HANDLER_BOTTOM_HALF        bottom_half_handler,
 	void                              *bottom_half,
-	CAM_IRQ_BOTTOM_HALF_ENQUEUE_FUNC   bottom_half_enqueue_func)
+	struct cam_irq_bh_api             *irq_bh_api)
 {
 	struct cam_irq_controller  *controller  = irq_controller;
 	struct cam_irq_evt_handler *evt_handler = NULL;
@@ -255,12 +255,12 @@ int cam_irq_controller_subscribe_irq(void *irq_controller,
 	}
 
 	if (bottom_half_handler &&
-		(!bottom_half || !bottom_half_enqueue_func)) {
+		(!bottom_half || !irq_bh_api)) {
 		CAM_ERR(CAM_ISP,
 			"Invalid params: bh_handler=%pK bh=%pK bh_enq_f=%pK",
 			bottom_half_handler,
 			bottom_half,
-			bottom_half_enqueue_func);
+			irq_bh_api);
 		return -EINVAL;
 	}
 
@@ -295,8 +295,10 @@ int cam_irq_controller_subscribe_irq(void *irq_controller,
 	evt_handler->top_half_handler         = top_half_handler;
 	evt_handler->bottom_half_handler      = bottom_half_handler;
 	evt_handler->bottom_half              = bottom_half;
-	evt_handler->bottom_half_enqueue_func = bottom_half_enqueue_func;
 	evt_handler->index                    = controller->hdl_idx++;
+
+    if (irq_bh_api)
+        evt_handler->irq_bh_api               = *irq_bh_api;
 
 	/* Avoid rollover to negative values */
 	if (controller->hdl_idx > 0x3FFFFFFF)
@@ -564,6 +566,8 @@ static void cam_irq_controller_th_processing(
 	bool                            is_irq_match;
 	int                             rc = -EINVAL;
 	int                             i;
+    void                           *bh_cmd = NULL;
+    struct cam_irq_bh_api          *irq_bh_api = NULL;
 
 	CAM_DBG(CAM_ISP, "Enter");
 
@@ -588,22 +592,47 @@ static void cam_irq_controller_th_processing(
 				evt_handler->evt_bit_mask_arr[i];
 		}
 
+        irq_bh_api = &evt_handler->irq_bh_api;
+        bh_cmd = NULL;
+        
+        if (irq_bh_api->get_bh_payload_func) {
+            if (irq_bh_api->get_bh_payload_func(
+                evt_handler->bottom_half, &bh_cmd)) {
+                CAM_ERR(CAM_ISP, "Can't get bh payload");
+                continue;
+            }
+        }
+
 		/*
 		 * irq_status_arr[0] is dummy argument passed. the entire
 		 * status array is passed in th_payload.
 		 */
-		if (evt_handler->top_half_handler)
+		if (evt_handler->top_half_handler) {
 			rc = evt_handler->top_half_handler(
 				controller->irq_status_arr[0],
 				(void *)th_payload);
+            if (rc) {
+                CAM_ERR(CAM_ISP,
+                    "Top half handler failed with %d", rc);
+                if (irq_bh_api->put_bh_payload_func && bh_cmd) {
+                    if (irq_bh_api->put_bh_payload_func(
+                        evt_handler->bottom_half,
+                        &bh_cmd)) {
+                        CAM_ERR(CAM_ISP,
+                            "Can't put bh payload");
+                    }
+                }
+                continue;
+            }
+        }
 
 		if (!rc && evt_handler->bottom_half_handler) {
 			CAM_DBG(CAM_ISP, "Enqueuing bottom half for %s",
 				controller->name);
-			if (evt_handler->bottom_half_enqueue_func) {
-				evt_handler->bottom_half_enqueue_func(
+            if (irq_bh_api->bottom_half_enqueue_func) {
+                irq_bh_api->bottom_half_enqueue_func(
 					evt_handler->bottom_half,
-					evt_handler->handler_priv,
+					bh_cmd,
 					th_payload->evt_payload_priv,
 					evt_handler->bottom_half_handler);
 			}
