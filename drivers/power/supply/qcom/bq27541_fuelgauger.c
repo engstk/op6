@@ -994,32 +994,19 @@ static int bq27541_set_allow_reading(int enable)
 
 static int bq27541_set_lcd_off_status(int off)
 {
-	int soc, ret;
+	int soc;
 
 	pr_info("off=%d\n", off);
 	if (bq27541_di) {
 		if (off) {
-#ifdef CONFIG_GAUGE_BQ27411
-			/* david.liu@bsp, 20161004 Add BQ27411 support */
-			ret = bq27541_read(bq27541_di->cmd_addr.reg_soc,
-					&soc, 0, bq27541_di);
-#else
-			ret = bq27541_read(
-			BQ27541_REG_SOC, &soc, 0, bq27541_di);
-#endif
-			if (ret) {
-				bq27541_di->lcd_off_delt_soc = 0;
-				pr_err("soc error reading ret=%d,soc%d\n",
-					ret, soc);
-			} else {
-				bq27541_di->lcd_off_delt_soc =
-					bq27541_di->soc_pre-soc;
-				pr_info("lcd_off_delt_soc:%d,soc=%d,soc_pre=%d\n",
-				bq27541_di->lcd_off_delt_soc, soc,
-						bq27541_di->soc_pre);
-			}
+			soc = bq27541_get_batt_bq_soc();
+			bq27541_di->lcd_off_delt_soc =
+					bq27541_di->soc_pre - soc;
+			pr_info("lcd_off_delt_soc:%d,soc=%d,soc_pre=%d\n",
+			bq27541_di->lcd_off_delt_soc, soc,
+					bq27541_di->soc_pre);
 			get_current_time(&bq27541_di->lcd_off_time);
-			bq27541_di->lcd_is_off = true;
+					bq27541_di->lcd_is_off = true;
 		} else {
 			bq27541_di->lcd_is_off = false;
 			bq27541_di->lcd_off_delt_soc = 0;
