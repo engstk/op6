@@ -5806,6 +5806,7 @@ static int msm_drm_notifier_callback(
 				TPD_DEBUG("%s:TP suspend start\n", __func__);
 				ts->is_suspended = 1;
 				atomic_set(&ts->is_stop, 1);
+				cancel_delayed_work_sync(&ts->base_work);
 				if (!(ts->gesture_enable))
 					touch_disable(ts);
 				synaptics_ts_suspend(&ts->client->dev);
