@@ -178,5 +178,8 @@ obj-$(CONFIG_ESOC)              += esoc/
 obj-$(CONFIG_FPGA)		+= fpga/
 obj-$(CONFIG_SENSORS_SSC)		+= sensors/
 
+# hefaxi@filesystem,2015/05/05,support param partion read/write
+obj-y 	+= param_read_write/
+
 
 
