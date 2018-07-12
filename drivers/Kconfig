@@ -208,4 +208,7 @@ source "drivers/fpga/Kconfig"
 
 source "drivers/sensors/Kconfig"
 
+# hefaxi@filesystem,2015/05/05,support param partion read/write
+source "drivers/param_read_write/Kconfig" 
+
 endmenu
