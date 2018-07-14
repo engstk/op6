@@ -7,6 +7,6 @@
 #include <linux/input.h>
 #include <linux/moduleparam.h>
 
-static unsigned int cust_flag = 3;
+static unsigned int cust_flag = 0;
 
 module_param(cust_flag, uint, 0644);
