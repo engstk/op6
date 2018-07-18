@@ -39,6 +39,8 @@
 #include "codecs/wcd934x/wcd934x-mbhc.h"
 #include "codecs/wsa881x.h"
 
+#define VENDOR_EDIT 1
+
 #define DRV_NAME "sdm845-asoc-snd"
 
 #define __CHIPSET__ "SDM845 "
