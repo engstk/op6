@@ -5906,6 +5906,7 @@ static int msm_drm_notifier_callback(
 				ts->is_suspended = 1;
 				atomic_set(&ts->is_stop, 1);
 				cancel_delayed_work_sync(&ts->base_work);
+				flush_workqueue(get_base_report);
 				if (!(ts->gesture_enable))
 					touch_disable(ts);
 				synaptics_ts_suspend(&ts->client->dev);
