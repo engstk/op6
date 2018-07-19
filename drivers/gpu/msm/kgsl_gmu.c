@@ -1307,9 +1307,12 @@ static int gmu_disable_gdsc(struct gmu_device *gmu)
 	do {
 		if (!regulator_is_enabled(gmu->cx_gdsc))
 			return 0;
-		cond_resched();
+		usleep_range(10, 100);
 
 	} while (!(time_after(jiffies, t)));
+
+	if (!regulator_is_enabled(gmu->cx_gdsc))
+		return 0;
 
 	dev_err(&gmu->pdev->dev, "GMU CX gdsc off timeout");
 	return -ETIMEDOUT;
@@ -1468,7 +1471,7 @@ int gmu_start(struct kgsl_device *device)
 			gmu_irq_enable(device);
 
 			ret = gpudev->rpmh_gpu_pwrctrl(
-				adreno_dev, GMU_FW_START, GMU_RESET, 0);
+				adreno_dev, GMU_FW_START, GMU_COLD_BOOT, 0);
 			if (ret)
 				goto error_gmu;
 
@@ -1485,7 +1488,7 @@ int gmu_start(struct kgsl_device *device)
 			hfi_stop(gmu);
 
 			ret = gpudev->rpmh_gpu_pwrctrl(adreno_dev, GMU_FW_START,
-					GMU_RESET, 0);
+					GMU_COLD_BOOT, 0);
 			if (ret)
 				goto error_gmu;
 
