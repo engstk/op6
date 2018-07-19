@@ -4741,13 +4741,19 @@ static struct attribute_group dsi_sysfs_attrs_group = {
 		.attrs = dsi_sysfs_attrs,
 };
 
-static int dsi_display_sysfs_init(struct dsi_display *display)
+static int dsi_display_sysfs_init(struct dsi_display *display,
+		struct device *master)
 {
 	int rc = 0;
 	struct device *dev = &display->pdev->dev;
 
-	if (display->panel->panel_mode == DSI_OP_CMD_MODE)
+	if (display->panel->panel_mode == DSI_OP_CMD_MODE) {
 		rc = sysfs_create_group(&dev->kobj, &dsi_sysfs_attrs_group);
+		if (rc == 0 && display == primary_display)
+			rc = sysfs_create_link(&master->kobj,
+					&dev->kobj, "main_display");
+	}
+
 	pr_debug("[%s] dsi_display_sysfs_init:%d,panel mode:%d\n",
 		display->name, rc, display->panel->panel_mode);
 	return rc;
@@ -4815,7 +4821,7 @@ static int dsi_display_bind(struct device *dev,
 	atomic_set(&display->clkrate_change_pending, 0);
 	display->cached_clk_rate = 0;
 
-	rc = dsi_display_sysfs_init(display);
+	rc = dsi_display_sysfs_init(display, master);
 	if (rc) {
 		pr_err("[%s] sysfs init failed, rc=%d\n", display->name, rc);
 		goto error;
