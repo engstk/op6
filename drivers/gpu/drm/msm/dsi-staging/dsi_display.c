@@ -6568,6 +6568,12 @@ int dsi_display_enable(struct dsi_display *display)
 		goto error_disable_panel;
 	}
 
+	rc = dsi_display_set_backlight(display,
+				       display->panel->bl_config.bl_level);
+	if (rc)
+		pr_warn("[%s]failed to restore previous brightness, rc=%d\n",
+			display->name, rc);
+
 	goto error;
 
 error_disable_panel:
