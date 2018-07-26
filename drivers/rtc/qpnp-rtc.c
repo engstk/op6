@@ -292,6 +292,15 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	rtc_tm_to_time(&alarm->time, &secs);
 
 	/*
+	 * Offset a power off alarm wakeup so the device actually wakes
+	 * before the alarm is due. This should normally be done in user
+	 * space, but the caller in that case is a proprietary app in the
+	 * vendor partition. Oh well...
+	 */
+	if (!strcmp(current->comm, "alarm@1.0-servi"))
+		secs -= 60;
+
+	/*
 	 * Read the current RTC time and verify if the alarm time is in the
 	 * past. If yes, return invalid
 	 */
