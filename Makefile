@@ -405,13 +405,15 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -std=gnu89 \
-		   -mcpu=cortex-a73.cortex-a53 -mtune=cortex-a73.cortex-a53 -fdiagnostics-color=always \
+		   -mcpu=cortex-a75.cortex-a55 -mtune=cortex-a75.cortex-a55 -fdiagnostics-color=always \
 		   -Wno-maybe-uninitialized -Wno-unused-variable -Wno-unused-function -Wno-unused-label \
 		   -Wno-memset-transposed-args -Wno-bool-compare -Wno-logical-not-parentheses -Wno-discarded-array-qualifiers \
 		   -Wno-unused-const-variable -Wno-array-bounds -Wno-incompatible-pointer-types \
 		   -Wno-misleading-indentation -Wno-tautological-compare -Wno-error=misleading-indentation \
 		   -Wno-format-truncation -Wno-duplicate-decl-specifier -Wno-memset-elt-size -Wno-bool-operation \
-		   -Wno-int-in-bool-context -Wno-parentheses -Wno-switch-unreachable -Wno-stringop-overflow -Wno-format-overflow
+		   -Wno-int-in-bool-context -Wno-parentheses -Wno-switch-unreachable -Wno-stringop-overflow -Wno-format-overflow \
+		   -Wno-nonnull -Wno-attributes -Wno-packed-not-aligned -Wno-error=sizeof-pointer-div -Wno-sizeof-pointer-div \
+		   -Wno-sizeof-pointer-memaccess -Wno-stringop-truncation
 
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
