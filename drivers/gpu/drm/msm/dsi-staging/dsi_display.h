@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation.All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation.All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -132,6 +132,9 @@ struct dsi_display_clk_info {
  * @is_active:        Is display active.
  * @is_cont_splash_enabled:  Is continuous splash enabled
  * @display_lock:     Mutex for dsi_display interface.
+ * @disp_te_gpio:     GPIO for panel TE interrupt.
+ * @is_te_irq_enabled:bool to specify whether TE interrupt is enabled.
+ * @esd_te_gate:      completion gate to signal TE interrupt.
  * @ctrl_count:       Number of DSI interfaces required by panel.
  * @ctrl:             Controller information for DSI display.
  * @panel:            Handle to DSI panel.
@@ -142,6 +145,8 @@ struct dsi_display_clk_info {
  *		      index into the ctrl[MAX_DSI_CTRLS_PER_DISPLAY] array.
  * @cmd_master_idx:   The master controller for sending DSI commands to panel.
  * @video_master_idx: The master controller for enabling video engine.
+ * @cached_clk_rate:  The cached DSI clock rate set dynamically by sysfs.
+ * @clkrate_change_pending: Flag indicating the pending DSI clock re-enabling.
  * @clock_info:       Clock sourcing for DSI display.
  * @config:           DSI host configuration information.
  * @lane_map:         Lane mapping between DSI host and Panel.
@@ -160,6 +165,7 @@ struct dsi_display_clk_info {
  * @root:             Debugfs root directory
  * @misr_enable       Frame MISR enable/disable
  * @misr_frame_count  Number of frames to accumulate the MISR value
+ * @esd_trigger       field indicating ESD trigger through debugfs
  */
 struct dsi_display {
 	struct platform_device *pdev;
@@ -172,6 +178,9 @@ struct dsi_display {
 	bool is_active;
 	bool is_cont_splash_enabled;
 	struct mutex display_lock;
+	int disp_te_gpio;
+	bool is_te_irq_enabled;
+	struct completion esd_te_gate;
 
 	u32 ctrl_count;
 	struct dsi_display_ctrl ctrl[MAX_DSI_CTRLS_PER_DISPLAY];
@@ -186,6 +195,10 @@ struct dsi_display {
 	u32 clk_master_idx;
 	u32 cmd_master_idx;
 	u32 video_master_idx;
+
+	/* dynamic DSI clock info*/
+	u32  cached_clk_rate;
+	atomic_t clkrate_change_pending;
 
 	struct dsi_display_clk_info clock_info;
 	struct dsi_host_config config;
@@ -218,12 +231,25 @@ struct dsi_display {
 
 	bool misr_enable;
 	u32 misr_frame_count;
+	u32 esd_trigger;
 	/* multiple dsi error handlers */
 	struct workqueue_struct *err_workq;
 	struct work_struct fifo_underflow_work;
 	struct work_struct fifo_overflow_work;
 	struct work_struct lp_rx_timeout_work;
 };
+
+/**
+ * dsi_display_has_ext_bridge() - check whether display has ext bridge
+ *                                connected.
+ *
+ * Return: True - ext bridge, False - no ext bridge.
+ */
+static inline bool dsi_display_has_ext_bridge(const struct dsi_display *display)
+{
+	return display->type == DSI_DISPLAY_EXT_BRIDGE ||
+		display->type == DSI_DISPLAY_SPLIT_EXT_BRIDGE;
+}
 
 int dsi_display_dev_probe(struct platform_device *pdev);
 int dsi_display_dev_remove(struct platform_device *pdev);
@@ -288,6 +314,19 @@ int dsi_display_drm_bridge_init(struct dsi_display *display,
 int dsi_display_drm_bridge_deinit(struct dsi_display *display);
 
 /**
+ * dsi_display_drm_ext_bridge_init() - initializes DRM bridge for ext bridge
+ * @display:            Handle to the display.
+ * @enc:                Pointer to the encoder object which is connected to the
+ *			display.
+ * @connector:          Pointer to the connector object which is connected to
+ *                      the display.
+ *
+ * Return: error code.
+ */
+int dsi_display_drm_ext_bridge_init(struct dsi_display *display,
+		struct drm_encoder *enc, struct drm_connector *connector);
+
+/**
  * dsi_display_get_info() - returns the display properties
  * @info:             Pointer to the structure where info is stored.
  * @disp:             Handle to the display.
@@ -295,6 +334,15 @@ int dsi_display_drm_bridge_deinit(struct dsi_display *display);
  * Return: error code.
  */
 int dsi_display_get_info(struct msm_display_info *info, void *disp);
+
+/**
+ * dsi_display_ext_bridge_get_info() - returns the ext bridge's display info
+ * @info:             Pointer to the structure where info is stored.
+ * @disp:             Handle to the display.
+ *
+ * Return: error code.
+ */
+int dsi_display_ext_bridge_get_info(struct msm_display_info *info, void *disp);
 
 /**
  * dsi_display_get_mode_count() - get number of modes supported by the display
@@ -449,12 +497,14 @@ int dsi_display_disable(struct dsi_display *display);
  * dsi_pre_clkoff_cb() - Callback before clock is turned off
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @new_state: next state for the clock.
  *
  * @return: error code.
  */
 int dsi_pre_clkoff_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state new_state);
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state new_state);
 
 /**
  * dsi_display_update_pps() - update PPS buffer.
@@ -471,35 +521,40 @@ int dsi_display_update_pps(char *pps_cmd, void *display);
  * dsi_post_clkoff_cb() - Callback after clock is turned off
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @curr_state: current state for the clock.
  *
  * @return: error code.
  */
 int dsi_post_clkoff_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state curr_state);
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state curr_state);
 
 /**
  * dsi_post_clkon_cb() - Callback after clock is turned on
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @curr_state: current state for the clock.
  *
  * @return: error code.
  */
 int dsi_post_clkon_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state curr_state);
-
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state curr_state);
 
 /**
  * dsi_pre_clkon_cb() - Callback before clock is turned on
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @new_state: next state for the clock.
  *
  * @return: error code.
  */
 int dsi_pre_clkon_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state new_state);
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state new_state);
 
 /**
  * dsi_display_unprepare() - power off display hardware.
@@ -533,8 +588,9 @@ int dsi_display_set_backlight(void *display, u32 bl_lvl);
 /**
  * dsi_display_check_status() - check if panel is dead or alive
  * @display:            Handle to display.
+ * @te_check_override:	Whether check for TE from panel or default check
  */
-int dsi_display_check_status(void *display);
+int dsi_display_check_status(void *display, bool te_check_override);
 
 /**
  * dsi_display_cmd_transfer() - transfer command to the panel
@@ -591,5 +647,22 @@ int dsi_display_pre_kickoff(struct dsi_display *display,
  * Return: enum dsi_pixel_format type
  */
 enum dsi_pixel_format dsi_display_get_dst_format(void *display);
+
+/**
+ * dsi_display_cont_splash_config() - initialize splash resources
+ * @display:         Handle to display
+ *
+ * Return: Zero on Success
+ */
+int dsi_display_cont_splash_config(void *display);
+/*
+ * dsi_display_get_panel_vfp - get panel vsync
+ * @display: Pointer to private display structure
+ * @h_active: width
+ * @v_active: height
+ * Returns: v_front_porch on success error code on failure
+ */
+int dsi_display_get_panel_vfp(void *display,
+	int h_active, int v_active);
 
 #endif /* _DSI_DISPLAY_H_ */

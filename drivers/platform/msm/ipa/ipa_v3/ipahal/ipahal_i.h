@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -56,8 +56,23 @@
 				IPAHAL_DRV_NAME " %s:%d " fmt, ## args); \
 		} while (0)
 
+#define IPAHAL_DBG_REG(fmt, args...) \
+	do { \
+		pr_err(fmt, ## args); \
+		IPA_IPC_LOGGING(ipahal_ctx->regdumpbuf, \
+			" %s:%d " fmt, ## args); \
+	} while (0)
+
+#define IPAHAL_DBG_REG_IPC_ONLY(fmt, args...) \
+	do { \
+		IPA_IPC_LOGGING(ipahal_ctx->regdumpbuf, \
+			" %s:%d " fmt, ## args); \
+	} while (0)
+
 #define IPAHAL_MEM_ALLOC(__size, __is_atomic_ctx) \
 	(kzalloc((__size), ((__is_atomic_ctx) ? GFP_ATOMIC : GFP_KERNEL)))
+
+#define IPAHAL_IPC_LOG_PAGES 50
 
 /*
  * struct ipahal_context - HAL global context data
@@ -75,6 +90,7 @@ struct ipahal_context {
 	struct dentry *dent;
 	struct device *ipa_pdev;
 	struct ipa_mem_buffer empty_fltrt_tbl;
+	void *regdumpbuf;
 };
 
 extern struct ipahal_context *ipahal_ctx;

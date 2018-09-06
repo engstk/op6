@@ -51,6 +51,7 @@
 #define MAX_NUM_CAPTURE_BUFFERS VIDEO_MAX_FRAME // same as VB2_MAX_FRAME
 
 #define MAX_SUPPORTED_INSTANCES 16
+#define MAX_HEIC_TILES_COUNT 256
 
 /* Maintains the number of FTB's between each FBD over a window */
 #define DCVS_FTB_WINDOW 16
@@ -150,6 +151,14 @@ struct vidc_input_cr_data {
 	struct list_head list;
 	u32 index;
 	u32 input_cr;
+};
+
+struct vidc_tag_data {
+	struct list_head list;
+	u32 index;
+	u32 type;
+	u32 input_tag;
+	u32 output_tag;
 };
 
 struct recon_buf {
@@ -254,6 +263,11 @@ struct session_crop {
 	u32 top;
 	u32 width;
 	u32 height;
+};
+
+struct tile_info {
+	u32 count;
+	struct session_crop tile_rects[MAX_HEIC_TILES_COUNT];
 };
 
 struct session_prop {
@@ -373,6 +387,7 @@ struct msm_vidc_inst {
 	struct buf_queue bufq[MAX_PORT_NUM];
 	struct msm_vidc_list freqs;
 	struct msm_vidc_list input_crs;
+	struct msm_vidc_list buffer_tags;
 	struct msm_vidc_list scratchbufs;
 	struct msm_vidc_list persistbufs;
 	struct msm_vidc_list pending_getpropq;
@@ -410,6 +425,8 @@ struct msm_vidc_inst {
 	u32 profile;
 	u32 level;
 	u32 entropy_mode;
+	u32 img_grid_dimension;
+	struct tile_info tinfo;
 	struct msm_vidc_codec_data *codec_data;
 	struct hal_hdr10_pq_sei hdr10_sei_params;
 };
@@ -429,7 +446,7 @@ struct msm_vidc_ctrl {
 	s64 maximum;
 	s64 default_value;
 	u32 step;
-	u32 menu_skip_mask;
+	u64 menu_skip_mask;
 	u32 flags;
 	const char * const *qmenu;
 };
@@ -453,11 +470,13 @@ struct msm_vidc_buffer {
 	struct msm_smem smem[VIDEO_MAX_PLANES];
 	struct vb2_v4l2_buffer vvb;
 	enum msm_vidc_flags flags;
+	u32 output_tag;
 };
 
 void msm_comm_handle_thermal_event(void);
 void *msm_smem_new_client(enum smem_type mtype,
 		void *platform_resources, enum session_type stype);
+void msm_smem_set_tme_encode_mode(struct smem_client *client, bool enable);
 int msm_smem_alloc(struct smem_client *client,
 		size_t size, u32 align, u32 flags, enum hal_buffer buffer_type,
 		int map_kernel, struct msm_smem *smem);

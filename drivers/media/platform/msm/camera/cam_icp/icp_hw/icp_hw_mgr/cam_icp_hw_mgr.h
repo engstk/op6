@@ -68,6 +68,8 @@
 #define CAM_ICP_CTX_STATE_ACQUIRED  0x2
 #define CAM_ICP_CTX_STATE_RELEASE   0x3
 
+#define CAM_ICP_CTX_MAX_CMD_BUFFERS 0x2
+
 /**
  * struct icp_hfi_mem_info
  * @qtbl: Memory info of queue table
@@ -76,6 +78,7 @@
  * @dbg_q: Memory info of debug queue
  * @sec_heap: Memory info of secondary heap
  * @fw_buf: Memory info of firmware
+ * @qdss_buf: Memory info of qdss
  */
 struct icp_hfi_mem_info {
 	struct cam_mem_mgr_memory_desc qtbl;
@@ -84,6 +87,7 @@ struct icp_hfi_mem_info {
 	struct cam_mem_mgr_memory_desc dbg_q;
 	struct cam_mem_mgr_memory_desc sec_heap;
 	struct cam_mem_mgr_memory_desc fw_buf;
+	struct cam_mem_mgr_memory_desc qdss_buf;
 	struct cam_smmu_region_info shmem;
 };
 
@@ -122,6 +126,19 @@ struct clk_work_data {
 };
 
 /**
+  * struct icp_frame_info
+  * @request_id: request id
+  * @io_config: the address of io config
+  * @hfi_cfg_io_cmd: command struct to be sent to hfi
+  */
+struct icp_frame_info {
+	uint64_t request_id;
+	uint64_t io_config;
+	struct hfi_cmd_ipebps_async hfi_cfg_io_cmd;
+};
+
+
+/**
  * struct hfi_frame_process_info
  * @hfi_frame_cmd: Frame process command info
  * @bitmap: Bitmap for hfi_frame_cmd
@@ -132,6 +149,7 @@ struct clk_work_data {
  * @out_resource: Out sync info
  * @fw_process_flag: Frame process flag
  * @clk_info: Clock information for a request
+ * @frame_info: information needed to process request
  */
 struct hfi_frame_process_info {
 	struct hfi_cmd_ipebps_async hfi_frame_cmd[CAM_FRAME_CMD_MAX];
@@ -145,6 +163,7 @@ struct hfi_frame_process_info {
 	uint32_t in_free_resource[CAM_FRAME_CMD_MAX];
 	uint32_t fw_process_flag[CAM_FRAME_CMD_MAX];
 	struct cam_icp_clk_bw_request clk_info[CAM_FRAME_CMD_MAX];
+	struct icp_frame_info frame_info[CAM_FRAME_CMD_MAX];
 };
 
 /**
@@ -185,6 +204,7 @@ struct cam_ctx_clk_info {
  * @clk_info: Current clock info of a context
  * @watch_dog: watchdog timer handle
  * @watch_dog_reset_counter: Counter for watch dog reset
+ * @icp_dev_io_info: io config resource
  */
 struct cam_icp_hw_ctx_data {
 	void *context_priv;
@@ -204,16 +224,19 @@ struct cam_icp_hw_ctx_data {
 	struct cam_ctx_clk_info clk_info;
 	struct cam_req_mgr_timer *watch_dog;
 	uint32_t watch_dog_reset_counter;
+	struct cam_icp_acquire_dev_info icp_dev_io_info;
 };
 
 /**
  * struct icp_cmd_generic_blob
  * @ctx: Current context info
  * @frame_info_idx: Index used for frame process info
+ * @io_buf_addr: pointer to io buffer address
  */
 struct icp_cmd_generic_blob {
 	struct cam_icp_hw_ctx_data *ctx;
 	uint32_t frame_info_idx;
+	uint64_t *io_buf_addr;
 };
 
 /**
@@ -253,11 +276,13 @@ struct cam_icp_clk_info {
  * @hfi_mem: Memory for hfi
  * @cmd_work: Work queue for hfi commands
  * @msg_work: Work queue for hfi messages
+ * @timer_work: Work queue for timer watchdog
  * @msg_buf: Buffer for message data from firmware
  * @dbg_buf: Buffer for debug data from firmware
  * @a5_complete: Completion info
  * @cmd_work_data: Pointer to command work queue task
  * @msg_work_data: Pointer to message work queue task
+ * @timer_work_data: Pointer to timer work queue task
  * @ctxt_cnt: Active context count
  * @ipe_ctxt_cnt: IPE Active context count
  * @bps_ctxt_cnt: BPS Active context count
@@ -271,8 +296,9 @@ struct cam_icp_clk_info {
  * @clk_info: Clock info of hardware
  * @secure_mode: Flag to enable/disable secure camera
  * @a5_jtag_debug: entry to enable A5 JTAG debugging
- * @a5_debug_q : entry to enable FW debug message
+ * @a5_debug_type : entry to enable FW debug message/qdss
  * @a5_dbg_lvl : debug level set to FW.
+ * @a5_fw_dump_lvl : level set for dumping the FW data
  * @ipe0_enable: Flag for IPE0
  * @ipe1_enable: Flag for IPE1
  * @bps_enable: Flag for BPS
@@ -298,11 +324,13 @@ struct cam_icp_hw_mgr {
 	struct icp_hfi_mem_info hfi_mem;
 	struct cam_req_mgr_core_workq *cmd_work;
 	struct cam_req_mgr_core_workq *msg_work;
+	struct cam_req_mgr_core_workq *timer_work;
 	uint32_t msg_buf[ICP_MSG_BUF_SIZE];
 	uint32_t dbg_buf[ICP_DBG_BUF_SIZE];
 	struct completion a5_complete;
 	struct hfi_cmd_work_data *cmd_work_data;
 	struct hfi_msg_work_data *msg_work_data;
+	struct hfi_msg_work_data *timer_work_data;
 	uint32_t ctxt_cnt;
 	uint32_t ipe_ctxt_cnt;
 	uint32_t bps_ctxt_cnt;
@@ -315,8 +343,9 @@ struct cam_icp_hw_mgr {
 	struct cam_icp_clk_info clk_info[ICP_CLK_HW_MAX];
 	bool secure_mode;
 	bool a5_jtag_debug;
-	bool a5_debug_q;
+	u64 a5_debug_type;
 	u64 a5_dbg_lvl;
+	u64 a5_fw_dump_lvl;
 	bool ipe0_enable;
 	bool ipe1_enable;
 	bool bps_enable;

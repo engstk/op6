@@ -2,7 +2,7 @@
  * drivers/staging/android/ion/ion_system_heap.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -36,7 +36,11 @@ static gfp_t high_order_gfp_flags = (GFP_HIGHUSER | __GFP_NOWARN |
 static gfp_t low_order_gfp_flags  = (GFP_HIGHUSER | __GFP_NOWARN);
 
 #ifndef CONFIG_ALLOC_BUFFERS_IN_4K_CHUNKS
-static const unsigned int orders[] = {9, 8, 4, 0};
+#if defined(CONFIG_IOMMU_IO_PGTABLE_ARMV7S)
+static const unsigned int orders[] = {8, 4, 0};
+#else
+static const unsigned int orders[] = {9, 4, 0};
+#endif
 #else
 static const unsigned int orders[] = {0};
 #endif
@@ -752,8 +756,10 @@ static void ion_system_heap_destroy_pools(struct ion_page_pool **pools)
 {
 	int i;
 	for (i = 0; i < num_orders; i++)
-		if (pools[i])
+		if (pools[i]) {
 			ion_page_pool_destroy(pools[i]);
+			pools[i] = NULL;
+		}
 }
 
 /**
@@ -884,7 +890,7 @@ static int ion_system_contig_heap_allocate(struct ion_heap *heap,
 	if (align > (PAGE_SIZE << order))
 		return -EINVAL;
 
-	page = alloc_pages(low_order_gfp_flags | __GFP_ZERO, order);
+	page = alloc_pages(low_order_gfp_flags | __GFP_ZERO | __GFP_NOWARN, order);
 	if (!page)
 		return -ENOMEM;
 

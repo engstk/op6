@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -73,11 +73,13 @@ struct ipa_api_controller {
 
 	int (*ipa_add_hdr)(struct ipa_ioc_add_hdr *hdrs);
 
+	int (*ipa_add_hdr_usr)(struct ipa_ioc_add_hdr *hdrs, bool user_only);
+
 	int (*ipa_del_hdr)(struct ipa_ioc_del_hdr *hdls);
 
 	int (*ipa_commit_hdr)(void);
 
-	int (*ipa_reset_hdr)(void);
+	int (*ipa_reset_hdr)(bool user_only);
 
 	int (*ipa_get_hdr)(struct ipa_ioc_get_hdr *lookup);
 
@@ -85,17 +87,21 @@ struct ipa_api_controller {
 
 	int (*ipa_copy_hdr)(struct ipa_ioc_copy_hdr *copy);
 
-	int (*ipa_add_hdr_proc_ctx)(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs);
+	int (*ipa_add_hdr_proc_ctx)(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs,
+								bool user_only);
 
 	int (*ipa_del_hdr_proc_ctx)(struct ipa_ioc_del_hdr_proc_ctx *hdls);
 
 	int (*ipa_add_rt_rule)(struct ipa_ioc_add_rt_rule *rules);
 
+	int (*ipa_add_rt_rule_usr)(struct ipa_ioc_add_rt_rule *rules,
+							bool user_only);
+
 	int (*ipa_del_rt_rule)(struct ipa_ioc_del_rt_rule *hdls);
 
 	int (*ipa_commit_rt)(enum ipa_ip_type ip);
 
-	int (*ipa_reset_rt)(enum ipa_ip_type ip);
+	int (*ipa_reset_rt)(enum ipa_ip_type ip, bool user_only);
 
 	int (*ipa_get_rt_tbl)(struct ipa_ioc_get_rt_tbl *lookup);
 
@@ -107,13 +113,16 @@ struct ipa_api_controller {
 
 	int (*ipa_add_flt_rule)(struct ipa_ioc_add_flt_rule *rules);
 
+	int (*ipa_add_flt_rule_usr)(struct ipa_ioc_add_flt_rule *rules,
+								bool user_only);
+
 	int (*ipa_del_flt_rule)(struct ipa_ioc_del_flt_rule *hdls);
 
 	int (*ipa_mdfy_flt_rule)(struct ipa_ioc_mdfy_flt_rule *rules);
 
 	int (*ipa_commit_flt)(enum ipa_ip_type ip);
 
-	int (*ipa_reset_flt)(enum ipa_ip_type ip);
+	int (*ipa_reset_flt)(enum ipa_ip_type ip, bool user_only);
 
 	int (*ipa_allocate_nat_device)(struct ipa_ioc_nat_alloc_mem *mem);
 
@@ -394,7 +403,7 @@ struct ipa_api_controller {
 		struct ipa_ntn_conn_out_params *);
 
 	int (*ipa_tear_down_uc_offload_pipes)(int ipa_ep_idx_ul,
-		int ipa_ep_idx_dl);
+		int ipa_ep_idx_dl, struct ipa_ntn_conn_in_params *params);
 
 	struct device *(*ipa_get_pdev)(void);
 
@@ -403,16 +412,17 @@ struct ipa_api_controller {
 
 	void (*ipa_ntn_uc_dereg_rdyCB)(void);
 
-	int (*ipa_conn_wdi3_pipes)(struct ipa_wdi3_conn_in_params *in,
-		struct ipa_wdi3_conn_out_params *out);
+	int (*ipa_conn_wdi_pipes)(struct ipa_wdi_conn_in_params *in,
+		struct ipa_wdi_conn_out_params *out,
+		ipa_wdi_meter_notifier_cb wdi_notify);
 
-	int (*ipa_disconn_wdi3_pipes)(int ipa_ep_idx_tx,
+	int (*ipa_disconn_wdi_pipes)(int ipa_ep_idx_tx,
 		int ipa_ep_idx_rx);
 
-	int (*ipa_enable_wdi3_pipes)(int ipa_ep_idx_tx,
+	int (*ipa_enable_wdi_pipes)(int ipa_ep_idx_tx,
 		int ipa_ep_idx_rx);
 
-	int (*ipa_disable_wdi3_pipes)(int ipa_ep_idx_tx,
+	int (*ipa_disable_wdi_pipes)(int ipa_ep_idx_tx,
 		int ipa_ep_idx_rx);
 
 	int (*ipa_tz_unlock_reg)(struct ipa_tz_unlock_reg_info *reg_info,
@@ -421,6 +431,8 @@ struct ipa_api_controller {
 	int (*ipa_get_smmu_params)(struct ipa_smmu_in_params *in,
 		struct ipa_smmu_out_params *out);
 	int (*ipa_is_vlan_mode)(enum ipa_vlan_ifaces iface, bool *res);
+
+	bool (*ipa_pm_is_used)(void);
 };
 
 #ifdef CONFIG_IPA
@@ -440,8 +452,19 @@ static inline int ipa_plat_drv_probe(struct platform_device *pdev_p,
 int ipa3_plat_drv_probe(struct platform_device *pdev_p,
 	struct ipa_api_controller *api_ctrl,
 	const struct of_device_id *pdrv_match);
+int ipa3_pci_drv_probe(
+	struct pci_dev            *pci_dev,
+	struct ipa_api_controller *api_ctrl,
+	const struct of_device_id *pdrv_match);
 #else
 static inline int ipa3_plat_drv_probe(struct platform_device *pdev_p,
+	struct ipa_api_controller *api_ctrl,
+	const struct of_device_id *pdrv_match)
+{
+	return -ENODEV;
+}
+static inline int ipa3_pci_drv_probe(
+	struct pci_dev            *pci_dev,
 	struct ipa_api_controller *api_ctrl,
 	const struct of_device_id *pdrv_match)
 {

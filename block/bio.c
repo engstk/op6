@@ -42,9 +42,9 @@
  * break badly! cannot be bigger than what you can fit into an
  * unsigned short
  */
-#define BV(x) { .nr_vecs = x, .name = "biovec-"__stringify(x) }
+#define BV(x, n) { .nr_vecs = x, .name = "biovec-"#n }
 static struct biovec_slab bvec_slabs[BVEC_POOL_NR] __read_mostly = {
-	BV(1), BV(4), BV(16), BV(64), BV(128), BV(BIO_MAX_PAGES),
+	BV(1, 1), BV(4, 4), BV(16, 16), BV(64, 64), BV(128, 128), BV(BIO_MAX_PAGES, max),
 };
 #undef BV
 
@@ -565,6 +565,15 @@ inline int bio_phys_segments(struct request_queue *q, struct bio *bio)
 }
 EXPORT_SYMBOL(bio_phys_segments);
 
+static inline void bio_clone_crypt_key(struct bio *dst, const struct bio *src)
+{
+#ifdef CONFIG_PFK
+	dst->bi_crypt_key = src->bi_crypt_key;
+	dst->bi_iter.bi_dun = src->bi_iter.bi_dun;
+#endif
+	dst->bi_dio_inode = src->bi_dio_inode;
+}
+
 /**
  * 	__bio_clone_fast - clone a bio that shares the original bio's biovec
  * 	@bio: destination bio
@@ -590,6 +599,7 @@ void __bio_clone_fast(struct bio *bio, struct bio *bio_src)
 	bio->bi_iter = bio_src->bi_iter;
 	bio->bi_io_vec = bio_src->bi_io_vec;
 	bio->bi_dio_inode = bio_src->bi_dio_inode;
+	bio_clone_crypt_key(bio, bio_src);
 	bio_clone_blkcg_association(bio, bio_src);
 }
 EXPORT_SYMBOL(__bio_clone_fast);

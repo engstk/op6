@@ -197,7 +197,6 @@ config ENABLE_MUST_CHECK
 config FRAME_WARN
 	int "Warn for stack frames larger than (needs gcc 4.4)"
 	range 0 8192
-	default 0 if KASAN
 	default 2048 if GCC_PLUGIN_LATENT_ENTROPY
 	default 1024 if !64BIT
 	default 2048 if 64BIT
@@ -270,7 +269,6 @@ config PAGE_OWNER_ENABLE_DEFAULT
 
 config DEBUG_FS
 	bool "Debug Filesystem"
-	select SRCU
 	help
 	  debugfs is a virtual file system that kernel developers use to put
 	  debugging files into.  Enable this option to be able to read and
@@ -708,6 +706,19 @@ source "lib/Kconfig.kmemcheck"
 
 source "lib/Kconfig.kasan"
 
+config DEBUG_REFCOUNT
+	bool "Verbose refcount checks"
+	help
+	  Say Y here if you want reference counters (refcount_t and kref) to
+	  generate WARNs on dubious usage. Without this refcount_t will still
+	  be a saturating counter and avoid Use-After-Free by turning it into
+	  a resource leak Denial-Of-Service.
+
+	  Use of this option will increase kernel text size but will alert the
+	  admin of potential abuse.
+
+	  If in doubt, say "N".
+
 endmenu # "Memory Debugging"
 
 config ARCH_HAS_KCOV
@@ -834,6 +845,17 @@ config BOOTPARAM_SOFTLOCKUP_PANIC_VALUE
 	range 0 1
 	default 0 if !BOOTPARAM_SOFTLOCKUP_PANIC
 	default 1 if BOOTPARAM_SOFTLOCKUP_PANIC
+
+config PANIC_ON_RECURSIVE_FAULT
+	bool "Panic on recursive faults during task exit"
+	help
+	  Panic upon the detection of a recursive fault during task exit,
+	  rather than putting the task into an uninterruptible sleep.
+	  This is particularly useful for debugging system hangs in
+	  scenarios where the task experiencing the fault is critical
+	  for system operation, rendering the system inoperable.
+
+	  Say N if unsure.
 
 config DETECT_HUNG_TASK
 	bool "Detect Hung Tasks"

@@ -454,6 +454,7 @@ struct mmc_host {
 #define MMC_CAP_HW_RESET	(1 << 31)	/* Hardware reset */
 
 	u32			caps2;		/* More host capabilities */
+	u32			cached_caps2;
 
 #define MMC_CAP2_BOOTPART_NOACC	(1 << 0)	/* Boot partition no access */
 #define MMC_CAP2_FULL_PWR_CYCLE	(1 << 2)	/* Can do full power cycle */
@@ -610,7 +611,8 @@ struct mmc_host {
 
 #ifdef CONFIG_BLOCK
 	int			latency_hist_enabled;
-	struct io_latency_state io_lat_s;
+	struct io_latency_state io_lat_read;
+	struct io_latency_state io_lat_write;
 #endif
 
 	bool sdr104_wa;
@@ -649,6 +651,11 @@ struct mmc_host {
 	 */
 	void *cmdq_private;
 	struct mmc_request	*err_mrq;
+
+	bool inlinecrypt_support;  /* Inline encryption support */
+
+	atomic_t rpmb_req_pending;
+	struct mutex		rpmb_req_mutex;
 	unsigned long		private[0] ____cacheline_aligned;
 };
 
@@ -687,6 +694,7 @@ static inline void *mmc_cmdq_private(struct mmc_host *host)
 #define mmc_bus_manual_resume(host) ((host)->bus_resume_flags & \
 				MMC_BUSRESUME_MANUAL_RESUME)
 
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
 {
 	if (manual)
@@ -694,6 +702,11 @@ static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
 	else
 		host->bus_resume_flags &= ~MMC_BUSRESUME_MANUAL_RESUME;
 }
+#else
+static inline void mmc_set_bus_resume_policy(struct mmc_host *host, int manual)
+{
+}
+#endif
 
 extern int mmc_resume_bus(struct mmc_host *host);
 

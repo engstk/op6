@@ -1510,7 +1510,8 @@ static int ncm_bind(struct usb_configuration *c, struct usb_function *f)
 	ncm->notify_req = usb_ep_alloc_request(ep, GFP_KERNEL);
 	if (!ncm->notify_req)
 		goto fail;
-	ncm->notify_req->buf = kmalloc(NCM_STATUS_BYTECOUNT, GFP_KERNEL);
+	ncm->notify_req->buf = kmalloc(NCM_STATUS_BYTECOUNT
+			+ (cdev->gadget->extra_buf_alloc), GFP_KERNEL);
 	if (!ncm->notify_req->buf)
 		goto fail;
 	ncm->notify_req->context = ncm;
@@ -1633,7 +1634,8 @@ int ncm_ctrlrequest(struct usb_composite_dev *cdev,
 {
 	int value = -EOPNOTSUPP;
 
-	if (ctrl->bRequestType == 0x40 && ctrl->bRequest == 0xF0) {
+	if (ctrl->bRequestType == 0x40 && ctrl->bRequest == 0xF0
+			&& _ncm_setup_desc) {
 		_ncm_setup_desc->minor = (uint8_t)(ctrl->wValue >> 8);
 		_ncm_setup_desc->major = (uint8_t)(ctrl->wValue & 0xFF);
 		schedule_work(&_ncm_setup_desc->work);

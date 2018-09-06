@@ -321,8 +321,24 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(sdp_current_max),
 	POWER_SUPPLY_ATTR(connector_type),
 	POWER_SUPPLY_ATTR(parallel_batfet_mode),
+	POWER_SUPPLY_ATTR(parallel_fcc_max),
 	POWER_SUPPLY_ATTR(min_icl),
 	POWER_SUPPLY_ATTR(moisture_detected),
+	POWER_SUPPLY_ATTR(batt_profile_version),
+	POWER_SUPPLY_ATTR(batt_full_current),
+	POWER_SUPPLY_ATTR(recharge_soc),
+	POWER_SUPPLY_ATTR(toggle_stat),
+	POWER_SUPPLY_ATTR(allow_hvdcp3),
+	POWER_SUPPLY_ATTR(hvdcp_opti_allowed),
+	POWER_SUPPLY_ATTR(max_pulse_allowed),
+	POWER_SUPPLY_ATTR(ignore_false_negative_isense),
+	POWER_SUPPLY_ATTR(battery_info),
+	POWER_SUPPLY_ATTR(battery_info_id),
+	POWER_SUPPLY_ATTR(enable_jeita_detection),
+	POWER_SUPPLY_ATTR(esr_actual),
+	POWER_SUPPLY_ATTR(esr_nominal),
+	POWER_SUPPLY_ATTR(soh),
+	POWER_SUPPLY_ATTR(qc_opti_disable),
 	/* Local extensions of type int64_t */
 	POWER_SUPPLY_ATTR(charge_counter_ext),
 	/* Properties of type `const char *' */
@@ -330,6 +346,7 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(manufacturer),
 	POWER_SUPPLY_ATTR(serial_number),
 	POWER_SUPPLY_ATTR(battery_type),
+	POWER_SUPPLY_ATTR(cycle_counts),
 };
 
 static struct attribute *

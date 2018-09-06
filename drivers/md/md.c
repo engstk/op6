@@ -4826,8 +4826,10 @@ array_size_store(struct mddev *mddev, const char *buf, size_t len)
 		return err;
 
 	/* cluster raid doesn't support change array_sectors */
-	if (mddev_is_clustered(mddev))
+	if (mddev_is_clustered(mddev)) {
+		mddev_unlock(mddev);
 		return -EINVAL;
+	}
 
 	if (strncmp(buf, "default", 7) == 0) {
 		if (mddev->pers)
@@ -5095,7 +5097,7 @@ static struct kobject *md_probe(dev_t dev, int *part, void *data)
 	return NULL;
 }
 
-static int add_named_array(const char *val, struct kernel_param *kp)
+static int add_named_array(const char *val, const struct kernel_param *kp)
 {
 	/* val must be "md_*" where * is not all digits.
 	 * We allocate an array with a large free minor number, and
@@ -5312,8 +5314,8 @@ int md_run(struct mddev *mddev)
 			queue_flag_set_unlocked(QUEUE_FLAG_NONROT, mddev->queue);
 		else
 			queue_flag_clear_unlocked(QUEUE_FLAG_NONROT, mddev->queue);
-		mddev->queue->backing_dev_info.congested_data = mddev;
-		mddev->queue->backing_dev_info.congested_fn = md_congested;
+		mddev->queue->backing_dev_info->congested_data = mddev;
+		mddev->queue->backing_dev_info->congested_fn = md_congested;
 	}
 	if (pers->sync_request) {
 		if (mddev->kobj.sd &&
@@ -5668,7 +5670,7 @@ static int do_md_stop(struct mddev *mddev, int mode,
 
 		__md_stop_writes(mddev);
 		__md_stop(mddev);
-		mddev->queue->backing_dev_info.congested_fn = NULL;
+		mddev->queue->backing_dev_info->congested_fn = NULL;
 
 		/* tell userspace to handle 'inactive' */
 		sysfs_notify_dirent_safe(mddev->sysfs_state);
@@ -8198,6 +8200,19 @@ void md_do_sync(struct md_thread *thread)
 	set_mask_bits(&mddev->flags, 0,
 		      BIT(MD_CHANGE_PENDING) | BIT(MD_CHANGE_DEVS));
 
+	if (test_bit(MD_RECOVERY_RESHAPE, &mddev->recovery) &&
+			!test_bit(MD_RECOVERY_INTR, &mddev->recovery) &&
+			mddev->delta_disks > 0 &&
+			mddev->pers->finish_reshape &&
+			mddev->pers->size &&
+			mddev->queue) {
+		mddev_lock_nointr(mddev);
+		md_set_array_sectors(mddev, mddev->pers->size(mddev, 0, 0));
+		mddev_unlock(mddev);
+		set_capacity(mddev->gendisk, mddev->array_sectors);
+		revalidate_disk(mddev->gendisk);
+	}
+
 	spin_lock(&mddev->lock);
 	if (!test_bit(MD_RECOVERY_INTR, &mddev->recovery)) {
 		/* We completed so min/max setting can be forgotten if used. */
@@ -8223,6 +8238,10 @@ static int remove_and_add_spares(struct mddev *mddev,
 	int spares = 0;
 	int removed = 0;
 	bool remove_some = false;
+
+	if (this && test_bit(MD_RECOVERY_RUNNING, &mddev->recovery))
+		/* Mustn't remove devices when resync thread is running */
+		return 0;
 
 	rdev_for_each(rdev, mddev) {
 		if ((this == NULL || rdev == this) &&
@@ -8965,11 +8984,11 @@ static __exit void md_exit(void)
 subsys_initcall(md_init);
 module_exit(md_exit)
 
-static int get_ro(char *buffer, struct kernel_param *kp)
+static int get_ro(char *buffer, const struct kernel_param *kp)
 {
 	return sprintf(buffer, "%d", start_readonly);
 }
-static int set_ro(const char *val, struct kernel_param *kp)
+static int set_ro(const char *val, const struct kernel_param *kp)
 {
 	return kstrtouint(val, 10, (unsigned int *)&start_readonly);
 }

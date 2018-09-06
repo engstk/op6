@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -214,6 +214,8 @@ static int dsp_domr_notify_cb(struct notifier_block *n, unsigned long code,
 						dsp);
 	struct pd_qmi_client_data *reg;
 
+	/* Resetting the log level */
+	SLIM_RST_LOGLVL(dev);
 	SLIM_INFO(dev, "SLIM DSP SSR/PDR notify cb:0x%lx, type:%d\n",
 			code, dsp->dom_t);
 	switch (code) {
@@ -425,6 +427,7 @@ static int ngd_xfer_msg(struct slim_controller *ctrl, struct slim_msg_txn *txn)
 	const u8 *old_wbuf = NULL;
 	bool report_sat = false;
 	bool sync_wr = true;
+	bool txn_async = txn->async;
 
 	memset(wbuf, 0, sizeof(wbuf));
 	if (txn->mc & SLIM_MSG_CLK_PAUSE_SEQ_FLG)
@@ -769,9 +772,9 @@ ngd_xfer_err:
 		msm_slim_put_ctrl(dev);
 	}
 ngd_xfer_ret:
-	if (txn->wbuf == wbuf)
+	if (!txn_async && txn->wbuf == wbuf)
 		txn->wbuf = old_wbuf;
-	if (txn->comp == &done)
+	if (!txn_async && txn->comp == &done)
 		txn->comp = NULL;
 	return ret ? ret : dev->err;
 }

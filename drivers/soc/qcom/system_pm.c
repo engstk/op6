@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,14 +14,20 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <asm/arch_timer.h>
-
-#include <soc/qcom/rpmh.h>
-#include <soc/qcom/system_pm.h>
-
 #include <clocksource/arm_arch_timer.h>
+#include "rpmh_master_stat.h"
+#include <soc/qcom/lpm_levels.h>
+#include <soc/qcom/rpmh.h>
 
 #define PDC_TIME_VALID_SHIFT	31
 #define PDC_TIME_UPPER_MASK	0xFFFFFF
+
+#ifdef CONFIG_ARM_GIC_V3
+#include <linux/irqchip/arm-gic-v3.h>
+#else
+static inline void gic_v3_dist_restore(void) {}
+static inline void gic_v3_dist_save(void) {}
+#endif
 
 static struct rpmh_client *rpmh_client;
 
@@ -36,7 +42,7 @@ static int setup_wakeup(uint32_t lo, uint32_t hi)
 	return rpmh_write_control(rpmh_client, cmd, ARRAY_SIZE(cmd));
 }
 
-int system_sleep_update_wakeup(void)
+static int system_sleep_update_wakeup(bool from_idle)
 {
 	uint32_t lo = ~0U, hi = ~0U;
 
@@ -45,16 +51,14 @@ int system_sleep_update_wakeup(void)
 
 	return setup_wakeup(lo, hi);
 }
-EXPORT_SYMBOL(system_sleep_update_wakeup);
 
 /**
  * system_sleep_allowed() - Returns if its okay to enter system low power modes
  */
-bool system_sleep_allowed(void)
+static bool system_sleep_allowed(void)
 {
 	return (rpmh_ctrlr_idle(rpmh_client) == 0);
 }
-EXPORT_SYMBOL(system_sleep_allowed);
 
 /**
  * system_sleep_enter() - Activties done when entering system low power modes
@@ -62,22 +66,27 @@ EXPORT_SYMBOL(system_sleep_allowed);
  * Returns 0 for success or error values from writing the sleep/wake values to
  * the hardware block.
  */
-int system_sleep_enter(void)
+static int system_sleep_enter(struct cpumask *mask)
 {
-	if (IS_ERR_OR_NULL(rpmh_client))
-		return -EFAULT;
-
+	gic_v3_dist_save();
 	return rpmh_flush(rpmh_client);
 }
-EXPORT_SYMBOL(system_sleep_enter);
 
 /**
  * system_sleep_exit() - Activities done when exiting system low power modes
  */
-void system_sleep_exit(void)
+static void system_sleep_exit(void)
 {
+	msm_rpmh_master_stats_update();
+	gic_v3_dist_restore();
 }
-EXPORT_SYMBOL(system_sleep_exit);
+
+static struct system_pm_ops pm_ops = {
+	.enter = system_sleep_enter,
+	.exit = system_sleep_exit,
+	.update_wakeup = system_sleep_update_wakeup,
+	.sleep_allowed = system_sleep_allowed,
+};
 
 static int sys_pm_probe(struct platform_device *pdev)
 {
@@ -85,7 +94,7 @@ static int sys_pm_probe(struct platform_device *pdev)
 	if (IS_ERR_OR_NULL(rpmh_client))
 		return PTR_ERR(rpmh_client);
 
-	return 0;
+	return register_system_pm_ops(&pm_ops);
 }
 
 static const struct of_device_id sys_pm_drv_match[] = {
@@ -97,6 +106,7 @@ static struct platform_driver sys_pm_driver = {
 	.probe = sys_pm_probe,
 	.driver = {
 		.name = KBUILD_MODNAME,
+		.suppress_bind_attrs = true,
 		.of_match_table = sys_pm_drv_match,
 	},
 };

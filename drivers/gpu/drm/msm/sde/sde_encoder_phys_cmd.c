@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -382,6 +382,13 @@ static void sde_encoder_phys_cmd_cont_splash_mode_set(
 	phys_enc->cached_mode = *adj_mode;
 	phys_enc->enable_state = SDE_ENC_ENABLED;
 
+	if (!phys_enc->hw_ctl || !phys_enc->hw_pp) {
+		SDE_DEBUG("invalid ctl:%d pp:%d\n",
+			(phys_enc->hw_ctl == NULL),
+			(phys_enc->hw_pp == NULL));
+		return;
+	}
+
 	_sde_encoder_phys_cmd_setup_irq_hw_idx(phys_enc);
 }
 
@@ -450,10 +457,25 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 
 	cmd_enc->pp_timeout_report_cnt++;
 
+	if (sde_encoder_phys_cmd_is_master(phys_enc)) {
+		 /* trigger the retire fence if it was missed */
+		if (atomic_add_unless(&phys_enc->pending_retire_fence_cnt,
+				-1, 0))
+			phys_enc->parent_ops.handle_frame_done(
+				phys_enc->parent,
+				phys_enc,
+				SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE);
+		atomic_add_unless(&phys_enc->pending_ctlstart_cnt, -1, 0);
+	}
+
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->hw_pp->idx - PINGPONG_0,
 			cmd_enc->pp_timeout_report_cnt,
 			atomic_read(&phys_enc->pending_kickoff_cnt),
 			frame_event);
+
+	/* check if panel is still sending TE signal or not */
+	if (sde_connector_esd_status(phys_enc->connector))
+		goto exit;
 
 	if (cmd_enc->pp_timeout_report_cnt >= PP_TIMEOUT_MAX_TRIALS) {
 		cmd_enc->pp_timeout_report_cnt = PP_TIMEOUT_MAX_TRIALS;
@@ -472,10 +494,11 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 		SDE_EVT32(DRMID(phys_enc->parent), SDE_EVTLOG_FATAL);
 	}
 
-	atomic_add_unless(&phys_enc->pending_kickoff_cnt, -1, 0);
-
 	/* request a ctl reset before the next kickoff */
 	phys_enc->enable_state = SDE_ENC_ERR_NEEDS_HW_RESET;
+
+exit:
+	atomic_add_unless(&phys_enc->pending_kickoff_cnt, -1, 0);
 
 	if (phys_enc->parent_ops.handle_frame_done)
 		phys_enc->parent_ops.handle_frame_done(
@@ -657,6 +680,7 @@ static int sde_encoder_phys_cmd_control_vblank_irq(
 		return -EINVAL;
 	}
 
+	mutex_lock(phys_enc->vblank_ctl_lock);
 	refcount = atomic_read(&phys_enc->vblank_refcount);
 
 	/* Slave encoders don't report vblank */
@@ -690,6 +714,7 @@ end:
 				enable, refcount, SDE_EVTLOG_ERROR);
 	}
 
+	mutex_unlock(phys_enc->vblank_ctl_lock);
 	return ret;
 }
 
@@ -834,9 +859,8 @@ static void _sde_encoder_phys_cmd_pingpong_config(
 	struct sde_encoder_phys_cmd *cmd_enc =
 		to_sde_encoder_phys_cmd(phys_enc);
 
-	if (!phys_enc || !phys_enc->hw_ctl || !phys_enc->hw_pp
-			|| !phys_enc->hw_ctl->ops.setup_intf_cfg) {
-		SDE_ERROR("invalid arg(s), enc %d\n", phys_enc != 0);
+	if (!phys_enc || !phys_enc->hw_pp) {
+		SDE_ERROR("invalid arg(s), enc %d\n", phys_enc != NULL);
 		return;
 	}
 
@@ -855,7 +879,9 @@ static bool sde_encoder_phys_cmd_needs_single_flush(
 	if (!phys_enc)
 		return false;
 
-	return _sde_encoder_phys_is_ppsplit(phys_enc);
+	return phys_enc->cont_splash_settings ?
+		phys_enc->cont_splash_single_flush :
+		_sde_encoder_phys_is_ppsplit(phys_enc);
 }
 
 static void sde_encoder_phys_cmd_enable_helper(
@@ -864,7 +890,7 @@ static void sde_encoder_phys_cmd_enable_helper(
 	struct sde_hw_ctl *ctl;
 	u32 flush_mask = 0;
 
-	if (!phys_enc || !phys_enc->hw_ctl || !phys_enc->hw_pp) {
+	if (!phys_enc || !phys_enc->hw_pp) {
 		SDE_ERROR("invalid arg(s), encoder %d\n", phys_enc != 0);
 		return;
 	}
@@ -880,6 +906,11 @@ static void sde_encoder_phys_cmd_enable_helper(
 	if (_sde_encoder_phys_is_ppsplit(phys_enc) &&
 		!sde_encoder_phys_cmd_is_master(phys_enc))
 		goto skip_flush;
+
+	if (!phys_enc->hw_ctl) {
+		SDE_ERROR("invalid ctl\n");
+		return;
+	}
 
 	ctl = phys_enc->hw_ctl;
 	ctl->ops.get_bitmask_intf(ctl, &flush_mask, phys_enc->intf_idx);
@@ -1369,6 +1400,7 @@ struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 	phys_enc->split_role = p->split_role;
 	phys_enc->intf_mode = INTF_MODE_CMD;
 	phys_enc->enc_spinlock = p->enc_spinlock;
+	phys_enc->vblank_ctl_lock = p->vblank_ctl_lock;
 	cmd_enc->stream_sel = 0;
 	phys_enc->enable_state = SDE_ENC_DISABLED;
 	phys_enc->comp_type = p->comp_type;

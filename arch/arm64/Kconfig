@@ -15,7 +15,25 @@ config ARM64
 	select ARCH_HAS_KCOV
 	select ARCH_HAS_SG_CHAIN
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
+	select ARCH_INLINE_READ_LOCK if !PREEMPT
+	select ARCH_INLINE_READ_LOCK_BH if !PREEMPT
+	select ARCH_INLINE_READ_LOCK_IRQ if !PREEMPT
+	select ARCH_INLINE_READ_LOCK_IRQSAVE if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK_BH if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK_IRQ if !PREEMPT
+	select ARCH_INLINE_READ_UNLOCK_IRQRESTORE if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK_BH if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK_IRQ if !PREEMPT
+	select ARCH_INLINE_WRITE_LOCK_IRQSAVE if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK_BH if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK_IRQ if !PREEMPT
+	select ARCH_INLINE_WRITE_UNLOCK_IRQRESTORE if !PREEMPT
 	select ARCH_USE_CMPXCHG_LOCKREF
+	select ARCH_USE_QUEUED_RWLOCKS
+	select ARCH_SUPPORTS_LTO_CLANG
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION
@@ -84,6 +102,7 @@ config ARM64
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_GCC_PLUGINS
 	select HAVE_GENERIC_DMA_COHERENT
+	select HAVE_HW_BREAKPOINT if PERF_EVENTS
 	select HAVE_IRQ_TIME_ACCOUNTING
 	select HAVE_MEMBLOCK
 	select HAVE_MEMBLOCK_NODE_MAP if NUMA
@@ -110,6 +129,7 @@ config ARM64
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
+	select ARCH_SUPPORTS_SPECULATIVE_PAGE_FAULT
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
@@ -422,13 +442,27 @@ config ARM64_ERRATUM_845719
 
 config ARM64_ERRATUM_843419
 	bool "Cortex-A53: 843419: A load or store might access an incorrect address"
-	default y
+	default y if !LTO_CLANG
 	select ARM64_MODULE_CMODEL_LARGE if MODULES
 	help
 	  This option links the kernel with '--fix-cortex-a53-843419' and
 	  builds modules using the large memory model in order to avoid the use
 	  of the ADRP instruction, which can cause a subsequent memory access
 	  to use an incorrect address on Cortex-A53 parts up to r0p4.
+
+	  If unsure, say Y.
+
+config ARM64_ERRATUM_1024718
+	bool "Cortex-A55: 1024718: Update of DBM/AP bits without break before make might result in incorrect update"
+	default y
+	help
+	  This option adds work around for Arm Cortex-A55 Erratum 1024718.
+
+	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
+	  update of the hardware dirty bit when the DBM/AP bits are updated
+	  without a break-before-make. The work around is to disable the usage
+	  of hardware DBM locally on the affected cores. CPUs not affected by
+	  erratum will continue to use the feature.
 
 	  If unsure, say Y.
 
@@ -809,6 +843,18 @@ config HARDEN_BRANCH_PREDICTOR
 
 	  If unsure, say Y.
 
+config PSCI_BP_HARDENING
+	depends on HARDEN_BRANCH_PREDICTOR
+	bool "Use PSCI get version to enable branch predictor hardening"
+	help
+	  If the mitigation for branch prediction is supported using psci
+	  get version by the firmware then enable this option. Some older
+	  versions of firmwares may not be using new SMCCC convention in
+	  such cases use psci get version method to enable hardening for
+	  branch prediction attacks.
+
+	  If unsure, say N.
+
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"
 	depends on COMPAT
@@ -1009,7 +1055,7 @@ config RANDOMIZE_BASE
 
 config RANDOMIZE_MODULE_REGION_FULL
 	bool "Randomize the module region independently from the core kernel"
-	depends on RANDOMIZE_BASE && !DYNAMIC_FTRACE
+	depends on RANDOMIZE_BASE && !DYNAMIC_FTRACE && !LTO_CLANG
 	default y
 	help
 	  Randomizes the location of the module region without considering the
@@ -1135,6 +1181,29 @@ config BUILD_ARM64_APPENDED_DTB_IMAGE_NAMES
 	  Space separated list of names of dtbs to append when
 	  building a concatenated Image.gz-dtb.
 
+choice
+	prompt "Kernel compression method"
+	default BUILD_ARM64_KERNEL_COMPRESSION_GZIP
+	help
+	  Allows choice between gzip compressed or uncompressed
+	  kernel image
+
+config BUILD_ARM64_KERNEL_COMPRESSION_GZIP
+	bool "Build compressed kernel image"
+	help
+	  Build a kernel image using gzip
+	  compression with concatenated dtb.
+	  gzip is based on the DEFLATE
+	  algorithm.
+
+config BUILD_ARM64_UNCOMPRESSED_KERNEL
+	bool "Build uncompressed kernel image"
+	help
+	  Build a kernel image without
+	  compression and with
+	  concatenated dtb.
+endchoice
+
 config BUILD_ARM64_DT_OVERLAY
 	bool "enable DT overlay compilation support"
 	depends on OF
@@ -1149,7 +1218,7 @@ source "fs/Kconfig.binfmt"
 config COMPAT
 	bool "Kernel support for 32-bit EL0"
 	depends on ARM64_4K_PAGES || EXPERT
-	select COMPAT_BINFMT_ELF
+	select COMPAT_BINFMT_ELF if BINFMT_ELF
 	select HAVE_UID16
 	select OLD_SIGSUSPEND3
 	select COMPAT_OLD_SIGACTION

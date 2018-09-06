@@ -1612,9 +1612,14 @@ int l2tp_tunnel_create(struct net *net, int fd, int version, u32 tunnel_id, u32 
 		encap = cfg->encap;
 
 	/* Quick sanity checks */
+	err = -EPROTONOSUPPORT;
+	if (sk->sk_type != SOCK_DGRAM) {
+		pr_debug("tunl %hu: fd %d wrong socket type\n",
+			 tunnel_id, fd);
+		goto err;
+	}
 	switch (encap) {
 	case L2TP_ENCAPTYPE_UDP:
-		err = -EPROTONOSUPPORT;
 		if (sk->sk_protocol != IPPROTO_UDP) {
 			pr_err("tunl %hu: fd %d wrong protocol, got %d, expected %d\n",
 			       tunnel_id, fd, sk->sk_protocol, IPPROTO_UDP);
@@ -1622,7 +1627,6 @@ int l2tp_tunnel_create(struct net *net, int fd, int version, u32 tunnel_id, u32 
 		}
 		break;
 	case L2TP_ENCAPTYPE_IP:
-		err = -EPROTONOSUPPORT;
 		if (sk->sk_protocol != IPPROTO_L2TP) {
 			pr_err("tunl %hu: fd %d wrong protocol, got %d, expected %d\n",
 			       tunnel_id, fd, sk->sk_protocol, IPPROTO_L2TP);
@@ -1944,7 +1948,7 @@ static __net_exit void l2tp_exit_net(struct net *net)
 
 	rcu_read_lock_bh();
 	list_for_each_entry_rcu(tunnel, &pn->l2tp_tunnel_list, list) {
-		(void)l2tp_tunnel_delete(tunnel);
+		l2tp_tunnel_delete(tunnel);
 	}
 	rcu_read_unlock_bh();
 

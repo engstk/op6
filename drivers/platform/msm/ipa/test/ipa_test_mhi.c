@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -327,6 +327,8 @@ struct ipa_test_mhi_context {
 	u32 prod_hdl;
 	u32 cons_hdl;
 	u32 test_prod_hdl;
+	phys_addr_t transport_phys_addr;
+	unsigned long transport_size;
 };
 
 static struct ipa_test_mhi_context *test_mhi_ctx;
@@ -780,11 +782,6 @@ static int ipa_test_mhi_suite_setup(void **ppriv)
 
 	IPA_UT_DBG("Start Setup\n");
 
-	if (!gsi_ctx) {
-		IPA_UT_ERR("No GSI ctx\n");
-		return -EINVAL;
-	}
-
 	if (!ipa3_ctx) {
 		IPA_UT_ERR("No IPA ctx\n");
 		return -EINVAL;
@@ -797,11 +794,20 @@ static int ipa_test_mhi_suite_setup(void **ppriv)
 		return -ENOMEM;
 	}
 
-	test_mhi_ctx->gsi_mmio = ioremap_nocache(gsi_ctx->per.phys_addr,
-		gsi_ctx->per.size);
-	if (!test_mhi_ctx) {
+	rc = ipa3_get_transport_info(&test_mhi_ctx->transport_phys_addr,
+				     &test_mhi_ctx->transport_size);
+	if (rc != 0) {
+		IPA_UT_ERR("ipa3_get_transport_info() failed\n");
+		rc = -EFAULT;
+		goto fail_free_ctx;
+	}
+
+	test_mhi_ctx->gsi_mmio =
+	    ioremap_nocache(test_mhi_ctx->transport_phys_addr,
+			    test_mhi_ctx->transport_size);
+	if (!test_mhi_ctx->gsi_mmio) {
 		IPA_UT_ERR("failed to remap GSI HW size=%lu\n",
-			gsi_ctx->per.size);
+			   test_mhi_ctx->transport_size);
 		rc = -EFAULT;
 		goto fail_free_ctx;
 	}
@@ -1304,6 +1310,7 @@ static int ipa_mhi_test_q_transfer_re(struct ipa_mem_buffer *mmio,
 	u32 next_wp_ofst;
 	int i;
 	u32 num_of_ed_to_queue;
+	u32 avail_ev;
 
 	IPA_UT_LOG("Entry\n");
 
@@ -1341,6 +1348,8 @@ static int ipa_mhi_test_q_transfer_re(struct ipa_mem_buffer *mmio,
 
 	wp_ofst = (u32)(p_events[event_ring_index].wp -
 		p_events[event_ring_index].rbase);
+	rp_ofst = (u32)(p_events[event_ring_index].rp -
+		p_events[event_ring_index].rbase);
 
 	if (p_events[event_ring_index].rlen & 0xFFFFFFFF00000000) {
 		IPA_UT_LOG("invalid ev rlen %llu\n",
@@ -1348,23 +1357,48 @@ static int ipa_mhi_test_q_transfer_re(struct ipa_mem_buffer *mmio,
 		return -EFAULT;
 	}
 
-	next_wp_ofst = (wp_ofst + num_of_ed_to_queue *
-		sizeof(struct ipa_mhi_event_ring_element)) %
-		(u32)p_events[event_ring_index].rlen;
+	if (wp_ofst > rp_ofst) {
+		avail_ev = (wp_ofst - rp_ofst) /
+			sizeof(struct ipa_mhi_event_ring_element);
+	} else {
+		avail_ev = (u32)p_events[event_ring_index].rlen -
+			(rp_ofst - wp_ofst);
+		avail_ev /= sizeof(struct ipa_mhi_event_ring_element);
+	}
 
-	/* set next WP */
-	p_events[event_ring_index].wp =
-		(u32)p_events[event_ring_index].rbase + next_wp_ofst;
+	IPA_UT_LOG("wp_ofst=0x%x rp_ofst=0x%x rlen=%llu avail_ev=%u\n",
+		wp_ofst, rp_ofst, p_events[event_ring_index].rlen, avail_ev);
 
-	/* write value to event ring doorbell */
-	IPA_UT_LOG("DB to event 0x%llx: base %pa ofst 0x%x\n",
-		p_events[event_ring_index].wp,
-		&(gsi_ctx->per.phys_addr), GSI_EE_n_EV_CH_k_DOORBELL_0_OFFS(
+	if (num_of_ed_to_queue > ((u32)p_events[event_ring_index].rlen /
+		sizeof(struct ipa_mhi_event_ring_element))) {
+		IPA_UT_LOG("event ring too small for %u credits\n",
+			num_of_ed_to_queue);
+		return -EFAULT;
+	}
+
+	if (num_of_ed_to_queue > avail_ev) {
+		IPA_UT_LOG("Need to add event credits (needed=%u)\n",
+			num_of_ed_to_queue - avail_ev);
+
+		next_wp_ofst = (wp_ofst + (num_of_ed_to_queue - avail_ev) *
+			sizeof(struct ipa_mhi_event_ring_element)) %
+			(u32)p_events[event_ring_index].rlen;
+
+		/* set next WP */
+		p_events[event_ring_index].wp =
+			(u32)p_events[event_ring_index].rbase + next_wp_ofst;
+
+		/* write value to event ring doorbell */
+		IPA_UT_LOG("DB to event 0x%llx: base %pa ofst 0x%x\n",
+			p_events[event_ring_index].wp,
+			&(test_mhi_ctx->transport_phys_addr),
+			GSI_EE_n_EV_CH_k_DOORBELL_0_OFFS(
 			event_ring_index + ipa3_ctx->mhi_evid_limits[0], 0));
-	iowrite32(p_events[event_ring_index].wp,
-		test_mhi_ctx->gsi_mmio +
-		GSI_EE_n_EV_CH_k_DOORBELL_0_OFFS(
+		iowrite32(p_events[event_ring_index].wp,
+			test_mhi_ctx->gsi_mmio +
+			GSI_EE_n_EV_CH_k_DOORBELL_0_OFFS(
 			event_ring_index + ipa3_ctx->mhi_evid_limits[0], 0));
+	}
 
 	for (i = 0; i < buf_array_size; i++) {
 		/* calculate virtual pointer for current WP and RP */
@@ -1404,7 +1438,7 @@ static int ipa_mhi_test_q_transfer_re(struct ipa_mem_buffer *mmio,
 				IPA_UT_LOG(
 					"DB to channel 0x%llx: base %pa ofst 0x%x\n"
 					, p_channels[channel_idx].wp
-					, &(gsi_ctx->per.phys_addr)
+					, &(test_mhi_ctx->transport_phys_addr)
 					, GSI_EE_n_GSI_CH_k_DOORBELL_0_OFFS(
 						channel_idx, 0));
 				iowrite32(p_channels[channel_idx].wp,
@@ -3296,4 +3330,3 @@ IPA_UT_DEFINE_SUITE_START(mhi, "MHI for GSI",
 		ipa_mhi_test_in_loop_channel_reset_ipa_holb,
 		true, IPA_HW_v3_0, IPA_HW_MAX),
 } IPA_UT_DEFINE_SUITE_END(mhi);
-

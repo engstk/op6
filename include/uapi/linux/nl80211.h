@@ -944,6 +944,43 @@
  *	does not result in a change for the current association. Currently,
  *	only the %NL80211_ATTR_IE data is used and updated with this command.
  *
+ * @NL80211_CMD_SET_PMK: For offloaded 4-Way handshake, set the PMK or PMK-R0
+ *	for the given authenticator address (specified with &NL80211_ATTR_MAC).
+ *	When &NL80211_ATTR_PMKR0_NAME is set, &NL80211_ATTR_PMK specifies the
+ *	PMK-R0, otherwise it specifies the PMK.
+ * @NL80211_CMD_DEL_PMK: For offloaded 4-Way handshake, delete the previously
+ *	configured PMK for the authenticator address identified by
+ *	&NL80211_ATTR_MAC.
+ * @NL80211_CMD_PORT_AUTHORIZED: An event that indicates that the 4 way
+ *	handshake was completed successfully by the driver. The BSSID is
+ *	specified with &NL80211_ATTR_MAC. Drivers that support 4 way handshake
+ *	offload should send this event after indicating 802.11 association with
+ *	&NL80211_CMD_CONNECT or &NL80211_CMD_ROAM. If the 4 way handshake failed
+ *	&NL80211_CMD_DISCONNECT should be indicated instead.
+ *
+ * @NL80211_CMD_RELOAD_REGDB: Request that the regdb firmware file is reloaded.
+ *
+ * @NL80211_CMD_EXTERNAL_AUTH: This interface is exclusively defined for host
+ *	drivers that do not define separate commands for authentication and
+ *	association, but rely on user space for the authentication to happen.
+ *	This interface acts both as the event request (driver to user space)
+ *	to trigger the authentication and command response (userspace to
+ *	driver) to indicate the authentication status.
+ *
+ *	User space uses the %NL80211_CMD_CONNECT command to the host driver to
+ *	trigger a connection. The host driver selects a BSS and further uses
+ *	this interface to offload only the authentication part to the user
+ *	space. Authentication frames are passed between the driver and user
+ *	space through the %NL80211_CMD_FRAME interface. Host driver proceeds
+ *	further with the association after getting successful authentication
+ *	status. User space indicates the authentication status through
+ *	%NL80211_ATTR_STATUS_CODE attribute in %NL80211_CMD_EXTERNAL_AUTH
+ *	command interface.
+ *
+ *	Host driver reports this status on an authentication failure to the
+ *	user space through the connect result as the user space would have
+ *	initiated the connection through the connect request.
+ *
  * @NL80211_CMD_MAX: highest used command number
  * @__NL80211_CMD_AFTER_LAST: internal use
  */
@@ -1142,6 +1179,15 @@ enum nl80211_commands {
 	NL80211_CMD_SET_MULTICAST_TO_UNICAST,
 
 	NL80211_CMD_UPDATE_CONNECT_PARAMS,
+
+	NL80211_CMD_SET_PMK,
+	NL80211_CMD_DEL_PMK,
+
+	NL80211_CMD_PORT_AUTHORIZED,
+
+	NL80211_CMD_RELOAD_REGDB,
+
+	NL80211_CMD_EXTERNAL_AUTH,
 
 	/* add new commands above here */
 
@@ -1870,6 +1916,8 @@ enum nl80211_commands {
  *	and remove functions. NAN notifications will be sent in unicast to that
  *	socket. Without this attribute, any socket can add functions and the
  *	notifications will be sent to the %NL80211_MCGRP_NAN multicast group.
+ *	If set during %NL80211_CMD_ASSOCIATE or %NL80211_CMD_CONNECT the
+ *	station will deauthenticate when the socket is closed.
  *
  * @NL80211_ATTR_TDLS_INITIATOR: flag attribute indicating the current end is
  *	the TDLS link initiator.
@@ -2076,6 +2124,16 @@ enum nl80211_commands {
  *	notification indicating that that 802.1X authentication was done by
  *	the driver or is not needed (because roaming used the Fast Transition
  *	protocol).
+ *
+ * @NL80211_ATTR_EXTERNAL_AUTH_ACTION: Identify the requested external
+ *     authentication operation (u32 attribute with an
+ *     &enum nl80211_external_auth_action value). This is used with the
+ *     &NL80211_CMD_EXTERNAL_AUTH request event.
+ * @NL80211_ATTR_EXTERNAL_AUTH_SUPPORT: Flag attribute indicating that the user
+ *     space supports external authentication. This attribute shall be used
+ *     only with %NL80211_CMD_CONNECT request. The driver may offload
+ *     authentication processing to user space if this capability is indicated
+ *     in NL80211_CMD_CONNECT requests from the user space.
  *
  * @NUM_NL80211_ATTR: total number of nl80211_attrs available
  * @NL80211_ATTR_MAX: highest attribute number currently defined
@@ -2503,6 +2561,9 @@ enum nl80211_attrs {
 	NL80211_ATTR_PMKR0_NAME,
 	NL80211_ATTR_PORT_AUTHORIZED,
 
+	NL80211_ATTR_EXTERNAL_AUTH_ACTION,
+	NL80211_ATTR_EXTERNAL_AUTH_SUPPORT,
+
 	/* add attributes here, update the policy in nl80211.c */
 
 	__NL80211_ATTR_AFTER_LAST,
@@ -2541,6 +2602,8 @@ enum nl80211_attrs {
 #define NL80211_ATTR_KEY NL80211_ATTR_KEY
 #define NL80211_ATTR_KEYS NL80211_ATTR_KEYS
 #define NL80211_ATTR_FEATURE_FLAGS NL80211_ATTR_FEATURE_FLAGS
+
+#define NL80211_WIPHY_NAME_MAXLEN		128
 
 #define NL80211_MAX_SUPP_RATES			32
 #define NL80211_MAX_SUPP_HT_RATES		77
@@ -3782,6 +3845,9 @@ enum nl80211_bss_scan_width {
  *	@NL80211_BSS_PARENT_BSSID. (u64).
  * @NL80211_BSS_PARENT_BSSID: the BSS according to which @NL80211_BSS_PARENT_TSF
  *	is set.
+ * @NL80211_BSS_CHAIN_SIGNAL: per-chain signal strength of last BSS update.
+ *	Contains a nested array of signal strength attributes (u8, dBm),
+ *	using the nesting index as the antenna number.
  * @__NL80211_BSS_AFTER_LAST: internal
  * @NL80211_BSS_MAX: highest BSS attribute
  */
@@ -3805,6 +3871,7 @@ enum nl80211_bss {
 	NL80211_BSS_PAD,
 	NL80211_BSS_PARENT_TSF,
 	NL80211_BSS_PARENT_BSSID,
+	NL80211_BSS_CHAIN_SIGNAL,
 
 	/* keep last */
 	__NL80211_BSS_AFTER_LAST,
@@ -4835,6 +4902,27 @@ enum nl80211_feature_flags {
  *	RSSI threshold values to monitor rather than exactly one threshold.
  * @NL80211_EXT_FEATURE_FILS_SK_OFFLOAD: Driver SME supports FILS shared key
  *	authentication with %NL80211_CMD_CONNECT.
+ * @NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK: Device wants to do 4-way
+ *	handshake with PSK in station mode (PSK is passed as part of the connect
+ *	and associate commands), doing it in the host might not be supported.
+ * @NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X: Device wants to do doing 4-way
+ *	handshake with 802.1X in station mode (will pass EAP frames to the host
+ *	and accept the set_pmk/del_pmk commands), doing it in the host might not
+ *	be supported.
+ * @NL80211_EXT_FEATURE_FILS_MAX_CHANNEL_TIME: Driver is capable of overriding
+ *	the max channel attribute in the FILS request params IE with the
+ *	actual dwell time.
+ * @NL80211_EXT_FEATURE_ACCEPT_BCAST_PROBE_RESP: Driver accepts broadcast probe
+ *	response
+ * @NL80211_EXT_FEATURE_OCE_PROBE_REQ_HIGH_TX_RATE: Driver supports sending
+ *	the first probe request in each channel at rate of at least 5.5Mbps.
+ * @NL80211_EXT_FEATURE_OCE_PROBE_REQ_DEFERRAL_SUPPRESSION: Driver supports
+ *	probe request tx deferral and suppression
+ * @NL80211_EXT_FEATURE_MFP_OPTIONAL: Driver supports the %NL80211_MFP_OPTIONAL
+ *	value in %NL80211_ATTR_USE_MFP.
+ * @NL80211_EXT_FEATURE_LOW_SPAN_SCAN: Driver supports low span scan.
+ * @NL80211_EXT_FEATURE_LOW_POWER_SCAN: Driver supports low power scan.
+ * @NL80211_EXT_FEATURE_HIGH_ACCURACY_SCAN: Driver supports high accuracy scan.
  *
  * @NUM_NL80211_EXT_FEATURES: number of extended features.
  * @MAX_NL80211_EXT_FEATURES: highest extended feature index.
@@ -4855,6 +4943,16 @@ enum nl80211_ext_feature_index {
 	NL80211_EXT_FEATURE_SCHED_SCAN_RELATIVE_RSSI,
 	NL80211_EXT_FEATURE_CQM_RSSI_LIST,
 	NL80211_EXT_FEATURE_FILS_SK_OFFLOAD,
+	NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK,
+	NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X,
+	NL80211_EXT_FEATURE_FILS_MAX_CHANNEL_TIME,
+	NL80211_EXT_FEATURE_ACCEPT_BCAST_PROBE_RESP,
+	NL80211_EXT_FEATURE_OCE_PROBE_REQ_HIGH_TX_RATE,
+	NL80211_EXT_FEATURE_OCE_PROBE_REQ_DEFERRAL_SUPPRESSION,
+	NL80211_EXT_FEATURE_MFP_OPTIONAL,
+	NL80211_EXT_FEATURE_LOW_SPAN_SCAN,
+	NL80211_EXT_FEATURE_LOW_POWER_SCAN,
+	NL80211_EXT_FEATURE_HIGH_ACCURACY_SCAN,
 
 	/* add new features before the definition below */
 	NUM_NL80211_EXT_FEATURES,
@@ -4915,6 +5013,10 @@ enum nl80211_timeout_reason {
  * of NL80211_CMD_TRIGGER_SCAN and NL80211_CMD_START_SCHED_SCAN
  * requests.
  *
+ * NL80211_SCAN_FLAG_LOW_SPAN, NL80211_SCAN_FLAG_LOW_POWER, and
+ * NL80211_SCAN_FLAG_HIGH_ACCURACY flags are exclusive of each other, i.e., only
+ * one of them can be used in the request.
+ *
  * @NL80211_SCAN_FLAG_LOW_PRIORITY: scan request has low priority
  * @NL80211_SCAN_FLAG_FLUSH: flush cache before scanning
  * @NL80211_SCAN_FLAG_AP: force a scan even if the interface is configured
@@ -4931,12 +5033,29 @@ enum nl80211_timeout_reason {
  *	locally administered 1, multicast 0) is assumed.
  *	This flag must not be requested when the feature isn't supported, check
  *	the nl80211 feature flags for the device.
+ *	SSID and/or RSSI.
+ * @NL80211_SCAN_FLAG_LOW_SPAN: Span corresponds to the total time taken to
+ *	accomplish the scan. Thus, this flag intends the driver to perform the
+ *	scan request with lesser span/duration. It is specific to the driver
+ *	implementations on how this is accomplished. Scan accuracy may get
+ *	impacted with this flag.
+ * @NL80211_SCAN_FLAG_LOW_POWER: This flag intends the scan attempts to consume
+ *	optimal possible power. Drivers can resort to their specific means to
+ *	optimize the power. Scan accuracy may get impacted with this flag.
+ * @NL80211_SCAN_FLAG_HIGH_ACCURACY: Accuracy here intends to the extent of scan
+ *	results obtained. Thus HIGH_ACCURACY scan flag aims to get maximum
+ *	possible scan results. This flag hints the driver to use the best
+ *	possible scan configuration to improve the accuracy in scanning.
+ *	Latency and power use may get impacted with this flag.
  */
 enum nl80211_scan_flags {
 	NL80211_SCAN_FLAG_LOW_PRIORITY			= 1<<0,
 	NL80211_SCAN_FLAG_FLUSH				= 1<<1,
 	NL80211_SCAN_FLAG_AP				= 1<<2,
 	NL80211_SCAN_FLAG_RANDOM_ADDR			= 1<<3,
+	NL80211_SCAN_FLAG_LOW_SPAN			= 1<<8,
+	NL80211_SCAN_FLAG_LOW_POWER			= 1<<9,
+	NL80211_SCAN_FLAG_HIGH_ACCURACY			= 1<<10,
 };
 
 /**
@@ -5343,6 +5462,17 @@ enum nl80211_nan_match_attributes {
 	/* keep last */
 	NUM_NL80211_NAN_MATCH_ATTR,
 	NL80211_NAN_MATCH_ATTR_MAX = NUM_NL80211_NAN_MATCH_ATTR - 1
+};
+
+/**
+ * nl80211_external_auth_action - Action to perform with external
+ *     authentication request. Used by NL80211_ATTR_EXTERNAL_AUTH_ACTION.
+ * @NL80211_EXTERNAL_AUTH_START: Start the authentication.
+ * @NL80211_EXTERNAL_AUTH_ABORT: Abort the ongoing authentication.
+ */
+enum nl80211_external_auth_action {
+	NL80211_EXTERNAL_AUTH_START,
+	NL80211_EXTERNAL_AUTH_ABORT,
 };
 
 #endif /* __LINUX_NL80211_H */

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -59,6 +59,9 @@ struct tzbsp_resp {
 
 /* Poll interval in uS */
 #define POLL_INTERVAL_US 50
+
+#define VENUS_AXI_HALT_ACK_TIMEOUT_US		500000
+
 
 enum tzbsp_video_state {
 	TZBSP_VIDEO_STATE_SUSPEND = 0,
@@ -1094,6 +1097,8 @@ static int __set_clocks(struct venus_hfi_device *device, u32 freq)
 	int rc = 0;
 
 	venus_hfi_for_each_clock(device, cl) {
+		if (cl->disable_memcore_only)
+			continue;
 		if (cl->has_scaling) {/* has_scaling */
 			device->clk_freq = freq;
 			rc = clk_set_rate(cl->clk, freq);
@@ -2850,11 +2855,51 @@ exit:
 	mutex_unlock(&device->lock);
 }
 
+static int __halt_axi(struct venus_hfi_device *device)
+{
+	u32 reg;
+	int rc = 0;
+
+	if (!device) {
+		dprintk(VIDC_ERR, "Invalid input\n");
+		return -EINVAL;
+	}
+
+	/*
+	 * Driver needs to make sure that clocks are enabled to read Venus AXI
+	 * registers. If not skip AXI HALT.
+	 */
+	if (!device->power_enabled) {
+		dprintk(VIDC_WARN,
+			"Clocks are OFF, skipping AXI HALT\n");
+		return -EINVAL;
+	}
+
+	/* Halt AXI and AXI IMEM VBIF Access */
+	reg = __read_register(device, VENUS_WRAPPER_AXI_HALT);
+	reg |= BRIC_AXI_HALT;
+	__write_register(device, VENUS_WRAPPER_AXI_HALT, reg);
+
+	/* Request for AXI bus port halt */
+	rc = readl_poll_timeout(device->hal_data->register_base
+			+ VENUS_WRAPPER_AXI_HALT_STATUS,
+			reg, reg & BRIC_AXI_HALT_ACK,
+			POLL_INTERVAL_US,
+			VENUS_AXI_HALT_ACK_TIMEOUT_US);
+	if (rc)
+		dprintk(VIDC_WARN, "AXI bus port halt timeout\n");
+
+	return rc;
+}
+
 static void __process_sys_error(struct venus_hfi_device *device)
 {
 	struct hfi_sfr_struct *vsfr = NULL;
 
 	__set_state(device, VENUS_STATE_DEINIT);
+
+	if (__halt_axi(device))
+		dprintk(VIDC_WARN, "Failed to halt AXI after SYS_ERROR\n");
 
 	vsfr = (struct hfi_sfr_struct *)device->sfr.align_virtual_addr;
 	if (vsfr) {
@@ -3319,6 +3364,8 @@ static inline void __disable_unprepare_clks(struct venus_hfi_device *device)
 	}
 
 	venus_hfi_for_each_clock_reverse(device, cl) {
+		if (cl->disable_memcore_only)
+			continue;
 		dprintk(VIDC_DBG, "Clock: %s disable and unprepare\n",
 				cl->name);
 		rc = clk_set_flags(cl->clk, CLKFLAG_NORETAIN_PERIPH);
@@ -3348,6 +3395,11 @@ static inline int __prepare_enable_clks(struct venus_hfi_device *device)
 	}
 
 	venus_hfi_for_each_clock(device, cl) {
+		/* MEM CORE is ON by default. Unset it for unused clocks*/
+		if (cl->disable_memcore_only) {
+			clk_set_flags(cl->clk, CLKFLAG_NORETAIN_MEM);
+			continue;
+		}
 		/*
 		 * For the clocks we control, set the rate prior to preparing
 		 * them.  Since we don't really have a load at this point, scale
@@ -3385,6 +3437,8 @@ static inline int __prepare_enable_clks(struct venus_hfi_device *device)
 
 fail_clk_enable:
 	venus_hfi_for_each_clock_reverse_continue(device, cl, c) {
+		if (cl->disable_memcore_only)
+			continue;
 		dprintk(VIDC_ERR, "Clock: %s disable and unprepare\n",
 			cl->name);
 		clk_disable_unprepare(cl->clk);
@@ -3478,7 +3532,6 @@ static int __init_bus(struct venus_hfi_device *device)
 		devfreq_suspend_device(bus->devfreq);
 	}
 
-	device->bus_vote = DEFAULT_BUS_VOTE;
 	return 0;
 
 err_add_dev:

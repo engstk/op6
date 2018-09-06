@@ -2,7 +2,7 @@
  * drivers/mmc/host/sdhci-msm.c - Qualcomm Technologies, Inc. MSM SDHCI Platform
  * driver source file
  *
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,6 +39,7 @@
 #include <linux/iopoll.h>
 #include <linux/msm-bus.h>
 #include <linux/pm_runtime.h>
+#include <linux/nvmem-consumer.h>
 #include <trace/events/mmc.h>
 
 #include "sdhci-msm.h"
@@ -157,6 +158,8 @@
 #define DDR_CONFIG_PRG_RCLK_DLY_MASK	0x1FF
 #define DDR_CONFIG_PRG_RCLK_DLY		115
 #define DDR_CONFIG_2_POR_VAL		0x80040873
+#define DLL_USR_CTL_POR_VAL		0x10800
+#define ENABLE_DLL_LOCK_STATUS		(1 << 26)
 
 /* 512 descriptors */
 #define SDHCI_MSM_MAX_SEGMENTS  (1 << 9)
@@ -171,6 +174,8 @@
 #define NUM_TUNING_PHASES		16
 #define MAX_DRV_TYPES_SUPPORTED_HS200	4
 #define MSM_AUTOSUSPEND_DELAY_MS 100
+
+#define RCLK_TOGGLE 0x2
 
 struct sdhci_msm_offset {
 	u32 CORE_MCI_DATA_CNT;
@@ -199,6 +204,7 @@ struct sdhci_msm_offset {
 	u32 CORE_DLL_CONFIG_2;
 	u32 CORE_DDR_CONFIG;
 	u32 CORE_DDR_CONFIG_2;
+	u32 CORE_DLL_USR_CTL; /* Present on SDCC5.1 onwards */
 };
 
 struct sdhci_msm_offset sdhci_msm_offset_mci_removed = {
@@ -228,6 +234,7 @@ struct sdhci_msm_offset sdhci_msm_offset_mci_removed = {
 	.CORE_DLL_CONFIG_2 = 0x254,
 	.CORE_DDR_CONFIG = 0x258,
 	.CORE_DDR_CONFIG_2 = 0x25C,
+	.CORE_DLL_USR_CTL = 0x388,
 };
 
 struct sdhci_msm_offset sdhci_msm_offset_mci_present = {
@@ -792,6 +799,15 @@ static int msm_init_cm_dll(struct sdhci_host *host)
 				msm_host_offset->CORE_DLL_CONFIG_2)
 				& ~CORE_DLL_CLOCK_DISABLE), host->ioaddr +
 				msm_host_offset->CORE_DLL_CONFIG_2);
+	}
+
+	/*
+	 * Configure DLL user control register to enable DLL status
+	 * This setting is applicable to SDCC v5.1 onwards only
+	 */
+	if (msm_host->need_dll_user_ctl) {
+		writel_relaxed(DLL_USR_CTL_POR_VAL | ENABLE_DLL_LOCK_STATUS,
+			host->ioaddr + msm_host_offset->CORE_DLL_USR_CTL);
 	}
 
 	/* Set DLL_EN bit to 1. */
@@ -1885,6 +1901,69 @@ static void sdhci_msm_pm_qos_parse(struct device *dev,
 	}
 }
 
+#ifdef CONFIG_NVMEM
+/* Parse qfprom data for deciding on errata work-arounds */
+static long qfprom_read(struct device *dev, const char *name)
+{
+	struct nvmem_cell *cell;
+	ssize_t len = 0;
+	u32 *buf, val = 0;
+	long err = 0;
+
+	cell = nvmem_cell_get(dev, name);
+	if (IS_ERR(cell)) {
+		err = PTR_ERR(cell);
+		dev_err(dev, "failed opening nvmem cell err : %ld\n", err);
+		/* If entry does not exist, then that is not an error */
+		if (err == -ENOENT)
+			err = 0;
+		return err;
+	}
+
+	buf = (u32 *)nvmem_cell_read(cell, &len);
+	if (IS_ERR(buf) || !len) {
+		dev_err(dev, "Failed reading nvmem cell, err: %u, bytes fetched: %zd\n",
+				*buf, len);
+		if (!IS_ERR(buf)) {
+			kfree(buf);
+			err = -EINVAL;
+		} else {
+			err = PTR_ERR(buf);
+		}
+	} else {
+		/*
+		 * 30 bits from bit offset 0 would be read.
+		 * We're interested in bits 28:29
+		 */
+		val = (*buf >> 28) & 0x3;
+		kfree(buf);
+	}
+
+	nvmem_cell_put(cell);
+	return err ? err : (long) val;
+}
+
+/* Reads the SoC version */
+static int sdhci_msm_get_socrev(struct device *dev,
+				struct sdhci_msm_host *msm_host)
+{
+
+	msm_host->soc_min_rev  = qfprom_read(dev, "minor_rev");
+
+	if (msm_host->soc_min_rev < 0)
+		dev_err(dev, "failed getting soc_min_rev, err : %d\n",
+				msm_host->soc_min_rev);
+	return msm_host->soc_min_rev;
+}
+#else
+/* Reads the SoC version */
+static int sdhci_msm_get_socrev(struct device *dev,
+				struct sdhci_msm_host *msm_host)
+{
+	return 0;
+}
+#endif
+
 /* Parse platform data */
 static
 struct sdhci_msm_pltfm_data *sdhci_msm_populate_pdata(struct device *dev,
@@ -2061,6 +2140,13 @@ struct sdhci_msm_pltfm_data *sdhci_msm_populate_pdata(struct device *dev,
 
 	if (!of_property_read_u32(np, "qcom,ddr-config", &pdata->ddr_config))
 		pdata->rclk_wa = true;
+
+	/*
+	 * rclk_wa is not required if soc version is mentioned and
+	 * is not base version.
+	 */
+	if (msm_host->soc_min_rev != 0)
+		pdata->rclk_wa = false;
 
 	return pdata;
 out:
@@ -3413,6 +3499,33 @@ static void sdhci_msm_set_clock(struct sdhci_host *host, unsigned int clock)
 					| CORE_HC_SELECT_IN_EN), host->ioaddr +
 					msm_host_offset->CORE_VENDOR_SPEC);
 		}
+		/*
+		 * After MCLK ugating, toggle the FIFO write clock to get
+		 * the FIFO pointers and flags to valid state.
+		 */
+		if (msm_host->tuning_done ||
+				(card && mmc_card_strobe(card) &&
+				msm_host->enhanced_strobe)) {
+			/*
+			 * set HC_REG_DLL_CONFIG_3[1] to select MCLK as
+			 * DLL input clock
+			 */
+			writel_relaxed(((readl_relaxed(host->ioaddr +
+				msm_host_offset->CORE_DDR_CONFIG))
+				| RCLK_TOGGLE), host->ioaddr +
+				msm_host_offset->CORE_DDR_CONFIG);
+			/* ensure above write as toggling same bit quickly */
+			wmb();
+			udelay(2);
+			/*
+			 * clear HC_REG_DLL_CONFIG_3[1] to select RCLK as
+			 * DLL input clock
+			 */
+			writel_relaxed(((readl_relaxed(host->ioaddr +
+				msm_host_offset->CORE_DDR_CONFIG))
+				& ~RCLK_TOGGLE), host->ioaddr +
+				msm_host_offset->CORE_DDR_CONFIG);
+		}
 		if (!host->mmc->ios.old_rate && !msm_host->use_cdclp533) {
 			/*
 			 * Poll on DLL_LOCK and DDR_DLL_LOCK bits in
@@ -3881,8 +3994,9 @@ void sdhci_msm_pm_qos_irq_unvote(struct sdhci_host *host, bool async)
 		return;
 
 	if (async) {
-		schedule_delayed_work(&msm_host->pm_qos_irq.unvote_work,
-				      msecs_to_jiffies(QOS_REMOVE_DELAY_MS));
+		queue_delayed_work(msm_host->pm_qos_wq,
+				&msm_host->pm_qos_irq.unvote_work,
+				msecs_to_jiffies(QOS_REMOVE_DELAY_MS));
 		return;
 	}
 
@@ -3959,6 +4073,33 @@ static inline void set_affine_irq(struct sdhci_msm_host *msm_host,
 				struct sdhci_host *host) { }
 #endif
 
+static bool sdhci_msm_pm_qos_wq_init(struct sdhci_msm_host *msm_host)
+{
+	char *wq = NULL;
+	bool ret = true;
+
+	wq = kasprintf(GFP_KERNEL, "sdhci_msm_pm_qos/%s",
+			dev_name(&msm_host->pdev->dev));
+	if (!wq)
+		return false;
+	/*
+	 * Create a work queue with flag WQ_MEM_RECLAIM set for
+	 * pm_qos_unvote work. Because mmc thread is created with
+	 * flag PF_MEMALLOC set, kernel will check for work queue
+	 * flag WQ_MEM_RECLAIM when flush the work queue. If work
+	 * queue flag WQ_MEM_RECLAIM is not set, kernel warning
+	 * will be triggered.
+	 */
+	msm_host->pm_qos_wq = create_workqueue(wq);
+	if (!msm_host->pm_qos_wq) {
+		ret = false;
+		dev_err(&msm_host->pdev->dev,
+				"failed to create pm qos unvote work queue\n");
+	}
+	kfree(wq);
+	return ret;
+}
+
 void sdhci_msm_pm_qos_irq_init(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
@@ -3982,6 +4123,8 @@ void sdhci_msm_pm_qos_irq_init(struct sdhci_host *host)
 	else
 		cpumask_copy(&msm_host->pm_qos_irq.req.cpus_affine,
 			cpumask_of(msm_host->pdata->pm_qos_data.irq_cpu));
+
+	sdhci_msm_pm_qos_wq_init(msm_host);
 
 	INIT_DELAYED_WORK(&msm_host->pm_qos_irq.unvote_work,
 		sdhci_msm_pm_qos_irq_unvote_work);
@@ -4157,8 +4300,9 @@ bool sdhci_msm_pm_qos_cpu_unvote(struct sdhci_host *host, int cpu, bool async)
 		return false;
 
 	if (async) {
-		schedule_delayed_work(&msm_host->pm_qos[group].unvote_work,
-				      msecs_to_jiffies(QOS_REMOVE_DELAY_MS));
+		queue_delayed_work(msm_host->pm_qos_wq,
+				&msm_host->pm_qos[group].unvote_work,
+				msecs_to_jiffies(QOS_REMOVE_DELAY_MS));
 		return true;
 	}
 
@@ -4198,11 +4342,10 @@ void sdhci_msm_pm_qos_cpu_init(struct sdhci_host *host,
 		group->latency = PM_QOS_DEFAULT_VALUE;
 		pm_qos_add_request(&group->req, PM_QOS_CPU_DMA_LATENCY,
 			group->latency);
-		pr_info("%s (): voted for group #%d (mask=0x%lx) latency=%d (0x%p)\n",
+		pr_info("%s (): voted for group #%d (mask=0x%lx) latency=%d\n",
 			__func__, i,
 			group->req.cpus_affine.bits[0],
-			group->latency,
-			&latency[i].latency[SDHCI_PERFORMANCE_MODE]);
+			group->latency);
 	}
 	msm_host->pm_qos_prev_cpu = -1;
 	msm_host->pm_qos_group_enable = true;
@@ -4462,6 +4605,10 @@ static void sdhci_set_default_hw_caps(struct sdhci_msm_host *msm_host,
 		msm_host->ice_hci_support = true;
 		host->cdr_support = true;
 	}
+
+	if ((major == 1) && (minor >= 0x71))
+		msm_host->need_dll_user_ctl = true;
+
 }
 
 #ifdef CONFIG_MMC_CQ_HCI
@@ -4557,6 +4704,12 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	pltfm_host->priv = msm_host;
 	msm_host->mmc = host->mmc;
 	msm_host->pdev = pdev;
+
+	ret = sdhci_msm_get_socrev(&pdev->dev, msm_host);
+	if (ret == -EPROBE_DEFER) {
+		dev_err(&pdev->dev, "SoC version rd: fail: defer for now\n");
+		goto pltfm_free;
+	}
 
 	/* get the ice device vops if present */
 	ret = sdhci_msm_ice_get_dev(host);
@@ -4763,8 +4916,6 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 			goto vreg_deinit;
 		}
 		writel_relaxed(readl_relaxed(tlmm_mem) | 0x2, tlmm_mem);
-		dev_dbg(&pdev->dev, "tlmm reg %pa value 0x%08x\n",
-				&tlmm_memres->start, readl_relaxed(tlmm_mem));
 	}
 
 	/*
@@ -4873,6 +5024,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 				msm_host->pwr_irq);
 		goto vreg_deinit;
 	}
+
 	ret = devm_request_threaded_irq(&pdev->dev, msm_host->pwr_irq, NULL,
 					sdhci_msm_pwr_irq, IRQF_ONESHOT,
 					dev_name(&pdev->dev), host);
@@ -4923,6 +5075,7 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 			goto vreg_deinit;
 		}
 		host->is_crypto_en = true;
+		msm_host->mmc->inlinecrypt_support = true;
 		/* Packed commands cannot be encrypted/decrypted using ICE */
 		msm_host->mmc->caps2 &= ~(MMC_CAP2_PACKED_WR |
 				MMC_CAP2_PACKED_WR_CONTROL);
@@ -5094,6 +5247,9 @@ static int sdhci_msm_remove(struct platform_device *pdev)
 		device_remove_file(&pdev->dev, &msm_host->polling);
 	device_remove_file(&pdev->dev, &msm_host->msm_bus_vote.max_bus_bw);
 	pm_runtime_disable(&pdev->dev);
+
+	if (msm_host->pm_qos_wq)
+		destroy_workqueue(msm_host->pm_qos_wq);
 	sdhci_remove_host(host, dead);
 	sdhci_pltfm_free(pdev);
 

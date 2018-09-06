@@ -61,7 +61,7 @@ const char *cma_get_name(const struct cma *cma)
 }
 
 static unsigned long cma_bitmap_aligned_mask(const struct cma *cma,
-					     int align_order)
+					     unsigned int align_order)
 {
 	if (align_order <= cma->order_per_bit)
 		return 0;
@@ -69,17 +69,14 @@ static unsigned long cma_bitmap_aligned_mask(const struct cma *cma,
 }
 
 /*
- * Find a PFN aligned to the specified order and return an offset represented in
- * order_per_bits.
+ * Find the offset of the base PFN from the specified align_order.
+ * The value returned is represented in order_per_bits.
  */
 static unsigned long cma_bitmap_aligned_offset(const struct cma *cma,
-					       int align_order)
+					       unsigned int align_order)
 {
-	if (align_order <= cma->order_per_bit)
-		return 0;
-
-	return (ALIGN(cma->base_pfn, (1UL << align_order))
-		- cma->base_pfn) >> cma->order_per_bit;
+	return (cma->base_pfn & ((1UL << align_order) - 1))
+		>> cma->order_per_bit;
 }
 
 static unsigned long cma_bitmap_pages_to_bits(const struct cma *cma,
@@ -441,6 +438,8 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 	struct page *page = NULL;
 	int retry_after_sleep = 0;
 	int ret = -ENOMEM;
+	int max_retries = 2;
+	int available_regions = 0;
 
 	if (!cma || !cma->count)
 		return NULL;
@@ -467,8 +466,15 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 				bitmap_maxno, start, bitmap_count, mask,
 				offset);
 		if (bitmap_no >= bitmap_maxno) {
-			if (retry_after_sleep < 2) {
+			if (retry_after_sleep < max_retries) {
 				start = 0;
+				/*
+				 * update max retries if available free regions
+				 * are less.
+				 */
+				if (available_regions < 3)
+					max_retries = 5;
+				available_regions = 0;
 				/*
 				 * Page may be momentarily pinned by some other
 				 * process which has been scheduled out, eg.
@@ -486,6 +492,8 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 				break;
 			}
 		}
+
+		available_regions++;
 		bitmap_set(cma->bitmap, bitmap_no, bitmap_count);
 		/*
 		 * It's safe to drop the lock here. We've marked this region for

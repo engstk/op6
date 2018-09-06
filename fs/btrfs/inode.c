@@ -567,8 +567,10 @@ cont:
 						     PAGE_SET_WRITEBACK |
 						     page_error_op |
 						     PAGE_END_WRITEBACK);
-			btrfs_free_reserved_data_space_noquota(inode, start,
-						end - start + 1);
+			if (ret == 0)
+				btrfs_free_reserved_data_space_noquota(inode,
+							       start,
+							       end - start + 1);
 			goto free_pages_out;
 		}
 	}
@@ -1320,8 +1322,11 @@ next_slot:
 		leaf = path->nodes[0];
 		if (path->slots[0] >= btrfs_header_nritems(leaf)) {
 			ret = btrfs_next_leaf(root, path);
-			if (ret < 0)
+			if (ret < 0) {
+				if (cow_start != (u64)-1)
+					cur_offset = cow_start;
 				goto error;
+			}
 			if (ret > 0)
 				break;
 			leaf = path->nodes[0];
@@ -2063,8 +2068,15 @@ again:
 		goto out;
 	 }
 
-	btrfs_set_extent_delalloc(inode, page_start, page_end, &cached_state,
-				  0);
+	ret = btrfs_set_extent_delalloc(inode, page_start, page_end,
+					&cached_state, 0);
+	if (ret) {
+		mapping_set_error(page->mapping, ret);
+		end_extent_writepage(page, ret, page_start, page_end);
+		ClearPageChecked(page);
+		goto out;
+	}
+
 	ClearPageChecked(page);
 	set_page_dirty(page);
 out:
@@ -5219,7 +5231,7 @@ void btrfs_evict_inode(struct inode *inode)
 	trace_btrfs_inode_evict(inode);
 
 	if (!root) {
-		kmem_cache_free(btrfs_inode_cachep, BTRFS_I(inode));
+		clear_inode(inode);
 		return;
 	}
 
@@ -6479,8 +6491,7 @@ static int btrfs_mknod(struct inode *dir, struct dentry *dentry,
 		goto out_unlock_inode;
 	} else {
 		btrfs_update_inode(trans, root, inode);
-		unlock_new_inode(inode);
-		d_instantiate(dentry, inode);
+		d_instantiate_new(dentry, inode);
 	}
 
 out_unlock:
@@ -6555,8 +6566,7 @@ static int btrfs_create(struct inode *dir, struct dentry *dentry,
 		goto out_unlock_inode;
 
 	BTRFS_I(inode)->io_tree.ops = &btrfs_extent_io_ops;
-	unlock_new_inode(inode);
-	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 
 out_unlock:
 	btrfs_end_transaction(trans, root);
@@ -6699,12 +6709,7 @@ static int btrfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	if (err)
 		goto out_fail_inode;
 
-	d_instantiate(dentry, inode);
-	/*
-	 * mkdir is special.  We're unlocking after we call d_instantiate
-	 * to avoid a race with nfsd calling d_instantiate.
-	 */
-	unlock_new_inode(inode);
+	d_instantiate_new(dentry, inode);
 	drop_on_err = 0;
 
 out_fail:
@@ -6812,6 +6817,20 @@ static noinline int uncompress_inline(struct btrfs_path *path,
 	max_size = min_t(unsigned long, PAGE_SIZE, max_size);
 	ret = btrfs_decompress(compress_type, tmp, page,
 			       extent_offset, inline_size, max_size);
+
+	/*
+	 * decompression code contains a memset to fill in any space between the end
+	 * of the uncompressed data and the end of max_size in case the decompressed
+	 * data ends up shorter than ram_bytes.  That doesn't cover the hole between
+	 * the end of an inline extent and the beginning of the next block, so we
+	 * cover that region here.
+	 */
+
+	if (max_size + pg_offset < PAGE_SIZE) {
+		char *map = kmap(page);
+		memset(map + pg_offset + max_size, 0, PAGE_SIZE - max_size - pg_offset);
+		kunmap(page);
+	}
 	kfree(tmp);
 	return ret;
 }
@@ -10328,8 +10347,7 @@ static int btrfs_symlink(struct inode *dir, struct dentry *dentry,
 		goto out_unlock_inode;
 	}
 
-	unlock_new_inode(inode);
-	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 
 out_unlock:
 	btrfs_end_transaction(trans, root);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014,2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -108,8 +108,8 @@ long kgsl_ioctl_syncsource_signal_fence(struct kgsl_device_private *dev_priv,
 
 void kgsl_syncsource_put(struct kgsl_syncsource *syncsource);
 
-void kgsl_syncsource_cleanup(struct kgsl_process_private *private,
-					struct kgsl_syncsource *syncsource);
+void kgsl_syncsource_process_release_syncsources(
+		struct kgsl_process_private *private);
 
 void kgsl_dump_fence(struct kgsl_drawobj_sync_event *event,
 					char *fence_str, int len);
@@ -137,8 +137,8 @@ static inline void kgsl_sync_timeline_put(struct kgsl_sync_timeline *ktimeline)
 }
 
 
-struct kgsl_sync_fence_cb *kgsl_sync_fence_async_wait(int fd,
-					void (*func)(void *priv), void *priv,
+static inline struct kgsl_sync_fence_cb *kgsl_sync_fence_async_wait(int fd,
+					bool (*func)(void *priv), void *priv,
 					char *fence_name, int name_len)
 {
 	return NULL;
@@ -182,13 +182,13 @@ static inline void kgsl_syncsource_put(struct kgsl_syncsource *syncsource)
 
 }
 
-static inline void kgsl_syncsource_cleanup(struct kgsl_process_private *private,
-					struct kgsl_syncsource *syncsource)
+static inline void kgsl_syncsource_process_release_syncsources(
+		struct kgsl_process_private *private)
 {
 
 }
 
-void kgsl_dump_fence(struct kgsl_drawobj_sync_event *event,
+static inline void kgsl_dump_fence(struct kgsl_drawobj_sync_event *event,
 					char *fence_str, int len)
 {
 }

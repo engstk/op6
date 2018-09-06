@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -155,6 +155,9 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_SECURITY_LEVEL,
 	CRTC_PROP_IDLE_TIMEOUT,
 	CRTC_PROP_DEST_SCALER,
+	CRTC_PROP_CAPTURE_OUTPUT,
+
+	CRTC_PROP_ENABLE_SUI_ENHANCEMENT,
 
 	/* total # of properties */
 	CRTC_PROP_COUNT
@@ -577,6 +580,9 @@ struct msm_drm_private {
 
 	struct msm_drm_thread disp_thread[MAX_CRTCS];
 	struct msm_drm_thread event_thread[MAX_CRTCS];
+
+	struct task_struct *pp_event_thread;
+	struct kthread_worker pp_event_worker;
 
 	unsigned int num_encoders;
 	struct drm_encoder *encoders[MAX_ENCODERS];

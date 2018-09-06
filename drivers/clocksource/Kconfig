@@ -305,6 +305,14 @@ config ARM_ARCH_TIMER_EVTSTREAM
 	  This must be disabled for hardware validation purposes to detect any
 	  hardware anomalies of missing events.
 
+config ARM_ARCH_TIMER_VCT_ACCESS
+	bool "Support for ARM architected timer virtual counter access in userspace"
+	default !ARM64
+	depends on ARM_ARCH_TIMER
+	help
+	  This option enables support for reading the ARM architected timer's
+	  virtual counter in userspace.
+
 config FSL_ERRATUM_A008585
 	bool "Workaround for Freescale/NXP Erratum A-008585"
 	default y
@@ -322,6 +330,15 @@ config ARM_ARCH_TIMER_VCT_ACCESS
 	help
 	  This option enables support for reading the ARM architected timer's
 	  virtual counter in userspace.
+
+config MSM_TIMER_LEAP
+	bool "ARCH TIMER counter rollover"
+	default n
+	depends on ARM_ARCH_TIMER && ARM64
+	help
+	  This option enables a check for least significant 32 bits of
+	  counter rollover. On every counter read if least significant
+	  32 bits are set, reread counter.
 
 config ARM_GLOBAL_TIMER
 	bool "Support for the ARM global timer" if COMPILE_TEST

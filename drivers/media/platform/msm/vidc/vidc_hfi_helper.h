@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,7 +45,7 @@
 #define HFI_ERR_SYS_SESSION_IN_USE			(HFI_COMMON_BASE + 0x7)
 #define HFI_ERR_SYS_SESSION_ID_OUT_OF_RANGE	(HFI_COMMON_BASE + 0x8)
 #define HFI_ERR_SYS_UNSUPPORTED_DOMAIN		(HFI_COMMON_BASE + 0x9)
-
+#define HFI_ERR_SYS_NOC_ERROR			(HFI_COMMON_BASE + 0x11)
 #define HFI_ERR_SESSION_FATAL			(HFI_COMMON_BASE + 0x1001)
 #define HFI_ERR_SESSION_INVALID_PARAMETER	(HFI_COMMON_BASE + 0x1002)
 #define HFI_ERR_SESSION_BAD_POINTER		(HFI_COMMON_BASE + 0x1003)
@@ -256,6 +256,8 @@ struct hfi_buffer_info {
 	(HFI_PROPERTY_PARAM_VDEC_COMMON_START + 0x009)
 #define  HFI_PROPERTY_PARAM_VDEC_COLOUR_SPACE				\
 	(HFI_PROPERTY_PARAM_VDEC_COMMON_START + 0x00A)
+#define  HFI_PROPERTY_PARAM_VDEC_DPB_COUNTS				\
+	(HFI_PROPERTY_PARAM_VDEC_COMMON_START + 0x00B)
 
 
 #define HFI_PROPERTY_CONFIG_VDEC_COMMON_START				\
@@ -354,6 +356,12 @@ struct hfi_buffer_info {
 	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x010)
 #define HFI_PROPERTY_CONFIG_VENC_FRAME_QP			\
 	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x012)
+#define HFI_PROPERTY_CONFIG_HEIC_FRAME_CROP_INFO		\
+	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x013)
+#define HFI_PROPERTY_CONFIG_HEIC_FRAME_QUALITY			\
+	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x014)
+#define HFI_PROPERTY_CONFIG_HEIC_GRID_ENABLE			\
+	(HFI_PROPERTY_CONFIG_VENC_COMMON_START + 0x015)
 
 #define HFI_PROPERTY_PARAM_VPE_COMMON_START				\
 	(HFI_DOMAIN_BASE_VPE + HFI_ARCH_COMMON_OFFSET + 0x7000)
@@ -376,6 +384,14 @@ struct hfi_bitrate {
 
 struct hfi_colour_space {
 	u32 colour_space;
+};
+
+struct hfi_frame_crop {
+	u32 left;
+	u32 top;
+	u32 width;
+	u32 height;
+	u32 reserved[3];
 };
 
 #define HFI_CAPABILITY_FRAME_WIDTH			(HFI_COMMON_BASE + 0x1)
@@ -412,6 +428,8 @@ struct hfi_colour_space {
 #define HFI_CAPABILITY_MAX_VIDEOCORES			(HFI_COMMON_BASE + 0X2B)
 #define HFI_CAPABILITY_MAX_WORKMODES			(HFI_COMMON_BASE + 0X2C)
 #define HFI_CAPABILITY_UBWC_CR_STATS			(HFI_COMMON_BASE + 0X2D)
+#define HFI_CAPABILITY_CQ_QUALITY_LEVEL			(HFI_COMMON_BASE + 0X32)
+#define HFI_CAPABILITY_IMG_GRID_DIMENSION		(HFI_COMMON_BASE + 0X33)
 
 struct hfi_capability_supported {
 	u32 capability_type;
@@ -470,6 +488,15 @@ struct hfi_h264_entropy_control {
 struct hfi_frame_rate {
 	u32 buffer_type;
 	u32 frame_rate;
+};
+
+struct hfi_heic_frame_quality {
+	u32 frame_quality;
+	u32 reserved[3];
+};
+
+struct hfi_heic_grid_enable {
+	u32 grid_enable;
 };
 
 #define HFI_INTRA_REFRESH_NONE				(HFI_COMMON_BASE + 0x1)
@@ -541,6 +568,12 @@ struct hfi_nal_stream_format_select {
 struct hfi_profile_level {
 	u32 profile;
 	u32 level;
+};
+
+struct hfi_dpb_counts {
+	u32 max_dpb_count;
+	u32 max_ref_count;
+	u32 max_dec_buffering;
 };
 
 struct hfi_profile_level_supported {

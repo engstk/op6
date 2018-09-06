@@ -232,6 +232,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	/* OK, now commit destination to socket.  */
 	sk->sk_gso_type = SKB_GSO_TCPV4;
 	sk_setup_caps(sk, &rt->dst);
+	rt = NULL;
 
 	if (!tp->write_seq && likely(!tp->repair))
 		tp->write_seq = secure_tcp_sequence_number(inet->inet_saddr,
@@ -241,9 +242,13 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	inet->inet_id = tp->write_seq ^ jiffies;
 
+	if (tcp_fastopen_defer_connect(sk, &err))
+		return err;
+	if (err)
+		goto failure;
+
 	err = tcp_connect(sk);
 
-	rt = NULL;
 	if (err)
 		goto failure;
 
@@ -831,7 +836,7 @@ static void tcp_v4_reqsk_send_ack(const struct sock *sk, struct sk_buff *skb,
 			tcp_time_stamp,
 			req->ts_recent,
 			0,
-			tcp_md5_do_lookup(sk, (union tcp_md5_addr *)&ip_hdr(skb)->daddr,
+			tcp_md5_do_lookup(sk, (union tcp_md5_addr *)&ip_hdr(skb)->saddr,
 					  AF_INET),
 			inet_rsk(req)->no_srccheck ? IP_REPLY_ARG_NOSRCCHECK : 0,
 			ip_hdr(skb)->tos);
@@ -1673,7 +1678,9 @@ process:
 		 */
 		sock_hold(sk);
 		refcounted = true;
-		nsk = tcp_check_req(sk, skb, req, false);
+		nsk = NULL;
+		if (!tcp_filter(sk, skb))
+			nsk = tcp_check_req(sk, skb, req, false);
 		if (!nsk) {
 			reqsk_put(req);
 			goto discard_and_relse;

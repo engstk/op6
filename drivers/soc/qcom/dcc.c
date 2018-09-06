@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -554,7 +554,8 @@ static ssize_t dcc_store_func_type(struct device *dev,
 	if (strlen(buf) >= 10)
 		return -EINVAL;
 
-	strlcpy(str, buf, sizeof(str));
+	if (sscanf(buf, "%9s", str) != 1)
+		return -EINVAL;
 
 	mutex_lock(&drvdata->mutex);
 	if (drvdata->enable) {
@@ -599,7 +600,8 @@ static ssize_t dcc_store_data_sink(struct device *dev,
 	if (strlen(buf) >= 10)
 		return -EINVAL;
 
-	strlcpy(str, buf, sizeof(str));
+	if (sscanf(buf, "%9s", str) != 1)
+		return -EINVAL;
 
 	mutex_lock(&drvdata->mutex);
 	if (drvdata->enable) {
@@ -729,7 +731,8 @@ static int dcc_config_add(struct dcc_drvdata *drvdata, unsigned int addr,
 
 	mutex_lock(&drvdata->mutex);
 
-	if (!len) {
+	/* Check the len to avoid allocate huge memory */
+	if (!len || len > (drvdata->ram_size / 8)) {
 		dev_err(drvdata->dev, "DCC: Invalid length!\n");
 		ret = -EINVAL;
 		goto err;

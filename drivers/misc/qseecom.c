@@ -4061,8 +4061,11 @@ static int __qseecom_allocate_img_data(struct ion_handle **pihandle,
 	int retry = 0;
 
 	do {
-		if (retry++)
+		if (retry++) {
+			mutex_unlock(&app_access_lock);
 			msleep(QSEECOM_TA_ION_ALLOCATE_DELAY);
+			mutex_lock(&app_access_lock);
+		}
 		ihandle = ion_alloc(qseecom.ion_clnt, fw_size,
 			SZ_4K, ION_HEAP(ION_QSECOM_TA_HEAP_ID), 0);
 	} while (IS_ERR_OR_NULL(ihandle) &&
@@ -4212,8 +4215,12 @@ static int __qseecom_load_fw(struct qseecom_dev_handle *data, char *appname,
 	ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1, cmd_buf, cmd_len,
 			&resp, sizeof(resp));
 	if (ret) {
-		pr_err("scm_call to load failed : ret %d\n", ret);
-		ret = -EIO;
+		pr_err("scm_call to load failed : ret %d, result %x\n",
+			ret, resp.result);
+		if (resp.result == QSEOS_RESULT_FAIL_APP_ALREADY_LOADED)
+			ret = -EEXIST;
+		else
+			ret = -EIO;
 		goto exit_disable_clk_vote;
 	}
 
@@ -4444,11 +4451,8 @@ int qseecom_start_app(struct qseecom_handle **handle,
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (!data) {
-		if (ret == 0) {
-			kfree(*handle);
-			*handle = NULL;
-		}
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto exit_handle_free;
 	}
 	data->abort = 0;
 	data->type = QSEECOM_CLIENT_APP;
@@ -4463,18 +4467,17 @@ int qseecom_start_app(struct qseecom_handle **handle,
 				ION_HEAP(ION_QSECOM_HEAP_ID), 0);
 	if (IS_ERR_OR_NULL(data->client.ihandle)) {
 		pr_err("Ion client could not retrieve the handle\n");
-		kfree(data);
-		kfree(*handle);
-		*handle = NULL;
-		return -EINVAL;
+		ret = -ENOMEM;
+		goto exit_data_free;
 	}
 	mutex_lock(&app_access_lock);
 
+recheck:
 	app_ireq.qsee_cmd_id = QSEOS_APP_LOOKUP_COMMAND;
 	strlcpy(app_ireq.app_name, app_name, MAX_APP_NAME_SIZE);
 	ret = __qseecom_check_app_exists(app_ireq, &app_id);
 	if (ret)
-		goto err;
+		goto exit_ion_free;
 
 	strlcpy(data->client.app_name, app_name, MAX_APP_NAME_SIZE);
 	if (app_id) {
@@ -4499,16 +4502,19 @@ int qseecom_start_app(struct qseecom_handle **handle,
 		pr_debug("%s: Loading app for the first time'\n",
 				qseecom.pdev->init_name);
 		ret = __qseecom_load_fw(data, app_name, &app_id);
-		if (ret < 0)
-			goto err;
+		if (ret == -EEXIST) {
+			pr_err("recheck if TA %s is loaded\n", app_name);
+			goto recheck;
+		} else if (ret < 0)
+			goto exit_ion_free;
 	}
 	data->client.app_id = app_id;
 	if (!found_app) {
 		entry = kmalloc(sizeof(*entry), GFP_KERNEL);
 		if (!entry) {
 			pr_err("kmalloc for app entry failed\n");
-			ret =  -ENOMEM;
-			goto err;
+			ret = -ENOMEM;
+			goto exit_ion_free;
 		}
 		entry->app_id = app_id;
 		entry->ref_cnt = 1;
@@ -4516,7 +4522,7 @@ int qseecom_start_app(struct qseecom_handle **handle,
 		if (__qseecom_get_fw_size(app_name, &fw_size, &app_arch)) {
 			ret = -EIO;
 			kfree(entry);
-			goto err;
+			goto exit_entry_free;
 		}
 		entry->app_arch = app_arch;
 		entry->app_blocked = false;
@@ -4532,7 +4538,7 @@ int qseecom_start_app(struct qseecom_handle **handle,
 	if (ret) {
 		pr_err("Cannot get phys_addr for the Ion Client, ret = %d\n",
 			ret);
-		goto err;
+		goto exit_entry_free;
 	}
 
 	/* Populate the structure for sending scm call to load image */
@@ -4541,7 +4547,7 @@ int qseecom_start_app(struct qseecom_handle **handle,
 	if (IS_ERR_OR_NULL(data->client.sb_virt)) {
 		pr_err("ION memory mapping for client shared buf failed\n");
 		ret = -ENOMEM;
-		goto err;
+		goto exit_entry_free;
 	}
 	data->client.user_virt_sb_base = (uintptr_t)data->client.sb_virt;
 	data->client.sb_phys = (phys_addr_t)pa;
@@ -4552,7 +4558,7 @@ int qseecom_start_app(struct qseecom_handle **handle,
 	kclient_entry = kzalloc(sizeof(*kclient_entry), GFP_KERNEL);
 	if (!kclient_entry) {
 		ret = -ENOMEM;
-		goto err;
+		goto exit_ion_unmap_kernel;
 	}
 	kclient_entry->handle = *handle;
 
@@ -4564,11 +4570,24 @@ int qseecom_start_app(struct qseecom_handle **handle,
 	mutex_unlock(&app_access_lock);
 	return 0;
 
-err:
-	kfree(data);
-	kfree(*handle);
-	*handle = NULL;
+exit_ion_unmap_kernel:
+	if (!IS_ERR_OR_NULL(data->client.ihandle))
+		ion_unmap_kernel(qseecom.ion_clnt, data->client.ihandle);
+exit_entry_free:
+	kfree(entry);
+exit_ion_free:
 	mutex_unlock(&app_access_lock);
+	if (!IS_ERR_OR_NULL(data->client.ihandle)) {
+		ion_free(qseecom.ion_clnt, data->client.ihandle);
+		data->client.ihandle = NULL;
+	}
+exit_data_free:
+	kfree(data);
+exit_handle_free:
+	if (*handle) {
+		kfree(*handle);
+		*handle = NULL;
+	}
 	return ret;
 }
 EXPORT_SYMBOL(qseecom_start_app);
@@ -6959,6 +6978,18 @@ static inline long qseecom_ioctl(struct file *file,
 			pr_err("failed qseecom_register_listener: %d\n", ret);
 		break;
 	}
+	case QSEECOM_IOCTL_SET_ICE_INFO: {
+		struct qseecom_ice_data_t ice_data;
+
+		ret = copy_from_user(&ice_data, argp, sizeof(ice_data));
+		if (ret) {
+			pr_err("copy_from_user failed\n");
+			return -EFAULT;
+		}
+		qcom_ice_set_fde_flag(ice_data.flag);
+		break;
+	}
+
 	case QSEECOM_IOCTL_UNREGISTER_LISTENER_REQ: {
 		if ((data->listener.id == 0) ||
 			(data->type != QSEECOM_LISTENER_SERVICE)) {
@@ -8747,6 +8778,7 @@ exit_unreg_chrdev_region:
 static int qseecom_remove(struct platform_device *pdev)
 {
 	struct qseecom_registered_kclient_list *kclient = NULL;
+	struct qseecom_registered_kclient_list *kclient_tmp = NULL;
 	unsigned long flags = 0;
 	int ret = 0;
 	int i;
@@ -8756,17 +8788,15 @@ static int qseecom_remove(struct platform_device *pdev)
 	atomic_set(&qseecom.qseecom_state, QSEECOM_STATE_NOT_READY);
 	spin_lock_irqsave(&qseecom.registered_kclient_list_lock, flags);
 
-	list_for_each_entry(kclient, &qseecom.registered_kclient_list_head,
-								list) {
-		if (!kclient)
-			goto exit_irqrestore;
+	list_for_each_entry_safe(kclient, kclient_tmp,
+		&qseecom.registered_kclient_list_head, list) {
 
 		/* Break the loop if client handle is NULL */
-		if (!kclient->handle)
-			goto exit_free_kclient;
-
-		if (list_empty(&kclient->list))
-			goto exit_free_kc_handle;
+		if (!kclient->handle) {
+			list_del(&kclient->list);
+			kzfree(kclient);
+			break;
+		}
 
 		list_del(&kclient->list);
 		mutex_lock(&app_access_lock);
@@ -8779,11 +8809,6 @@ static int qseecom_remove(struct platform_device *pdev)
 		}
 	}
 
-exit_free_kc_handle:
-	kzfree(kclient->handle);
-exit_free_kclient:
-	kzfree(kclient);
-exit_irqrestore:
 	spin_unlock_irqrestore(&qseecom.registered_kclient_list_lock, flags);
 
 	if (qseecom.qseos_version > QSEEE_VERSION_00)

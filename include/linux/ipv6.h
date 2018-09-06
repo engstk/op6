@@ -66,6 +66,7 @@ struct ipv6_devconf {
 	} stable_secret;
 	__s32		use_oif_addrs_only;
 	__s32		keep_addr_on_down;
+	__s32		accept_ra_prefix_route;
 
 	struct ctl_table_header *sysctl_header;
 };
@@ -248,7 +249,8 @@ struct ipv6_pinfo {
 						 * 100: prefer care-of address
 						 */
 				dontfrag:1,
-				autoflowlabel:1;
+				autoflowlabel:1,
+				autoflowlabel_set:1;
 	__u8			min_hopcount;
 	__u8			tclass;
 	__be32			rcv_flowinfo;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -114,19 +114,6 @@ enum ipa_dp_evt_type {
 enum hdr_total_len_or_pad_type {
 	IPA_HDR_PAD = 0,
 	IPA_HDR_TOTAL_LEN = 1,
-};
-
-/**
-* enum ipa_vlan_ifaces - vlan interfaces types
-* @IPA_VLAN_IF_EMAC: used for EMAC ethernet device
-* @IPA_VLAN_IF_RNDIS: used for RNDIS USB device
-* @IPA_VLAN_IF_ECM: used for ECM USB device
-*/
-enum ipa_vlan_ifaces {
-	IPA_VLAN_IF_EMAC,
-	IPA_VLAN_IF_RNDIS,
-	IPA_VLAN_IF_ECM,
-	IPA_VLAN_IF_MAX
 };
 
 /**
@@ -1169,6 +1156,7 @@ struct ipa_wdi_buffer_info {
  * @ipa_if_tlv: number of IPA_IF TLV
  * @ipa_if_aos: number of IPA_IF AOS
  * @ee: Execution environment
+ * @prefetch_mode: Prefetch mode to be used
  */
 struct ipa_gsi_ep_config {
 	int ipa_ep_num;
@@ -1176,6 +1164,7 @@ struct ipa_gsi_ep_config {
 	int ipa_if_tlv;
 	int ipa_if_aos;
 	int ee;
+	enum gsi_prefetch_mode prefetch_mode;
 };
 
 /**
@@ -1275,11 +1264,13 @@ int ipa_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl);
  */
 int ipa_add_hdr(struct ipa_ioc_add_hdr *hdrs);
 
+int ipa_add_hdr_usr(struct ipa_ioc_add_hdr *hdrs, bool user_only);
+
 int ipa_del_hdr(struct ipa_ioc_del_hdr *hdls);
 
 int ipa_commit_hdr(void);
 
-int ipa_reset_hdr(void);
+int ipa_reset_hdr(bool user_only);
 
 int ipa_get_hdr(struct ipa_ioc_get_hdr *lookup);
 
@@ -1290,7 +1281,8 @@ int ipa_copy_hdr(struct ipa_ioc_copy_hdr *copy);
 /*
  * Header Processing Context
  */
-int ipa_add_hdr_proc_ctx(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs);
+int ipa_add_hdr_proc_ctx(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs,
+							bool user_only);
 
 int ipa_del_hdr_proc_ctx(struct ipa_ioc_del_hdr_proc_ctx *hdls);
 
@@ -1299,11 +1291,13 @@ int ipa_del_hdr_proc_ctx(struct ipa_ioc_del_hdr_proc_ctx *hdls);
  */
 int ipa_add_rt_rule(struct ipa_ioc_add_rt_rule *rules);
 
+int ipa_add_rt_rule_usr(struct ipa_ioc_add_rt_rule *rules, bool user_only);
+
 int ipa_del_rt_rule(struct ipa_ioc_del_rt_rule *hdls);
 
 int ipa_commit_rt(enum ipa_ip_type ip);
 
-int ipa_reset_rt(enum ipa_ip_type ip);
+int ipa_reset_rt(enum ipa_ip_type ip, bool user_only);
 
 int ipa_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup);
 
@@ -1318,13 +1312,15 @@ int ipa_mdfy_rt_rule(struct ipa_ioc_mdfy_rt_rule *rules);
  */
 int ipa_add_flt_rule(struct ipa_ioc_add_flt_rule *rules);
 
+int ipa_add_flt_rule_usr(struct ipa_ioc_add_flt_rule *rules, bool user_only);
+
 int ipa_del_flt_rule(struct ipa_ioc_del_flt_rule *hdls);
 
 int ipa_mdfy_flt_rule(struct ipa_ioc_mdfy_flt_rule *rules);
 
 int ipa_commit_flt(enum ipa_ip_type ip);
 
-int ipa_reset_flt(enum ipa_ip_type ip);
+int ipa_reset_flt(enum ipa_ip_type ip, bool user_only);
 
 /*
  * NAT\IPv6CT
@@ -1668,7 +1664,7 @@ static inline int ipa_cfg_ep_nat(u32 clnt_hdl,
 static inline int ipa_cfg_ep_conn_track(u32 clnt_hdl,
 	const struct ipa_ep_cfg_conn_track *ep_conn_track)
 {
-	return -EPERM
+	return -EPERM;
 }
 
 static inline int ipa_cfg_ep_hdr(u32 clnt_hdl,
@@ -1739,6 +1735,12 @@ static inline int ipa_add_hdr(struct ipa_ioc_add_hdr *hdrs)
 	return -EPERM;
 }
 
+static inline int ipa_add_hdr_usr(struct ipa_ioc_add_hdr *hdrs,
+				bool user_only)
+{
+	return -EPERM;
+}
+
 static inline int ipa_del_hdr(struct ipa_ioc_del_hdr *hdls)
 {
 	return -EPERM;
@@ -1749,7 +1751,7 @@ static inline int ipa_commit_hdr(void)
 	return -EPERM;
 }
 
-static inline int ipa_reset_hdr(void)
+static inline int ipa_reset_hdr(bool user_only)
 {
 	return -EPERM;
 }
@@ -1773,7 +1775,8 @@ static inline int ipa_copy_hdr(struct ipa_ioc_copy_hdr *copy)
  * Header Processing Context
  */
 static inline int ipa_add_hdr_proc_ctx(
-				struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs)
+				struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs,
+				bool user_only)
 {
 	return -EPERM;
 }
@@ -1790,6 +1793,12 @@ static inline int ipa_add_rt_rule(struct ipa_ioc_add_rt_rule *rules)
 	return -EPERM;
 }
 
+static inline int ipa_add_rt_rule_usr(struct ipa_ioc_add_rt_rule *rules,
+					bool user_only)
+{
+	return -EPERM;
+}
+
 static inline int ipa_del_rt_rule(struct ipa_ioc_del_rt_rule *hdls)
 {
 	return -EPERM;
@@ -1800,7 +1809,7 @@ static inline int ipa_commit_rt(enum ipa_ip_type ip)
 	return -EPERM;
 }
 
-static inline int ipa_reset_rt(enum ipa_ip_type ip)
+static inline int ipa_reset_rt(enum ipa_ip_type ip, bool user_only)
 {
 	return -EPERM;
 }
@@ -1833,6 +1842,12 @@ static inline int ipa_add_flt_rule(struct ipa_ioc_add_flt_rule *rules)
 	return -EPERM;
 }
 
+static inline int ipa_add_flt_rule_usr(struct ipa_ioc_add_flt_rule *rules,
+					bool user_only)
+{
+	return -EPERM;
+}
+
 static inline int ipa_del_flt_rule(struct ipa_ioc_del_flt_rule *hdls)
 {
 	return -EPERM;
@@ -1848,7 +1863,7 @@ static inline int ipa_commit_flt(enum ipa_ip_type ip)
 	return -EPERM;
 }
 
-static inline int ipa_reset_flt(enum ipa_ip_type ip)
+static inline int ipa_reset_flt(enum ipa_ip_type ip, bool user_only)
 {
 	return -EPERM;
 }

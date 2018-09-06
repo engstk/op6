@@ -3102,6 +3102,8 @@ static int igb_sw_init(struct igb_adapter *adapter)
 	/* Setup and initialize a copy of the hw vlan table array */
 	adapter->shadow_vfta = kcalloc(E1000_VLAN_FILTER_TBL_SIZE, sizeof(u32),
 				       GFP_ATOMIC);
+	if (!adapter->shadow_vfta)
+		return -ENOMEM;
 
 	/* This call may decrease the number of queues */
 	if (igb_init_interrupt_scheme(adapter, true)) {
@@ -3271,7 +3273,7 @@ static int __igb_close(struct net_device *netdev, bool suspending)
 
 int igb_close(struct net_device *netdev)
 {
-	if (netif_device_present(netdev))
+	if (netif_device_present(netdev) || netdev->dismantle)
 		return __igb_close(netdev, false);
 	return 0;
 }
@@ -6660,7 +6662,7 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector, int napi_budget)
 			break;
 
 		/* prevent any other reads prior to eop_desc */
-		read_barrier_depends();
+		smp_rmb();
 
 		/* if DD is not set pending work has not been completed */
 		if (!(eop_desc->wb.status & cpu_to_le32(E1000_TXD_STAT_DD)))

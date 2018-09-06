@@ -3756,7 +3756,7 @@ static void rbd_watch_cb(void *arg, u64 notify_id, u64 cookie,
 	struct rbd_device *rbd_dev = arg;
 	void *p = data;
 	void *const end = p + data_len;
-	u8 struct_v;
+	u8 struct_v = 0;
 	u32 len;
 	u32 notify_op;
 	int ret;
@@ -4511,7 +4511,7 @@ static int rbd_init_disk(struct rbd_device *rbd_dev)
 	segment_size = rbd_obj_bytes(&rbd_dev->header);
 	blk_queue_max_hw_sectors(q, segment_size / SECTOR_SIZE);
 	q->limits.max_sectors = queue_max_hw_sectors(q);
-	blk_queue_max_segments(q, segment_size / SECTOR_SIZE);
+	blk_queue_max_segments(q, USHRT_MAX);
 	blk_queue_max_segment_size(q, segment_size);
 	blk_queue_io_min(q, segment_size);
 	blk_queue_io_opt(q, segment_size);
@@ -4524,7 +4524,7 @@ static int rbd_init_disk(struct rbd_device *rbd_dev)
 	q->limits.discard_zeroes_data = 1;
 
 	if (!ceph_test_opt(rbd_dev->rbd_client->client, NOCRC))
-		q->backing_dev_info.capabilities |= BDI_CAP_STABLE_WRITES;
+		q->backing_dev_info->capabilities |= BDI_CAP_STABLE_WRITES;
 
 	disk->queue = q;
 

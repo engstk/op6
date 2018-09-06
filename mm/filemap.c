@@ -47,6 +47,8 @@
 
 #include <asm/mman.h>
 
+int want_old_faultaround_pte = 1;
+
 /*
  * Shared mappings implemented 30.11.1994. It's not fully working yet,
  * though.
@@ -618,7 +620,7 @@ int replace_page_cache_page(struct page *old, struct page *new, gfp_t gfp_mask)
 	VM_BUG_ON_PAGE(!PageLocked(new), new);
 	VM_BUG_ON_PAGE(new->mapping, new);
 
-	error = radix_tree_preload(gfp_mask & ~__GFP_HIGHMEM);
+	error = radix_tree_preload(gfp_mask & GFP_RECLAIM_MASK);
 	if (!error) {
 		struct address_space *mapping = old->mapping;
 		void (*freepage)(struct page *);
@@ -674,7 +676,7 @@ static int __add_to_page_cache_locked(struct page *page,
 			return error;
 	}
 
-	error = radix_tree_maybe_preload(gfp_mask & ~__GFP_HIGHMEM);
+	error = radix_tree_maybe_preload(gfp_mask & GFP_RECLAIM_MASK);
 	if (error) {
 		if (!huge)
 			mem_cgroup_cancel_charge(page, memcg, false);
@@ -1249,8 +1251,7 @@ no_page:
 		if (fgp_flags & FGP_ACCESSED)
 			__SetPageReferenced(page);
 
-		err = add_to_page_cache_lru(page, mapping, offset,
-				gfp_mask & GFP_RECLAIM_MASK);
+		err = add_to_page_cache_lru(page, mapping, offset, gfp_mask);
 		if (unlikely(err)) {
 			put_page(page);
 			page = NULL;
@@ -1998,7 +1999,7 @@ static int page_cache_read(struct file *file, pgoff_t offset, gfp_t gfp_mask)
 		if (!page)
 			return -ENOMEM;
 
-		ret = add_to_page_cache_lru(page, mapping, offset, gfp_mask & GFP_KERNEL);
+		ret = add_to_page_cache_lru(page, mapping, offset, gfp_mask);
 		if (ret == 0)
 			ret = mapping->a_ops->readpage(file, page);
 		else if (ret == -EEXIST)
@@ -2288,6 +2289,14 @@ repeat:
 		if (fe->pte)
 			fe->pte += iter.index - last_pgoff;
 		last_pgoff = iter.index;
+
+		if (want_old_faultaround_pte) {
+			if (fe->address == fe->fault_address)
+				fe->flags &= ~FAULT_FLAG_PREFAULT_OLD;
+			else
+				fe->flags |= FAULT_FLAG_PREFAULT_OLD;
+		}
+
 		if (alloc_set_pte(fe, NULL, page))
 			goto unlock;
 		unlock_page(page);
@@ -2390,7 +2399,7 @@ static struct page *wait_on_page_read(struct page *page)
 
 static struct page *do_read_cache_page(struct address_space *mapping,
 				pgoff_t index,
-				int (*filler)(void *, struct page *),
+				int (*filler)(struct file *, struct page *),
 				void *data,
 				gfp_t gfp)
 {
@@ -2497,7 +2506,7 @@ out:
  */
 struct page *read_cache_page(struct address_space *mapping,
 				pgoff_t index,
-				int (*filler)(void *, struct page *),
+				int (*filler)(struct file *, struct page *),
 				void *data)
 {
 	return do_read_cache_page(mapping, index, filler, data, mapping_gfp_mask(mapping));
@@ -2519,7 +2528,7 @@ struct page *read_cache_page_gfp(struct address_space *mapping,
 				pgoff_t index,
 				gfp_t gfp)
 {
-	filler_t *filler = (filler_t *)mapping->a_ops->readpage;
+	filler_t *filler = mapping->a_ops->readpage;
 
 	return do_read_cache_page(mapping, index, filler, NULL, gfp);
 }

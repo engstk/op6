@@ -1,4 +1,4 @@
-/* Copyright (c) 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -73,15 +73,24 @@ struct pl_data {
 	int			charge_type;
 	int			total_settled_ua;
 	int			pl_settled_ua;
+	int			pl_fcc_max;
+	u32			wa_flags;
 	struct class		qcom_batt_class;
 	struct wakeup_source	*pl_ws;
 	struct notifier_block	nb;
+	bool			pl_disable;
+	int			taper_entry_fv;
 };
 
 struct pl_data *the_chip;
 
 enum print_reason {
 	PR_PARALLEL	= BIT(0),
+};
+
+enum {
+	AICL_RERUN_WA_BIT	= BIT(0),
+	FORCE_INOV_DISABLE_BIT	= BIT(1),
 };
 
 static int debug_mask;
@@ -418,6 +427,7 @@ static void get_fcc_split(struct pl_data *chip, int total_ua,
 	effective_total_ua = max(0, total_ua + hw_cc_delta_ua);
 	slave_limited_ua = min(effective_total_ua, bcl_ua);
 	*slave_ua = (slave_limited_ua * chip->slave_pct) / 100;
+	*slave_ua = min(*slave_ua, chip->pl_fcc_max);
 
 	/*
 	 * In stacked BATFET configuration charger's current goes
@@ -443,6 +453,7 @@ static void pl_taper_work(struct work_struct *work)
 	int eff_fcc_ua;
 	int total_fcc_ua, master_fcc_ua, slave_fcc_ua = 0;
 
+	chip->taper_entry_fv = get_effective_result(chip->fv_votable);
 	chip->taper_work_running = true;
 	while (true) {
 		if (get_effective_result(chip->pl_disable_votable)) {
@@ -489,7 +500,25 @@ static void pl_taper_work(struct work_struct *work)
 			vote(chip->fcc_votable, TAPER_STEPPER_VOTER,
 					true, eff_fcc_ua);
 		} else {
-			pl_dbg(chip, PR_PARALLEL, "master is fast charging; waiting for next taper\n");
+			/*
+			 * Due to reduction of float voltage in JEITA condition
+			 * taper charging can be initiated at a lower FV. On
+			 * removal of JEITA condition, FV readjusts itself.
+			 * However, once taper charging is initiated, it doesn't
+			 * exits until parallel chaging is disabled due to which
+			 * FCC doesn't scale back to its original value, leading
+			 * to slow charging thereafter.
+			 * Check if FV increases in comparison to FV at which
+			 * taper charging was initiated, and if yes, exit taper
+			 * charging.
+			 */
+			if (get_effective_result(chip->fv_votable) >
+						chip->taper_entry_fv) {
+				pl_dbg(chip, PR_PARALLEL, "Float voltage increased. Exiting taper\n");
+				goto done;
+			} else {
+				pl_dbg(chip, PR_PARALLEL, "master is fast charging; waiting for next taper\n");
+			}
 		}
 		/* wait for the charger state to deglitch after FCC change */
 		msleep(PL_TAPER_WORK_DELAY_MS);
@@ -618,7 +647,7 @@ static int usb_icl_vote_callback(struct votable *votable, void *data,
 	if (icl_ua > pval.intval)
 		rerun_aicl = true;
 
-	if (rerun_aicl) {
+	if (rerun_aicl && (chip->wa_flags & AICL_RERUN_WA_BIT)) {
 		/* set a lower ICL */
 		pval.intval = max(pval.intval - ICL_STEP_UA, ICL_STEP_UA);
 		power_supply_set_property(chip->main_psy,
@@ -841,6 +870,12 @@ static int pl_disable_vote_callback(struct votable *votable,
 		chip->pl_settled_ua = 0;
 	}
 
+	/* notify parallel state change */
+	if (chip->pl_psy && (chip->pl_disable != pl_disable)) {
+		power_supply_changed(chip->pl_psy);
+		chip->pl_disable = (bool)pl_disable;
+	}
+
 	pl_dbg(chip, PR_PARALLEL, "parallel charging %s\n",
 		   pl_disable ? "disabled" : "enabled");
 
@@ -909,7 +944,8 @@ static bool is_parallel_available(struct pl_data *chip)
 	chip->pl_mode = pval.intval;
 
 	/* Disable autonomous votage increments for USBIN-USBIN */
-	if (IS_USBIN(chip->pl_mode)) {
+	if (IS_USBIN(chip->pl_mode)
+			&& (chip->wa_flags & FORCE_INOV_DISABLE_BIT)) {
 		if (!chip->hvdcp_hw_inov_dis_votable)
 			chip->hvdcp_hw_inov_dis_votable =
 					find_votable("HVDCP_HW_INOV_DIS");
@@ -934,6 +970,12 @@ static bool is_parallel_available(struct pl_data *chip)
 	power_supply_get_property(chip->pl_psy, POWER_SUPPLY_PROP_MIN_ICL,
 					&pval);
 	chip->pl_min_icl_ua = pval.intval;
+
+	chip->pl_fcc_max = INT_MAX;
+	rc = power_supply_get_property(chip->pl_psy,
+			POWER_SUPPLY_PROP_PARALLEL_FCC_MAX, &pval);
+	if (!rc)
+		chip->pl_fcc_max = pval.intval;
 
 	vote(chip->pl_disable_votable, PARALLEL_PSY_VOTER, false, 0);
 
@@ -975,6 +1017,16 @@ static void handle_main_charge_type(struct pl_data *chip)
 	/* handle fast/taper charge entry */
 	if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_TAPER
 			|| pval.intval == POWER_SUPPLY_CHARGE_TYPE_FAST) {
+		/*
+		 * Undo parallel charging termination if entered taper in
+		 * reduced float voltage condition due to jeita mitigation.
+		 */
+		if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_FAST &&
+			(chip->taper_entry_fv <
+			get_effective_result(chip->fv_votable))) {
+			vote(chip->pl_disable_votable, TAPER_END_VOTER,
+				false, 0);
+		}
 		pl_dbg(chip, PR_PARALLEL, "chg_state enabling parallel\n");
 		vote(chip->pl_disable_votable, CHG_STATE_VOTER, false, 0);
 		chip->charge_type = pval.intval;
@@ -1028,7 +1080,6 @@ static void handle_settled_icl_change(struct pl_data *chip)
 	else
 		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, true, 0);
 
-	rerun_election(chip->fcc_votable);
 
 	if (IS_USBIN(chip->pl_mode)) {
 		/*
@@ -1182,8 +1233,22 @@ static int pl_determine_initial_status(struct pl_data *chip)
 	return 0;
 }
 
+static void pl_config_init(struct pl_data *chip, int smb_version)
+{
+	switch (smb_version) {
+	case PMI8998_SUBTYPE:
+	case PM660_SUBTYPE:
+		chip->wa_flags = AICL_RERUN_WA_BIT | FORCE_INOV_DISABLE_BIT;
+		break;
+	case PMI632_SUBTYPE:
+		break;
+	default:
+		break;
+	}
+}
+
 #define DEFAULT_RESTRICTED_CURRENT_UA	1000000
-int qcom_batt_init(void)
+int qcom_batt_init(int smb_version)
 {
 	struct pl_data *chip;
 	int rc = 0;
@@ -1198,6 +1263,7 @@ int qcom_batt_init(void)
 	if (!chip)
 		return -ENOMEM;
 	chip->slave_pct = 50;
+	pl_config_init(chip, smb_version);
 	chip->restricted_current = DEFAULT_RESTRICTED_CURRENT_UA;
 
 	chip->pl_ws = wakeup_source_register("qcom-battery");
@@ -1275,6 +1341,7 @@ int qcom_batt_init(void)
 		goto unreg_notifier;
 	}
 
+	chip->pl_disable = true;
 	chip->qcom_batt_class.name = "qcom-battery",
 	chip->qcom_batt_class.owner = THIS_MODULE,
 	chip->qcom_batt_class.class_attrs = pl_attributes;

@@ -1237,37 +1237,24 @@ static void dx_insert_block(struct dx_frame *frame, u32 hash, ext4_lblk_t block)
 }
 
 /*
- * NOTE! unlike strncmp, ext4_match returns 1 for success, 0 for failure.
+ * Test whether a directory entry matches the filename being searched for.
  *
- * `len <= EXT4_NAME_LEN' is guaranteed by caller.
- * `de != NULL' is guaranteed by caller.
+ * Return: %true if the directory entry matches, otherwise %false.
  */
-static inline int ext4_match(struct ext4_filename *fname,
-			     struct ext4_dir_entry_2 *de)
+static inline bool ext4_match(const struct ext4_filename *fname,
+			      const struct ext4_dir_entry_2 *de)
 {
-	const void *name = fname_name(fname);
-	u32 len = fname_len(fname);
+	struct fscrypt_name f;
 
 	if (!de->inode)
-		return 0;
+		return false;
 
+	f.usr_fname = fname->usr_fname;
+	f.disk_name = fname->disk_name;
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
-	if (unlikely(!name)) {
-		if (fname->usr_fname->name[0] == '_') {
-			int ret;
-			if (de->name_len <= 32)
-				return 0;
-			ret = memcmp(de->name + ((de->name_len - 17) & ~15),
-				     fname->crypto_buf.name + 8, 16);
-			return (ret == 0) ? 1 : 0;
-		}
-		name = fname->crypto_buf.name;
-		len = fname->crypto_buf.len;
-	}
+	f.crypto_buf = fname->crypto_buf;
 #endif
-	if (de->name_len != len)
-		return 0;
-	return (memcmp(de->name, name, len) == 0) ? 1 : 0;
+	return fscrypt_match_name(&f, de->name, de->name_len);
 }
 
 /*
@@ -1281,48 +1268,31 @@ int ext4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 	struct ext4_dir_entry_2 * de;
 	char * dlimit;
 	int de_len;
-	int res;
 
 	de = (struct ext4_dir_entry_2 *)search_buf;
 	dlimit = search_buf + buf_size;
 	while ((char *) de < dlimit) {
 		/* this code is executed quadratically often */
 		/* do minimal checking `by hand' */
-		if ((char *) de + de->name_len <= dlimit) {
-			res = ext4_match(fname, de);
-			if (res < 0) {
-				res = -1;
-				goto return_result;
-			}
-			if (res > 0) {
-				/* found a match - just to be sure, do
-				 * a full check */
-				if (ext4_check_dir_entry(dir, NULL, de, bh,
-						bh->b_data,
-						 bh->b_size, offset)) {
-					res = -1;
-					goto return_result;
-				}
-				*res_dir = de;
-				res = 1;
-				goto return_result;
-			}
-
+		if ((char *) de + de->name_len <= dlimit &&
+		    ext4_match(fname, de)) {
+			/* found a match - just to be sure, do
+			 * a full check */
+			if (ext4_check_dir_entry(dir, NULL, de, bh, bh->b_data,
+						 bh->b_size, offset))
+				return -1;
+			*res_dir = de;
+			return 1;
 		}
 		/* prevent looping on a bad block */
 		de_len = ext4_rec_len_from_disk(de->rec_len,
 						dir->i_sb->s_blocksize);
-		if (de_len <= 0) {
-			res = -1;
-			goto return_result;
-		}
+		if (de_len <= 0)
+			return -1;
 		offset += de_len;
 		de = (struct ext4_dir_entry_2 *) ((char *) de + de_len);
 	}
-
-	res = 0;
-return_result:
-	return res;
+	return 0;
 }
 
 static int is_dx_internal_node(struct inode *dir, ext4_lblk_t block,
@@ -1378,6 +1348,8 @@ static struct buffer_head * ext4_find_entry (struct inode *dir,
 		return NULL;
 
 	retval = ext4_fname_setup_filename(dir, d_name, 1, &fname);
+	if (retval == -ENOENT)
+		return NULL;
 	if (retval)
 		return ERR_PTR(retval);
 
@@ -1415,6 +1387,10 @@ static struct buffer_head * ext4_find_entry (struct inode *dir,
 			       "falling back\n"));
 	}
 	nblocks = dir->i_size >> EXT4_BLOCK_SIZE_BITS(sb);
+	if (!nblocks) {
+		ret = NULL;
+		goto cleanup_and_exit;
+	}
 	start = EXT4_I(dir)->i_dir_start_lookup;
 	if (start >= nblocks)
 		start = 0;
@@ -1614,16 +1590,9 @@ static struct dentry *ext4_lookup(struct inode *dir, struct dentry *dentry, unsi
 		if (!IS_ERR(inode) && ext4_encrypted_inode(dir) &&
 		    (S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)) &&
 		    !fscrypt_has_permitted_context(dir, inode)) {
-			int nokey = ext4_encrypted_inode(inode) &&
-				!fscrypt_has_encryption_key(inode);
-			if (nokey) {
-				iput(inode);
-				return ERR_PTR(-ENOKEY);
-			}
 			ext4_warning(inode->i_sb,
 				     "Inconsistent encryption contexts: %lu/%lu",
-				     (unsigned long) dir->i_ino,
-				     (unsigned long) inode->i_ino);
+				     dir->i_ino, inode->i_ino);
 			iput(inode);
 			return ERR_PTR(-EPERM);
 		}
@@ -1831,24 +1800,15 @@ int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 	int nlen, rlen;
 	unsigned int offset = 0;
 	char *top;
-	int res;
 
 	de = (struct ext4_dir_entry_2 *)buf;
 	top = buf + buf_size - reclen;
 	while ((char *) de <= top) {
 		if (ext4_check_dir_entry(dir, NULL, de, bh,
-					 buf, buf_size, offset)) {
-			res = -EFSCORRUPTED;
-			goto return_result;
-		}
-		/* Provide crypto context and crypto buffer to ext4 match */
-		res = ext4_match(fname, de);
-		if (res < 0)
-			goto return_result;
-		if (res > 0) {
-			res = -EEXIST;
-			goto return_result;
-		}
+					 buf, buf_size, offset))
+			return -EFSCORRUPTED;
+		if (ext4_match(fname, de))
+			return -EEXIST;
 		nlen = EXT4_DIR_REC_LEN(de->name_len);
 		rlen = ext4_rec_len_from_disk(de->rec_len, buf_size);
 		if ((de->inode ? rlen - nlen : rlen) >= reclen)
@@ -1856,22 +1816,17 @@ int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 		de = (struct ext4_dir_entry_2 *)((char *)de + rlen);
 		offset += rlen;
 	}
-
 	if ((char *) de > top)
-		res = -ENOSPC;
-	else {
-		*dest_de = de;
-		res = 0;
-	}
-return_result:
-	return res;
+		return -ENOSPC;
+
+	*dest_de = de;
+	return 0;
 }
 
-int ext4_insert_dentry(struct inode *dir,
-		       struct inode *inode,
-		       struct ext4_dir_entry_2 *de,
-		       int buf_size,
-		       struct ext4_filename *fname)
+void ext4_insert_dentry(struct inode *inode,
+			struct ext4_dir_entry_2 *de,
+			int buf_size,
+			struct ext4_filename *fname)
 {
 
 	int nlen, rlen;
@@ -1890,7 +1845,6 @@ int ext4_insert_dentry(struct inode *dir,
 	ext4_set_de_type(inode->i_sb, de, inode->i_mode);
 	de->name_len = fname_len(fname);
 	memcpy(de->name, fname_name(fname), fname_len(fname));
-	return 0;
 }
 
 /*
@@ -1926,11 +1880,8 @@ static int add_dirent_to_buf(handle_t *handle, struct ext4_filename *fname,
 		return err;
 	}
 
-	/* By now the buffer is marked for journaling. Due to crypto operations,
-	 * the following function call may fail */
-	err = ext4_insert_dentry(dir, inode, de, blocksize, fname);
-	if (err < 0)
-		return err;
+	/* By now the buffer is marked for journaling */
+	ext4_insert_dentry(inode, de, blocksize, fname);
 
 	/*
 	 * XXX shouldn't update any times until successful
@@ -2436,8 +2387,7 @@ static int ext4_add_nondir(handle_t *handle,
 	int err = ext4_add_entry(handle, dentry, inode);
 	if (!err) {
 		ext4_mark_inode_dirty(handle, inode);
-		unlock_new_inode(inode);
-		d_instantiate(dentry, inode);
+		d_instantiate_new(dentry, inode);
 		return 0;
 	}
 	drop_nlink(inode);
@@ -2676,8 +2626,7 @@ out_clear_inode:
 	err = ext4_mark_inode_dirty(handle, dir);
 	if (err)
 		goto out_clear_inode;
-	unlock_new_inode(inode);
-	d_instantiate(dentry, inode);
+	d_instantiate_new(dentry, inode);
 	if (IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
@@ -3076,36 +3025,16 @@ static int ext4_symlink(struct inode *dir,
 	struct inode *inode;
 	int err, len = strlen(symname);
 	int credits;
-	bool encryption_required;
 	struct fscrypt_str disk_link;
-	struct fscrypt_symlink_data *sd = NULL;
 
-	disk_link.len = len + 1;
-	disk_link.name = (char *) symname;
-
-	encryption_required = (ext4_encrypted_inode(dir) ||
-			       DUMMY_ENCRYPTION_ENABLED(EXT4_SB(dir->i_sb)));
-	if (encryption_required) {
-		err = fscrypt_get_encryption_info(dir);
-		if (err)
-			return err;
-		if (!fscrypt_has_encryption_key(dir))
-			return -EPERM;
-		disk_link.len = (fscrypt_fname_encrypted_size(dir, len) +
-				 sizeof(struct fscrypt_symlink_data));
-		sd = kzalloc(disk_link.len, GFP_KERNEL);
-		if (!sd)
-			return -ENOMEM;
-	}
-
-	if (disk_link.len > dir->i_sb->s_blocksize) {
-		err = -ENAMETOOLONG;
-		goto err_free_sd;
-	}
+	err = fscrypt_prepare_symlink(dir, symname, len, dir->i_sb->s_blocksize,
+				      &disk_link);
+	if (err)
+		return err;
 
 	err = dquot_initialize(dir);
 	if (err)
-		goto err_free_sd;
+		return err;
 
 	if ((disk_link.len > EXT4_N_BLOCKS * 4)) {
 		/*
@@ -3134,27 +3063,18 @@ static int ext4_symlink(struct inode *dir,
 	if (IS_ERR(inode)) {
 		if (handle)
 			ext4_journal_stop(handle);
-		err = PTR_ERR(inode);
-		goto err_free_sd;
+		return PTR_ERR(inode);
 	}
 
-	if (encryption_required) {
-		struct qstr istr;
-		struct fscrypt_str ostr =
-			FSTR_INIT(sd->encrypted_path, disk_link.len);
-
-		istr.name = (const unsigned char *) symname;
-		istr.len = len;
-		err = fscrypt_fname_usr_to_disk(inode, &istr, &ostr);
+	if (IS_ENCRYPTED(inode)) {
+		err = fscrypt_encrypt_symlink(inode, symname, len, &disk_link);
 		if (err)
 			goto err_drop_inode;
-		sd->len = cpu_to_le16(ostr.len);
-		disk_link.name = (char *) sd;
 		inode->i_op = &ext4_encrypted_symlink_inode_operations;
 	}
 
 	if ((disk_link.len > EXT4_N_BLOCKS * 4)) {
-		if (!encryption_required)
+		if (!IS_ENCRYPTED(inode))
 			inode->i_op = &ext4_symlink_inode_operations;
 		inode_nohighmem(inode);
 		ext4_set_aops(inode);
@@ -3196,7 +3116,7 @@ static int ext4_symlink(struct inode *dir,
 	} else {
 		/* clear the extent format for fast symlink */
 		ext4_clear_inode_flag(inode, EXT4_INODE_EXTENTS);
-		if (!encryption_required) {
+		if (!IS_ENCRYPTED(inode)) {
 			inode->i_op = &ext4_fast_symlink_inode_operations;
 			inode->i_link = (char *)&EXT4_I(inode)->i_data;
 		}
@@ -3211,16 +3131,17 @@ static int ext4_symlink(struct inode *dir,
 
 	if (handle)
 		ext4_journal_stop(handle);
-	kfree(sd);
-	return err;
+	goto out_free_encrypted_link;
+
 err_drop_inode:
 	if (handle)
 		ext4_journal_stop(handle);
 	clear_nlink(inode);
 	unlock_new_inode(inode);
 	iput(inode);
-err_free_sd:
-	kfree(sd);
+out_free_encrypted_link:
+	if (disk_link.name != (unsigned char *)symname)
+		kfree(disk_link.name);
 	return err;
 }
 

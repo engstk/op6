@@ -234,11 +234,15 @@ manage_start_stop_store(struct device *dev, struct device_attribute *attr,
 {
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct scsi_device *sdp = sdkp->device;
+	bool v;
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 
-	sdp->manage_start_stop = simple_strtoul(buf, NULL, 10);
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+
+	sdp->manage_start_stop = v;
 
 	return count;
 }
@@ -256,6 +260,7 @@ static ssize_t
 allow_restart_store(struct device *dev, struct device_attribute *attr,
 		    const char *buf, size_t count)
 {
+	bool v;
 	struct scsi_disk *sdkp = to_scsi_disk(dev);
 	struct scsi_device *sdp = sdkp->device;
 
@@ -265,7 +270,10 @@ allow_restart_store(struct device *dev, struct device_attribute *attr,
 	if (sdp->type != TYPE_DISK)
 		return -EINVAL;
 
-	sdp->allow_restart = simple_strtoul(buf, NULL, 10);
+	if (kstrtobool(buf, &v))
+		return -EINVAL;
+
+	sdp->allow_restart = v;
 
 	return count;
 }
@@ -1852,6 +1860,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 				break;	/* standby */
 			if (sshdr.asc == 4 && sshdr.ascq == 0xc)
 				break;	/* unavailable */
+			if (sshdr.asc == 4 && sshdr.ascq == 0x1b)
+				break;	/* sanitize in progress */
 			/*
 			 * Issue command to spin up drive when not ready
 			 */
@@ -2311,6 +2321,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 	int res;
 	struct scsi_device *sdp = sdkp->device;
 	struct scsi_mode_data data;
+	int disk_ro = get_disk_ro(sdkp->disk);
 
 	set_disk_ro(sdkp->disk, 0);
 	if (sdp->skip_ms_page_3f) {
@@ -2350,7 +2361,7 @@ sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer)
 			  "Test WP failed, assume Write Enabled\n");
 	} else {
 		sdkp->write_prot = ((data.device_specific & 0x80) != 0);
-		set_disk_ro(sdkp->disk, sdkp->write_prot);
+		set_disk_ro(sdkp->disk, sdkp->write_prot || disk_ro);
 	}
 }
 

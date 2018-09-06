@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -177,6 +177,12 @@ struct sde_hw_mdp_ops {
 			struct sde_danger_safe_status *status);
 
 	/**
+	 * get_split_flush_status - get split flush status
+	 * @mdp: mdp top context driver
+	 */
+	u32 (*get_split_flush_status)(struct sde_hw_mdp *mdp);
+
+	/**
 	 * reset_ubwc - reset top level UBWC configuration
 	 * @mdp: mdp top context driver
 	 * @m: pointer to mdss catalog data
@@ -188,6 +194,15 @@ struct sde_hw_mdp_ops {
 	 * @mdp: mdp top context driver
 	 */
 	void (*intf_audio_select)(struct sde_hw_mdp *mdp);
+
+	/**
+	 * set_cwb_ppb_cntl - select the data point for CWB
+	 * @mdp: mdp top context driver
+	 * @dual: indicates if dual pipe line needs to be programmed
+	 * @dspp_out : true if dspp output required. LM is default tap point
+	 */
+	void (*set_cwb_ppb_cntl)(struct sde_hw_mdp *mdp,
+			bool dual, bool dspp_out);
 };
 
 struct sde_hw_mdp {

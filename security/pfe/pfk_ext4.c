@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,8 +36,9 @@
 #include <linux/errno.h>
 #include <linux/printk.h>
 
-#include "ext4_ice.h"
+#include "fscrypt_ice.h"
 #include "pfk_ext4.h"
+//#include "ext4_ice.h"
 
 static bool pfk_ext4_ready;
 
@@ -102,7 +103,7 @@ bool pfk_is_ext4_type(const struct inode *inode)
 	if (!pfe_is_inode_filesystem_type(inode, "ext4"))
 		return false;
 
-	return ext4_should_be_processed_by_ice(inode);
+	return fscrypt_should_be_processed_by_ice(inode);
 }
 
 /**
@@ -124,7 +125,7 @@ static int pfk_ext4_parse_cipher(const struct inode *inode,
 	if (!inode)
 		return -EINVAL;
 
-	if (!ext4_is_aes_xts_cipher(inode)) {
+	if (!fscrypt_is_aes_xts_cipher(inode)) {
 		pr_err("ext4 alghoritm is not supported by pfk\n");
 		return -EINVAL;
 	}
@@ -163,25 +164,25 @@ int pfk_ext4_parse_inode(const struct bio *bio,
 	if (!key_info)
 		return -EINVAL;
 
-	key_info->key = ext4_get_ice_encryption_key(inode);
+	key_info->key = fscrypt_get_ice_encryption_key(inode);
 	if (!key_info->key) {
 		pr_err("could not parse key from ext4\n");
 		return -EINVAL;
 	}
 
-	key_info->key_size = ext4_get_ice_encryption_key_size(inode);
+	key_info->key_size = fscrypt_get_ice_encryption_key_size(inode);
 	if (!key_info->key_size) {
 		pr_err("could not parse key size from ext4\n");
 		return -EINVAL;
 	}
 
-	key_info->salt = ext4_get_ice_encryption_salt(inode);
+	key_info->salt = fscrypt_get_ice_encryption_salt(inode);
 	if (!key_info->salt) {
 		pr_err("could not parse salt from ext4\n");
 		return -EINVAL;
 	}
 
-	key_info->salt_size = ext4_get_ice_encryption_salt_size(inode);
+	key_info->salt_size = fscrypt_get_ice_encryption_salt_size(inode);
 	if (!key_info->salt_size) {
 		pr_err("could not parse salt size from ext4\n");
 		return -EINVAL;
@@ -207,6 +208,5 @@ bool pfk_ext4_allow_merge_bio(const struct bio *bio1,
 	if (!inode1 || !inode2)
 		return false;
 
-	return ext4_is_ice_encryption_info_equal(inode1, inode2);
+	return fscrypt_is_ice_encryption_info_equal(inode1, inode2);
 }
-

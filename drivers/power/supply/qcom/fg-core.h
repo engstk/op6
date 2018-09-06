@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,6 +13,7 @@
 #ifndef __FG_CORE_H__
 #define __FG_CORE_H__
 
+#include <linux/alarmtimer.h>
 #include <linux/atomic.h>
 #include <linux/bitops.h>
 #include <linux/debugfs.h>
@@ -85,6 +86,13 @@
 #define BATT_THERM_NUM_COEFFS		3
 
 #define MAX_CC_STEPS			20
+
+enum prof_load_status {
+	PROFILE_MISSING,
+	PROFILE_LOADED,
+	PROFILE_SKIPPED,
+	PROFILE_NOT_LOADED,
+};
 
 /* Debug flag definitions */
 enum fg_debug_flag {
@@ -170,12 +178,15 @@ enum fg_sram_param_id {
 	FG_SRAM_SYS_TERM_CURR,
 	FG_SRAM_CHG_TERM_CURR,
 	FG_SRAM_CHG_TERM_BASE_CURR,
+	FG_SRAM_CUTOFF_CURR,
 	FG_SRAM_DELTA_MSOC_THR,
 	FG_SRAM_DELTA_BSOC_THR,
 	FG_SRAM_RECHARGE_SOC_THR,
 	FG_SRAM_RECHARGE_VBATT_THR,
+	FG_SRAM_KI_COEFF_LOW_DISCHG,
 	FG_SRAM_KI_COEFF_MED_DISCHG,
 	FG_SRAM_KI_COEFF_HI_DISCHG,
+	FG_SRAM_KI_COEFF_HI_CHG,
 	FG_SRAM_KI_COEFF_FULL_SOC,
 	FG_SRAM_ESR_TIGHT_FILTER,
 	FG_SRAM_ESR_BROAD_FILTER,
@@ -239,6 +250,12 @@ enum slope_limit_status {
 	SLOPE_LIMIT_NUM_COEFFS,
 };
 
+enum esr_filter_status {
+	ROOM_TEMP = 1,
+	LOW_TEMP,
+	RELAX_TEMP,
+};
+
 enum esr_timer_config {
 	TIMER_RETRY = 0,
 	TIMER_MAX,
@@ -262,6 +279,7 @@ struct fg_dt_props {
 	int	chg_term_curr_ma;
 	int	chg_term_base_curr_ma;
 	int	sys_term_curr_ma;
+	int	cutoff_curr_ma;
 	int	delta_soc_thr;
 	int	recharge_soc_thr;
 	int	recharge_volt_thr_mv;
@@ -285,13 +303,18 @@ struct fg_dt_props {
 	int	esr_broad_flt_upct;
 	int	esr_tight_lt_flt_upct;
 	int	esr_broad_lt_flt_upct;
+	int	esr_flt_rt_switch_temp;
+	int	esr_tight_rt_flt_upct;
+	int	esr_broad_rt_flt_upct;
 	int	slope_limit_temp;
 	int	esr_pulse_thresh_ma;
 	int	esr_meas_curr_ma;
 	int	bmd_en_delay_ms;
 	int	ki_coeff_full_soc_dischg;
+	int	ki_coeff_hi_chg;
 	int	jeita_thresholds[NUM_JEITA_LEVELS];
 	int	ki_coeff_soc[KI_COEFF_SOC_LEVELS];
+	int	ki_coeff_low_dischg[KI_COEFF_SOC_LEVELS];
 	int	ki_coeff_med_dischg[KI_COEFF_SOC_LEVELS];
 	int	ki_coeff_hi_dischg[KI_COEFF_SOC_LEVELS];
 	int	slope_limit_coeffs[SLOPE_LIMIT_NUM_COEFFS];
@@ -312,7 +335,7 @@ struct fg_cyc_ctr_data {
 	bool		started[BUCKET_COUNT];
 	u16		count[BUCKET_COUNT];
 	u8		last_soc[BUCKET_COUNT];
-	int		id;
+	char		counter[BUCKET_COUNT * 8];
 	struct mutex	lock;
 };
 
@@ -389,6 +412,7 @@ static const struct fg_pt fg_tsmc_osc_table[] = {
 };
 
 struct fg_chip {
+	struct thermal_zone_device	*tz_dev;
 	struct device		*dev;
 	struct pmic_revid_data	*pmic_rev_id;
 	struct regmap		*regmap;
@@ -421,6 +445,7 @@ struct fg_chip {
 	struct mutex		sram_rw_lock;
 	struct mutex		charge_full_lock;
 	struct mutex		qnovo_esr_ctrl_lock;
+	spinlock_t		suspend_lock;
 	u32			batt_soc_base;
 	u32			batt_info_base;
 	u32			mem_if_base;
@@ -440,10 +465,13 @@ struct fg_chip {
 	int			delta_soc;
 	int			last_msoc;
 	int			last_recharge_volt_mv;
+	int			delta_temp_irq_count;
 	int			esr_timer_charging_default[NUM_ESR_TIMERS];
 	enum slope_limit_status	slope_limit_sts;
+	enum esr_filter_status	esr_flt_sts;
 	bool			profile_available;
 	bool			profile_loaded;
+	enum prof_load_status	profile_load_status;
 	bool			battery_missing;
 	bool			fg_restarting;
 	bool			charge_full;
@@ -456,6 +484,7 @@ struct fg_chip {
 	bool			use_ima_single_mode;
 	bool			use_dma;
 	bool			qnovo_enable;
+	bool			suspended;
 	struct completion	soc_update;
 	struct completion	soc_ready;
 	struct delayed_work	profile_load_work;
@@ -463,6 +492,9 @@ struct fg_chip {
 	struct delayed_work	ttf_work;
 	struct delayed_work	sram_dump_work;
 	struct delayed_work	pl_enable_work;
+	struct work_struct	esr_filter_work;
+	struct alarm		esr_filter_alarm;
+	ktime_t			last_delta_temp_time;
 };
 
 /* Debugfs data structures are below */

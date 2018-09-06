@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -37,6 +37,8 @@
 
 	qcom,vddp-ref-clk-supply = <&pm660_l1>;
 	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	force-ufshc-probe;
 
 	status = "ok";
 };
@@ -143,7 +145,7 @@
 
 		cam_snapshot {
 			label = "cam_snapshot";
-			gpios = <&tlmm 91 0>;
+			gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
 			linux,code = <766>;
 			gpio-key,wakeup;
@@ -153,7 +155,7 @@
 
 		cam_focus {
 			label = "cam_focus";
-			gpios = <&tlmm 92 0>;
+			gpios = <&tlmm 92 GPIO_ACTIVE_HIGH>;
 			linux,input-type = <1>;
 			linux,code = <528>;
 			gpio-key,wakeup;
@@ -294,6 +296,17 @@
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,platform-reset-gpio = <&tlmm 75 0>;
 	qcom,platform-te-gpio = <&tlmm 10 0>;
+};
+
+&dsi_hx8399_truly_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,platform-reset-gpio = <&tlmm 75 0>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,panel-mode-gpio = <&tlmm 76 0>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
 };
 
 &dsi_dual_nt35597_truly_video_display {

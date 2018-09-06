@@ -13,8 +13,11 @@
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
 #include "sdm845-camera-sensor-qrd.dtsi"
-#include "smb1355.dtsi"
 #include <dt-bindings/gpio/gpio.h>
+
+&qupv3_se10_i2c {
+#include "smb1355.dtsi"
+};
 
 &vendor {
 	bluetooth: bt_wcn3990 {
@@ -83,7 +86,6 @@
 		qcom,nq-clkreq = <&pm8998_gpios 21 0x00>;
 		qcom,nq-esepwr = <&tlmm 116 0x00>;
 		interrupt-parent = <&tlmm>;
-		qcom,clk-src = "BBCLK3";
 		interrupts = <63 0>;
 		interrupt-names = "nfc_irq";
 		pinctrl-names = "nfc_active", "nfc_suspend";
@@ -91,8 +93,6 @@
 			     &nfc_enable_active
 			     &nfc_clk_default>;
 		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend>;
-		clocks = <&clock_rpmh RPMH_LN_BB_CLK3>;
-		clock-names = "ref_clk";
 	};
 };
 

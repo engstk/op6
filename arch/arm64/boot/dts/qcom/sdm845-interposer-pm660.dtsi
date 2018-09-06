@@ -72,6 +72,13 @@
 	ibb-supply = <&lcdb_ncp_vreg>;
 };
 
+&dsi_dual_test_cmd_display {
+	/delete-property/ vddio-supply;
+	/delete-property/ lab-supply;
+	/delete-property/ ibb-supply;
+	/delete-property/ oled-vdda-supply;
+};
+
 &sde_dp {
 	status = "disabled";
 	/delete-property/ vdda-1p2-supply;
@@ -256,6 +263,10 @@
 &pil_modem {
 	/delete-property/ vdd_cx-supply;
 	/delete-property/ vdd_mx-supply;
+};
+
+&gpu_cx_gdsc {
+	/delete-property/ parent-supply;
 };
 
 &gpu_gx_gdsc {

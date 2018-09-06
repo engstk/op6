@@ -482,8 +482,11 @@ static inline void __acpi_ec_enable_event(struct acpi_ec *ec)
 {
 	if (!test_and_set_bit(EC_FLAGS_QUERY_ENABLED, &ec->flags))
 		ec_log_drv("event unblocked");
-	if (!test_bit(EC_FLAGS_QUERY_PENDING, &ec->flags))
-		advance_transaction(ec);
+	/*
+	 * Unconditionally invoke this once after enabling the event
+	 * handling mechanism to detect the pending events.
+	 */
+	advance_transaction(ec);
 }
 
 static inline void __acpi_ec_disable_event(struct acpi_ec *ec)
@@ -1458,11 +1461,10 @@ static int ec_install_handlers(struct acpi_ec *ec, bool handle_events)
 			if (test_bit(EC_FLAGS_STARTED, &ec->flags) &&
 			    ec->reference_count >= 1)
 				acpi_ec_enable_gpe(ec, true);
-
-			/* EC is fully operational, allow queries */
-			acpi_ec_enable_event(ec);
 		}
 	}
+	/* EC is fully operational, allow queries */
+	acpi_ec_enable_event(ec);
 
 	return 0;
 }
@@ -1516,7 +1518,7 @@ static int acpi_ec_setup(struct acpi_ec *ec, bool handle_events)
 	}
 
 	acpi_handle_info(ec->handle,
-			 "GPE=0x%lx, EC_CMD/EC_SC=0x%lx, EC_DATA=0x%lx\n",
+			 "GPE=0x%x, EC_CMD/EC_SC=0x%lx, EC_DATA=0x%lx\n",
 			 ec->gpe, ec->command_addr, ec->data_addr);
 	return ret;
 }
@@ -1889,7 +1891,8 @@ static const struct dev_pm_ops acpi_ec_pm = {
 	SET_SYSTEM_SLEEP_PM_OPS(acpi_ec_suspend, acpi_ec_resume)
 };
 
-static int param_set_event_clearing(const char *val, struct kernel_param *kp)
+static int param_set_event_clearing(const char *val,
+				    const struct kernel_param *kp)
 {
 	int result = 0;
 
@@ -1907,7 +1910,8 @@ static int param_set_event_clearing(const char *val, struct kernel_param *kp)
 	return result;
 }
 
-static int param_get_event_clearing(char *buffer, struct kernel_param *kp)
+static int param_get_event_clearing(char *buffer,
+				    const struct kernel_param *kp)
 {
 	switch (ec_event_clearing) {
 	case ACPI_EC_EVT_TIMING_STATUS:

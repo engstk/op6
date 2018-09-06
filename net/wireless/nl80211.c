@@ -16,6 +16,7 @@
 #include <linux/nl80211.h>
 #include <linux/rtnetlink.h>
 #include <linux/netlink.h>
+#include <linux/nospec.h>
 #include <linux/etherdevice.h>
 #include <net/net_namespace.h>
 #include <net/genetlink.h>
@@ -433,6 +434,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 					.len = FILS_ERP_MAX_RRK_LEN },
 	[NL80211_ATTR_FILS_CACHE_ID] = { .len = 2 },
 	[NL80211_ATTR_PMK] = { .type = NLA_BINARY, .len = PMK_MAX_LEN },
+	[NL80211_ATTR_EXTERNAL_AUTH_SUPPORT] = { .type = NLA_FLAG },
 };
 
 /* policy for the key attributes */
@@ -2039,20 +2041,22 @@ static const struct nla_policy txq_params_policy[NL80211_TXQ_ATTR_MAX + 1] = {
 static int parse_txq_params(struct nlattr *tb[],
 			    struct ieee80211_txq_params *txq_params)
 {
+	u8 ac;
+
 	if (!tb[NL80211_TXQ_ATTR_AC] || !tb[NL80211_TXQ_ATTR_TXOP] ||
 	    !tb[NL80211_TXQ_ATTR_CWMIN] || !tb[NL80211_TXQ_ATTR_CWMAX] ||
 	    !tb[NL80211_TXQ_ATTR_AIFS])
 		return -EINVAL;
 
-	txq_params->ac = nla_get_u8(tb[NL80211_TXQ_ATTR_AC]);
+	ac = nla_get_u8(tb[NL80211_TXQ_ATTR_AC]);
 	txq_params->txop = nla_get_u16(tb[NL80211_TXQ_ATTR_TXOP]);
 	txq_params->cwmin = nla_get_u16(tb[NL80211_TXQ_ATTR_CWMIN]);
 	txq_params->cwmax = nla_get_u16(tb[NL80211_TXQ_ATTR_CWMAX]);
 	txq_params->aifs = nla_get_u8(tb[NL80211_TXQ_ATTR_AIFS]);
 
-	if (txq_params->ac >= NL80211_NUM_ACS)
+	if (ac >= NL80211_NUM_ACS)
 		return -EINVAL;
-
+	txq_params->ac = array_index_nospec(ac, NL80211_NUM_ACS);
 	return 0;
 }
 
@@ -3784,9 +3788,10 @@ static bool nl80211_valid_auth_type(struct cfg80211_registered_device *rdev,
 			return false;
 		return true;
 	case NL80211_CMD_CONNECT:
-		/* SAE not supported yet */
-		if (auth_type == NL80211_AUTHTYPE_SAE)
+		if (!(rdev->wiphy.features & NL80211_FEATURE_SAE) &&
+		    auth_type == NL80211_AUTHTYPE_SAE)
 			return false;
+
 		/* FILS with SK PFS or PK not supported yet */
 		if (auth_type == NL80211_AUTHTYPE_FILS_SK_PFS ||
 		    auth_type == NL80211_AUTHTYPE_FILS_PK)
@@ -4128,7 +4133,7 @@ static bool nl80211_put_sta_rate(struct sk_buff *msg, struct rate_info *info,
 	struct nlattr *rate;
 	u32 bitrate;
 	u16 bitrate_compat;
-	enum nl80211_attrs rate_flg;
+	enum nl80211_rate_info rate_flg;
 
 	rate = nla_nest_start(msg, attr);
 	if (!rate)
@@ -6701,8 +6706,17 @@ static int nl80211_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[NL80211_ATTR_SCAN_FLAGS]) {
 		request->flags = nla_get_u32(
 			info->attrs[NL80211_ATTR_SCAN_FLAGS]);
-		if ((request->flags & NL80211_SCAN_FLAG_LOW_PRIORITY) &&
-		    !(wiphy->features & NL80211_FEATURE_LOW_PRIORITY_SCAN)) {
+		if (((request->flags & NL80211_SCAN_FLAG_LOW_PRIORITY) &&
+		     !(wiphy->features & NL80211_FEATURE_LOW_PRIORITY_SCAN)) ||
+		    ((request->flags & NL80211_SCAN_FLAG_LOW_SPAN) &&
+		     !wiphy_ext_feature_isset(wiphy,
+				      NL80211_EXT_FEATURE_LOW_SPAN_SCAN)) ||
+		    ((request->flags & NL80211_SCAN_FLAG_LOW_POWER) &&
+		     !wiphy_ext_feature_isset(wiphy,
+				      NL80211_EXT_FEATURE_LOW_POWER_SCAN)) ||
+		    ((request->flags & NL80211_SCAN_FLAG_HIGH_ACCURACY) &&
+		     !wiphy_ext_feature_isset(wiphy,
+		      NL80211_EXT_FEATURE_HIGH_ACCURACY_SCAN))) {
 			err = -EOPNOTSUPP;
 			goto out_free;
 		}
@@ -7585,6 +7599,11 @@ static int nl80211_send_bss(struct sk_buff *msg, struct netlink_callback *cb,
 			      intbss->ts_boottime, NL80211_BSS_PAD))
 		goto nla_put_failure;
 
+	if (!nl80211_put_signal(msg, intbss->pub.chains,
+				intbss->pub.chain_signal,
+				NL80211_BSS_CHAIN_SIGNAL))
+		goto nla_put_failure;
+
 	switch (rdev->wiphy.signal_type) {
 	case CFG80211_SIGNAL_TYPE_MBM:
 		if (nla_put_u32(msg, NL80211_BSS_SIGNAL_MBM, res->signal))
@@ -8112,8 +8131,17 @@ static int nl80211_associate(struct sk_buff *skb, struct genl_info *info)
 	err = nl80211_crypto_settings(rdev, info, &req.crypto, 1);
 	if (!err) {
 		wdev_lock(dev->ieee80211_ptr);
+
 		err = cfg80211_mlme_assoc(rdev, dev, chan, bssid,
 					  ssid, ssid_len, &req);
+
+		if (!err && info->attrs[NL80211_ATTR_SOCKET_OWNER]) {
+			dev->ieee80211_ptr->conn_owner_nlportid =
+				info->snd_portid;
+			memcpy(dev->ieee80211_ptr->disconnect_bssid,
+			       bssid, ETH_ALEN);
+		}
+
 		wdev_unlock(dev->ieee80211_ptr);
 	}
 
@@ -8861,12 +8889,32 @@ static int nl80211_connect(struct sk_buff *skb, struct genl_info *info)
 		return -EINVAL;
 	}
 
+	if (nla_get_flag(info->attrs[NL80211_ATTR_EXTERNAL_AUTH_SUPPORT])) {
+		if (!info->attrs[NL80211_ATTR_SOCKET_OWNER]) {
+			return -EINVAL;
+		}
+		connect.flags |= CONNECT_REQ_EXTERNAL_AUTH_SUPPORT;
+	}
+
 	wdev_lock(dev->ieee80211_ptr);
+
 	err = cfg80211_connect(rdev, dev, &connect, connkeys,
 			       connect.prev_bssid);
-	wdev_unlock(dev->ieee80211_ptr);
 	if (err)
 		kzfree(connkeys);
+
+	if (!err && info->attrs[NL80211_ATTR_SOCKET_OWNER]) {
+		dev->ieee80211_ptr->conn_owner_nlportid = info->snd_portid;
+		if (connect.bssid)
+			memcpy(dev->ieee80211_ptr->disconnect_bssid,
+			       connect.bssid, ETH_ALEN);
+		else
+			memset(dev->ieee80211_ptr->disconnect_bssid,
+			       0, ETH_ALEN);
+	}
+
+	wdev_unlock(dev->ieee80211_ptr);
+
 	return err;
 }
 
@@ -11010,7 +11058,8 @@ static int nl80211_nan_add_func(struct sk_buff *skb,
 		break;
 	case NL80211_NAN_FUNC_FOLLOW_UP:
 		if (!tb[NL80211_NAN_FUNC_FOLLOW_UP_ID] ||
-		    !tb[NL80211_NAN_FUNC_FOLLOW_UP_REQ_ID]) {
+		    !tb[NL80211_NAN_FUNC_FOLLOW_UP_REQ_ID] ||
+		    !tb[NL80211_NAN_FUNC_FOLLOW_UP_DEST]) {
 			err = -EINVAL;
 			goto out;
 		}
@@ -12004,6 +12053,41 @@ static int nl80211_set_multicast_to_unicast(struct sk_buff *skb,
 	return rdev_set_multicast_to_unicast(rdev, dev, enabled);
 }
 
+static int nl80211_external_auth(struct sk_buff *skb, struct genl_info *info)
+{
+	struct cfg80211_registered_device *rdev = info->user_ptr[0];
+	struct net_device *dev = info->user_ptr[1];
+	struct cfg80211_external_auth_params params;
+
+	if (!rdev->ops->external_auth)
+		return -EOPNOTSUPP;
+
+	if (!info->attrs[NL80211_ATTR_SSID])
+		return -EINVAL;
+
+	if (!info->attrs[NL80211_ATTR_BSSID])
+		return -EINVAL;
+
+	if (!info->attrs[NL80211_ATTR_STATUS_CODE])
+		return -EINVAL;
+
+	memset(&params, 0, sizeof(params));
+
+	params.ssid.ssid_len = nla_len(info->attrs[NL80211_ATTR_SSID]);
+	if (params.ssid.ssid_len == 0 ||
+	    params.ssid.ssid_len > IEEE80211_MAX_SSID_LEN)
+		return -EINVAL;
+	memcpy(params.ssid.ssid, nla_data(info->attrs[NL80211_ATTR_SSID]),
+	       params.ssid.ssid_len);
+
+	memcpy(params.bssid, nla_data(info->attrs[NL80211_ATTR_BSSID]),
+	       ETH_ALEN);
+
+	params.status = nla_get_u16(info->attrs[NL80211_ATTR_STATUS_CODE]);
+
+	return rdev_external_auth(rdev, dev, &params);
+}
+
 #define NL80211_FLAG_NEED_WIPHY		0x01
 #define NL80211_FLAG_NEED_NETDEV	0x02
 #define NL80211_FLAG_NEED_RTNL		0x04
@@ -12891,6 +12975,14 @@ static const struct genl_ops nl80211_ops[] = {
 		.policy = nl80211_policy,
 		.flags = GENL_UNS_ADMIN_PERM,
 		.internal_flags = NL80211_FLAG_NEED_NETDEV |
+				  NL80211_FLAG_NEED_RTNL,
+	},
+	{
+		.cmd = NL80211_CMD_EXTERNAL_AUTH,
+		.doit = nl80211_external_auth,
+		.policy = nl80211_policy,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
 				  NL80211_FLAG_NEED_RTNL,
 	},
 };
@@ -14720,6 +14812,8 @@ static int nl80211_netlink_notify(struct notifier_block * nb,
 
 			if (wdev->owner_nlportid == notify->portid)
 				schedule_destroy_work = true;
+			else if (wdev->conn_owner_nlportid == notify->portid)
+				schedule_work(&wdev->disconnect_wk);
 		}
 
 		spin_lock_bh(&rdev->beacon_registrations_lock);
@@ -14774,7 +14868,8 @@ void cfg80211_ft_event(struct net_device *netdev,
 	if (!ft_event->target_ap)
 		return;
 
-	msg = nlmsg_new(100 + ft_event->ric_ies_len, GFP_KERNEL);
+	msg = nlmsg_new(100 + ft_event->ies_len + ft_event->ric_ies_len,
+			GFP_KERNEL);
 	if (!msg)
 		return;
 
@@ -14883,6 +14978,47 @@ void nl80211_send_ap_stopped(struct wireless_dev *wdev)
  out:
 	nlmsg_free(msg);
 }
+
+int cfg80211_external_auth_request(struct net_device *dev,
+				   struct cfg80211_external_auth_params *params,
+				   gfp_t gfp)
+{
+	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wdev->wiphy);
+	struct sk_buff *msg;
+	void *hdr;
+
+	if (!wdev->conn_owner_nlportid)
+		return -EINVAL;
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, gfp);
+	if (!msg)
+		return -ENOMEM;
+
+	hdr = nl80211hdr_put(msg, 0, 0, 0, NL80211_CMD_EXTERNAL_AUTH);
+	if (!hdr)
+		goto nla_put_failure;
+
+	if (nla_put_u32(msg, NL80211_ATTR_WIPHY, rdev->wiphy_idx) ||
+	    nla_put_u32(msg, NL80211_ATTR_IFINDEX, dev->ifindex) ||
+	    nla_put_u32(msg, NL80211_ATTR_AKM_SUITES, params->key_mgmt_suite) ||
+	    nla_put_u32(msg, NL80211_ATTR_EXTERNAL_AUTH_ACTION,
+			params->action) ||
+	    nla_put(msg, NL80211_ATTR_BSSID, ETH_ALEN, params->bssid) ||
+	    nla_put(msg, NL80211_ATTR_SSID, params->ssid.ssid_len,
+		    params->ssid.ssid))
+		goto nla_put_failure;
+
+	genlmsg_end(msg, hdr);
+	genlmsg_unicast(wiphy_net(&rdev->wiphy), msg,
+			wdev->conn_owner_nlportid);
+	return 0;
+
+ nla_put_failure:
+	nlmsg_free(msg);
+	return -ENOBUFS;
+}
+EXPORT_SYMBOL(cfg80211_external_auth_request);
 
 /* initialisation/exit functions */
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -570,6 +570,22 @@ static struct msm_soc_info cpu_of_id[] = {
 
 	/* sdxpoorwills ID */
 	[334] = {SDX_CPU_SDXPOORWILLS, "SDXPOORWILLS"},
+	[335] = {SDX_CPU_SDXPOORWILLS, "SDXPOORWILLS"},
+
+	/* 9650 IDs */
+	[279] = {MSM_CPU_9650, "MDM9650"},
+	[283] = {MSM_CPU_9650, "MDM9650"},
+	[284] = {MSM_CPU_9650, "MDM9650"},
+	[285] = {MSM_CPU_9650, "MDM9650"},
+	[286] = {MSM_CPU_9650, "MDM9650"},
+
+	/* 9607 IDs */
+	[290] = {MSM_CPU_9607, "MDM9607"},
+	[296] = {MSM_CPU_9607, "MDM8207"},
+	[297] = {MSM_CPU_9607, "MDM9207"},
+	[298] = {MSM_CPU_9607, "MDM9307"},
+	[299] = {MSM_CPU_9607, "MDM9628"},
+	[322] = {MSM_CPU_9607, "MDM9206"},
 
 	/* SDM670 ID */
 	[336] = {MSM_CPU_SDM670, "SDM670"},
@@ -577,8 +593,17 @@ static struct msm_soc_info cpu_of_id[] = {
 	/* QCS605 ID */
 	[347] = {MSM_CPU_QCS605, "QCS605"},
 
+	/* SXR1130 ID */
+	[371] = {MSM_CPU_SXR1130, "SXR1130"},
+
 	/* SDA670 ID */
 	[337] = {MSM_CPU_SDA670, "SDA670"},
+
+	/* SDM710 ID */
+	[360] = {MSM_CPU_SDM710, "SDM710"},
+
+	/* SXR1120 ID */
+	[370] = {MSM_CPU_SXR1120, "SXR1120"},
 
 	/* 8953 ID */
 	[293] = {MSM_CPU_8953, "MSM8953"},
@@ -586,6 +611,27 @@ static struct msm_soc_info cpu_of_id[] = {
 
 	/* SDM450 ID */
 	[338] = {MSM_CPU_SDM450, "SDM450"},
+	[351] = {MSM_CPU_SDM450, "SDA450"},
+
+	/* SDM632 ID */
+	[349] = {MSM_CPU_SDM632, "SDM632"},
+	[350] = {MSM_CPU_SDA632, "SDA632"},
+
+	/*MSM8937 ID  */
+	[294] = {MSM_CPU_8937, "MSM8937"},
+	[295] = {MSM_CPU_8937, "APQ8937"},
+
+	/* MSM8917 IDs */
+	[303] = {MSM_CPU_8917, "MSM8917"},
+	[307] = {MSM_CPU_8917, "APQ8017"},
+	[308] = {MSM_CPU_8917, "MSM8217"},
+	[309] = {MSM_CPU_8917, "MSM8617"},
+
+	/* SDM429 and SDM439 ID*/
+	[353] = {MSM_CPU_SDM439, "SDM439"},
+	[354] = {MSM_CPU_SDM429, "SDM429"},
+	[363] = {MSM_CPU_SDA439, "SDA439"},
+	[364] = {MSM_CPU_SDA429, "SDA429"},
 
 	/* Uninitialized IDs are not known to run Linux.
 	 * MSM_CPU_UNKNOWN is set to 0 to ensure these IDs are
@@ -646,6 +692,55 @@ static char *msm_read_hardware_id(void)
 	return msm_soc_str;
 err_path:
 	return "UNKNOWN SOC TYPE";
+}
+
+const char * __init arch_read_machine_name(void)
+{
+	static char msm_machine_name[256] = "Qualcomm Technologies, Inc. ";
+	static bool string_generated;
+	u32 len = 0;
+	const char *name;
+
+	if (string_generated)
+		return msm_machine_name;
+
+	len = strlen(msm_machine_name);
+	name = of_get_flat_dt_prop(of_get_flat_dt_root(),
+				"qcom,msm-name", NULL);
+	if (name)
+		len += snprintf(msm_machine_name + len,
+					sizeof(msm_machine_name) - len,
+					"%s", name);
+	else
+		goto no_prop_path;
+
+	name = of_get_flat_dt_prop(of_get_flat_dt_root(),
+				"qcom,pmic-name", NULL);
+	if (name) {
+		len += snprintf(msm_machine_name + len,
+					sizeof(msm_machine_name) - len,
+					"%s", " ");
+		len += snprintf(msm_machine_name + len,
+					sizeof(msm_machine_name) - len,
+					"%s", name);
+	} else
+		goto no_prop_path;
+
+	name = of_flat_dt_get_machine_name();
+	if (name) {
+		len += snprintf(msm_machine_name + len,
+					sizeof(msm_machine_name) - len,
+					"%s", " ");
+		len += snprintf(msm_machine_name + len,
+					sizeof(msm_machine_name) - len,
+					"%s", name);
+	} else
+		goto no_prop_path;
+
+	string_generated = true;
+	return msm_machine_name;
+no_prop_path:
+	return of_flat_dt_get_machine_name();
 }
 
 uint32_t socinfo_get_raw_id(void)
@@ -1449,6 +1544,14 @@ static void * __init setup_dummy_socinfo(void)
 		dummy_socinfo.id = 336;
 		strlcpy(dummy_socinfo.build_id, "sdm670 - ",
 			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sxr1130()) {
+		dummy_socinfo.id = 371;
+		strlcpy(dummy_socinfo.build_id, "sxr1130 - ",
+			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sdm710()) {
+		dummy_socinfo.id = 360;
+		strlcpy(dummy_socinfo.build_id, "sdm710 - ",
+			sizeof(dummy_socinfo.build_id));
 	} else if (early_machine_is_sda670()) {
 		dummy_socinfo.id = 337;
 		strlcpy(dummy_socinfo.build_id, "sda670 - ",
@@ -1456,6 +1559,14 @@ static void * __init setup_dummy_socinfo(void)
 	} else if (early_machine_is_qcs605()) {
 		dummy_socinfo.id = 347;
 		strlcpy(dummy_socinfo.build_id, "qcs605 - ",
+			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sxr1120()) {
+		dummy_socinfo.id = 370;
+		strlcpy(dummy_socinfo.build_id, "sxr1120 - ",
+			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_mdm9650()) {
+		dummy_socinfo.id = 286;
+		strlcpy(dummy_socinfo.build_id, "mdm9650 - ",
 			sizeof(dummy_socinfo.build_id));
 	} else if (early_machine_is_sdxpoorwills()) {
 		dummy_socinfo.id = 334;
@@ -1465,10 +1576,42 @@ static void * __init setup_dummy_socinfo(void)
 		dummy_socinfo.id = 293;
 		strlcpy(dummy_socinfo.build_id, "msm8953 - ",
 			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_msm8937()) {
+		dummy_socinfo.id = 294;
+		strlcpy(dummy_socinfo.build_id, "msm8937 - ",
+			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_msm8917()) {
+		dummy_socinfo.id = 303;
+		strlcpy(dummy_socinfo.build_id, "msm8917 - ",
+			sizeof(dummy_socinfo.build_id));
 	} else if (early_machine_is_sdm450()) {
 		dummy_socinfo.id = 338;
 		strlcpy(dummy_socinfo.build_id, "sdm450 - ",
 			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sdm632()) {
+		dummy_socinfo.id = 349;
+		strlcpy(dummy_socinfo.build_id, "sdm632 - ",
+			sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sdm439()) {
+		dummy_socinfo.id = 353;
+		strlcpy(dummy_socinfo.build_id, "sdm439 - ",
+				sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sdm429()) {
+		dummy_socinfo.id = 354;
+		strlcpy(dummy_socinfo.build_id, "sdm429 - ",
+				sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sda439()) {
+		dummy_socinfo.id = 363;
+		strlcpy(dummy_socinfo.build_id, "sda439 - ",
+				sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_sda429()) {
+		dummy_socinfo.id = 364;
+		strlcpy(dummy_socinfo.build_id, "sda429 - ",
+				sizeof(dummy_socinfo.build_id));
+	} else if (early_machine_is_mdm9607()) {
+		dummy_socinfo.id = 290;
+		strlcpy(dummy_socinfo.build_id, "mdm9607 - ",
+				sizeof(dummy_socinfo.build_id));
 	}
 
 	strlcat(dummy_socinfo.build_id, "Dummy socinfo",

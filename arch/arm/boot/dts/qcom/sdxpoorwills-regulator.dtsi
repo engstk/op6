@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,6 +11,7 @@
  */
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/gpio/gpio.h>
 
 &soc {
 	/* RPMh regulators */
@@ -23,7 +24,8 @@
 		pmxpoorwills_s1_level: regualtor-pmxpoorwills-s1 {
 			regulator-name = "pmxpoorwills_s1_level";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <RPMH_REGULATOR_LEVEL_OFF>;
+			regulator-min-microvolt =
+						<RPMH_REGULATOR_LEVEL_MIN_SVS>;
 			regulator-max-microvolt = <RPMH_REGULATOR_LEVEL_MAX>;
 		};
 	};
@@ -52,7 +54,8 @@
 		pmxpoorwills_s5_level: regualtor-pmxpoorwills-s5-level {
 			regulator-name = "pmxpoorwills_s5_level";
 			qcom,set = <RPMH_REGULATOR_SET_ALL>;
-			regulator-min-microvolt = <RPMH_REGULATOR_LEVEL_OFF>;
+			regulator-min-microvolt =
+						<RPMH_REGULATOR_LEVEL_LOW_SVS>;
 			regulator-max-microvolt = <RPMH_REGULATOR_LEVEL_MAX>;
 			qcom,min-dropout-voltage-level = <(-1)>;
 		};
@@ -60,7 +63,8 @@
 		pmxpoorwills_s5_level_ao: regualtor-pmxpoorwills-s5-level-ao {
 			regulator-name = "pmxpoorwills_s5_level_ao";
 			qcom,set = <RPMH_REGULATOR_SET_ACTIVE>;
-			regulator-min-microvolt = <RPMH_REGULATOR_LEVEL_OFF>;
+			regulator-min-microvolt =
+						<RPMH_REGULATOR_LEVEL_LOW_SVS>;
 			regulator-max-microvolt = <RPMH_REGULATOR_LEVEL_MAX>;
 			qcom,min-dropout-voltage-level = <(-1)>;
 		};
@@ -77,9 +81,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa1";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l1: regualtor-pmxpoorwills-11 {
 			regulator-name = "pmxpoorwills_l1";
@@ -87,7 +92,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <1200000>;
 			qcom,init-voltage = <1200000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -95,9 +100,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa2";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l2: regualtor-pmxpoorwills-12 {
 			 regulator-name = "pmxpoorwills_l2";
@@ -105,7 +111,7 @@
 			 regulator-min-microvolt = <1128000>;
 			 regulator-max-microvolt = <1128000>;
 			 qcom,init-voltage = <1128000>;
-			 qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			 qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		 };
 	};
 
@@ -113,9 +119,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa3";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l3: regualtor-pmxpoorwills-l3 {
 			regulator-name = "pmxpoorwills_l3";
@@ -123,7 +130,7 @@
 			regulator-min-microvolt = <800000>;
 			regulator-max-microvolt = <800000>;
 			qcom,init-voltage = <800000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -131,9 +138,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa4";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l4: regualtor-pmxpoorwills-l4 {
 			regulator-name = "pmxpoorwills_l4";
@@ -141,7 +149,7 @@
 			regulator-min-microvolt = <872000>;
 			regulator-max-microvolt = <872000>;
 			qcom,init-voltage = <872000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -149,9 +157,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa5";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l5: regualtor-pmxpoorwills-l5 {
 			regulator-name = "pmxpoorwills_l5";
@@ -159,7 +168,7 @@
 			regulator-min-microvolt = <1704000>;
 			regulator-max-microvolt = <1704000>;
 			qcom,init-voltage = <1704000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -167,9 +176,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa7";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l7: regualtor-pmxpoorwills-l7 {
 			regulator-name = "pmxpoorwills_l7";
@@ -177,7 +187,7 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <2952000>;
 			qcom,init-voltage = <1800000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -185,9 +195,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa8";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l8: regualtor-pmxpoorwills-l8 {
 			regulator-name = "pmxpoorwills_l8";
@@ -195,7 +206,7 @@
 			regulator-min-microvolt = <480000>;
 			regulator-max-microvolt = <900000>;
 			qcom,init-voltage = <480000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -231,9 +242,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa10";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l10: regualtor-pmxpoorwills-l10 {
 			regulator-name = "pmxpoorwills_l10";
@@ -241,7 +253,7 @@
 			regulator-min-microvolt = <3088000>;
 			regulator-max-microvolt = <3088000>;
 			qcom,init-voltage = <3088000>;
-			qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		};
 	};
 
@@ -249,9 +261,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa11";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l11: regualtor-pmxpoorwills-l11 {
 			  regulator-name = "pmxpoorwills_l11";
@@ -259,7 +272,7 @@
 			  regulator-min-microvolt = <1704000>;
 			  regulator-max-microvolt = <3000000>;
 			  qcom,init-voltage = <1704000>;
-			  qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			  qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		  };
 	};
 
@@ -267,9 +280,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa12";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l12: regualtor-pmxpoorwills-l12 {
 			  regulator-name = "pmxpoorwills_l12";
@@ -277,7 +291,7 @@
 			  regulator-min-microvolt = <2704000>;
 			  regulator-max-microvolt = <2704000>;
 			  qcom,init-voltage = <2704000>;
-			  qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			  qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		  };
 	};
 
@@ -285,9 +299,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa13";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l13: regualtor-pmxpoorwills-l13 {
 			  regulator-name = "pmxpoorwills_l13";
@@ -295,7 +310,7 @@
 			  regulator-min-microvolt = <1704000>;
 			  regulator-max-microvolt = <3000000>;
 			  qcom,init-voltage = <1704000>;
-			  qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			  qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		  };
 	};
 
@@ -303,9 +318,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa14";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l14: regualtor-pmxpoorwills-l14 {
 			  regulator-name = "pmxpoorwills_l14";
@@ -313,7 +329,7 @@
 			  regulator-min-microvolt = <600000>;
 			  regulator-max-microvolt = <800000>;
 			  qcom,init-voltage = <600000>;
-			  qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			  qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		  };
 	};
 
@@ -321,9 +337,10 @@
 		compatible = "qcom,rpmh-vrm-regulator";
 		mboxes = <&apps_rsc 0>;
 		qcom,resource-name = "ldoa16";
+		qcom,regulator-type = "pmic5-ldo";
 		qcom,supported-modes =
-			<RPMH_REGULATOR_MODE_LDO_LPM
-			 RPMH_REGULATOR_MODE_LDO_HPM>;
+			<RPMH_REGULATOR_MODE_LPM
+			 RPMH_REGULATOR_MODE_HPM>;
 		qcom,mode-threshold-currents = <0 1>;
 		pmxpoorwills_l16: regualtor-pmxpoorwills-l16 {
 			  regulator-name = "pmxpoorwills_l16";
@@ -331,7 +348,7 @@
 			  regulator-min-microvolt = <304000>;
 			  regulator-max-microvolt = <880000>;
 			  qcom,init-voltage = <304000>;
-			  qcom,init-mode = <RPMH_REGULATOR_MODE_LDO_LPM>;
+			  qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
 		  };
 	};
 
@@ -358,5 +375,41 @@
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 		regulator-always-on;
+	};
+
+	vreg_sd_mmc: vreg_sd_mmc {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_sd_mmc";
+		startup-delay-us = <4000>;
+		enable-active-high;
+		gpio = <&tlmm 92 GPIO_ACTIVE_HIGH>;
+	};
+
+	vreg_emac_phy: emac_phy_regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "emac_phy";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-enable-ramp-delay = <100>;
+		gpio = <&tlmm 96 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	vreg_rgmii_io_pads: rgmii_io_pads_regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "rgmii_io_pads";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-enable-ramp-delay = <100>;
+		gpio = <&tlmm 83 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	vreg_wlan: vreg_wlan {
+		compatible = "regulator-fixed";
+		regulator-name = "vreg_wlan";
+		startup-delay-us = <4000>;
+		enable-active-high;
+		gpio = <&pmxpoorwills_gpios 6 GPIO_ACTIVE_HIGH>;
 	};
 };

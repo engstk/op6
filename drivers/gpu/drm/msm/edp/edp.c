@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2015,2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -54,7 +54,7 @@ static struct msm_edp *edp_init(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto fail;
 	}
-	DBG("eDP probed=%p", edp);
+	DBG("eDP probed=%pK", edp);
 
 	edp->pdev = pdev;
 	platform_set_drvdata(pdev, edp);
@@ -128,6 +128,7 @@ static struct platform_driver edp_driver = {
 	.driver = {
 		.name = "msm_edp",
 		.of_match_table = dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

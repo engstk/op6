@@ -422,6 +422,13 @@ void nvmet_sq_setup(struct nvmet_ctrl *ctrl, struct nvmet_sq *sq,
 	ctrl->sqs[qid] = sq;
 }
 
+static void nvmet_confirm_sq(struct percpu_ref *ref)
+{
+	struct nvmet_sq *sq = container_of(ref, struct nvmet_sq, ref);
+
+	complete(&sq->confirm_done);
+}
+
 void nvmet_sq_destroy(struct nvmet_sq *sq)
 {
 	/*
@@ -430,7 +437,8 @@ void nvmet_sq_destroy(struct nvmet_sq *sq)
 	 */
 	if (sq->ctrl && sq->ctrl->sqs && sq->ctrl->sqs[0] == sq)
 		nvmet_async_events_free(sq->ctrl);
-	percpu_ref_kill(&sq->ref);
+	percpu_ref_kill_and_confirm(&sq->ref, nvmet_confirm_sq);
+	wait_for_completion(&sq->confirm_done);
 	wait_for_completion(&sq->free_done);
 	percpu_ref_exit(&sq->ref);
 
@@ -458,6 +466,7 @@ int nvmet_sq_init(struct nvmet_sq *sq)
 		return ret;
 	}
 	init_completion(&sq->free_done);
+	init_completion(&sq->confirm_done);
 
 	return 0;
 }
@@ -482,9 +491,12 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
 		goto fail;
 	}
 
-	/* either variant of SGLs is fine, as we don't support metadata */
-	if (unlikely((flags & NVME_CMD_SGL_ALL) != NVME_CMD_SGL_METABUF &&
-		     (flags & NVME_CMD_SGL_ALL) != NVME_CMD_SGL_METASEG)) {
+	/*
+	 * For fabrics, PSDT field shall describe metadata pointer (MPTR) that
+	 * contains an address of a single contiguous physical buffer that is
+	 * byte aligned.
+	 */
+	if (unlikely((flags & NVME_CMD_SGL_ALL) != NVME_CMD_SGL_METABUF)) {
 		status = NVME_SC_INVALID_FIELD | NVME_SC_DNR;
 		goto fail;
 	}
@@ -815,6 +827,9 @@ static void nvmet_ctrl_free(struct kref *ref)
 	mutex_lock(&subsys->lock);
 	list_del(&ctrl->subsys_entry);
 	mutex_unlock(&subsys->lock);
+
+	flush_work(&ctrl->async_event_work);
+	cancel_work_sync(&ctrl->fatal_err_work);
 
 	ida_simple_remove(&subsys->cntlid_ida, ctrl->cntlid);
 	nvmet_subsys_put(subsys);

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,22 +33,21 @@ module_param(ftm_mode, bool, 0444);
 MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_PM_SLEEP
 static int wil6210_pm_notify(struct notifier_block *notify_block,
 			     unsigned long mode, void *unused);
-#endif /* CONFIG_PM_SLEEP */
 #endif /* CONFIG_PM */
 
 static
-void wil_set_capabilities(struct wil6210_priv *wil)
+int wil_set_capabilities(struct wil6210_priv *wil)
 {
 	const char *wil_fw_name;
 	u32 jtag_id = wil_r(wil, RGF_USER_JTAG_DEV_ID);
 	u8 chip_revision = (wil_r(wil, RGF_USER_REVISION_ID) &
 			    RGF_USER_REVISION_ID_MASK);
 	int platform_capa;
+	struct fw_map *iccm_section, *sct;
 
-	bitmap_zero(wil->hw_capabilities, hw_capability_last);
+	bitmap_zero(wil->hw_capa, hw_capa_last);
 	bitmap_zero(wil->fw_capabilities, WMI_FW_CAPABILITY_MAX);
 	bitmap_zero(wil->platform_capa, WIL_PLATFORM_CAPA_MAX);
 	wil->wil_fw_name = ftm_mode ? WIL_FW_NAME_FTM_DEFAULT :
@@ -56,6 +56,8 @@ void wil_set_capabilities(struct wil6210_priv *wil)
 
 	switch (jtag_id) {
 	case JTAG_DEV_ID_SPARROW:
+		memcpy(fw_mapping, sparrow_fw_mapping,
+		       sizeof(sparrow_fw_mapping));
 		switch (chip_revision) {
 		case REVISION_ID_SPARROW_D0:
 			wil->hw_name = "Sparrow D0";
@@ -65,6 +67,12 @@ void wil_set_capabilities(struct wil6210_priv *wil)
 
 			if (wil_fw_verify_file_exists(wil, wil_fw_name))
 				wil->wil_fw_name = wil_fw_name;
+			sct = wil_find_fw_mapping("mac_rgf_ext");
+			if (!sct) {
+				wil_err(wil, "mac_rgf_ext section not found in fw_mapping\n");
+				return -EINVAL;
+			}
+			memcpy(sct, &sparrow_d0_mac_rgf_ext, sizeof(*sct));
 			break;
 		case REVISION_ID_SPARROW_B0:
 			wil->hw_name = "Sparrow B0";
@@ -75,15 +83,36 @@ void wil_set_capabilities(struct wil6210_priv *wil)
 			wil->hw_version = HW_VER_UNKNOWN;
 			break;
 		}
+		wil->rgf_fw_assert_code_addr = SPARROW_RGF_FW_ASSERT_CODE;
+		wil->rgf_ucode_assert_code_addr = SPARROW_RGF_UCODE_ASSERT_CODE;
+		break;
+	case JTAG_DEV_ID_TALYN:
+		wil->hw_name = "Talyn";
+		wil->hw_version = HW_VER_TALYN;
+		memcpy(fw_mapping, talyn_fw_mapping, sizeof(talyn_fw_mapping));
+		wil->rgf_fw_assert_code_addr = TALYN_RGF_FW_ASSERT_CODE;
+		wil->rgf_ucode_assert_code_addr = TALYN_RGF_UCODE_ASSERT_CODE;
+		if (wil_r(wil, RGF_USER_OTP_HW_RD_MACHINE_1) &
+		    BIT_NO_FLASH_INDICATION)
+			set_bit(hw_capa_no_flash, wil->hw_capa);
 		break;
 	default:
 		wil_err(wil, "Unknown board hardware, chip_id 0x%08x, chip_revision 0x%08x\n",
 			jtag_id, chip_revision);
 		wil->hw_name = "Unknown";
 		wil->hw_version = HW_VER_UNKNOWN;
+		return -EINVAL;
 	}
 
-	wil_info(wil, "Board hardware is %s\n", wil->hw_name);
+	iccm_section = wil_find_fw_mapping("fw_code");
+	if (!iccm_section) {
+		wil_err(wil, "fw_code section not found in fw_mapping\n");
+		return -EINVAL;
+	}
+	wil->iccm_base = iccm_section->host;
+
+	wil_info(wil, "Board hardware is %s, flash %sexist\n", wil->hw_name,
+		 test_bit(hw_capa_no_flash, wil->hw_capa) ? "doesn't " : "");
 
 	/* Get platform capabilities */
 	if (wil->platform_ops.get_capa) {
@@ -96,6 +125,8 @@ void wil_set_capabilities(struct wil6210_priv *wil)
 	/* extract FW capabilities from file without loading the FW */
 	wil_request_firmware(wil, wil->wil_fw_name, false);
 	wil_refresh_fw_capabilities(wil);
+
+	return 0;
 }
 
 void wil_disable_irq(struct wil6210_priv *wil)
@@ -299,7 +330,11 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	/* rollback to err_iounmap */
 	wil_info(wil, "CSR at %pR -> 0x%p\n", &pdev->resource[0], wil->csr);
 
-	wil_set_capabilities(wil);
+	rc = wil_set_capabilities(wil);
+	if (rc) {
+		wil_err(wil, "wil_set_capabilities failed, rc %d\n", rc);
+		goto err_iounmap;
+	}
 	wil6210_clear_irq(wil);
 
 	/* FW should raise IRQ when ready */
@@ -317,7 +352,6 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_PM_SLEEP
 	wil->pm_notify.notifier_call = wil6210_pm_notify;
 	rc = register_pm_notifier(&wil->pm_notify);
 	if (rc)
@@ -325,7 +359,6 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		 * be prevented in a later phase if needed
 		 */
 		wil_err(wil, "register_pm_notifier failed: %d\n", rc);
-#endif /* CONFIG_PM_SLEEP */
 #endif /* CONFIG_PM */
 
 	wil6210_debugfs_init(wil);
@@ -360,9 +393,7 @@ static void wil_pcie_remove(struct pci_dev *pdev)
 	wil_dbg_misc(wil, "pcie_remove\n");
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_PM_SLEEP
 	unregister_pm_notifier(&wil->pm_notify);
-#endif /* CONFIG_PM_SLEEP */
 #endif /* CONFIG_PM */
 
 	wil_pm_runtime_forbid(wil);
@@ -385,12 +416,12 @@ static void wil_pcie_remove(struct pci_dev *pdev)
 static const struct pci_device_id wil6210_pcie_ids[] = {
 	{ PCI_DEVICE(0x1ae9, 0x0310) },
 	{ PCI_DEVICE(0x1ae9, 0x0302) }, /* same as above, firmware broken */
+	{ PCI_DEVICE(0x17cb, 0x1201) }, /* Talyn */
 	{ /* end: all zeroes */	},
 };
 MODULE_DEVICE_TABLE(pci, wil6210_pcie_ids);
 
 #ifdef CONFIG_PM
-#ifdef CONFIG_PM_SLEEP
 
 static int wil6210_suspend(struct device *dev, bool is_runtime)
 {
@@ -508,7 +539,6 @@ static int wil6210_pm_resume(struct device *dev)
 {
 	return wil6210_resume(dev, false);
 }
-#endif /* CONFIG_PM_SLEEP */
 
 static int wil6210_pm_runtime_idle(struct device *dev)
 {
@@ -540,10 +570,12 @@ static int wil6210_pm_runtime_suspend(struct device *dev)
 #endif /* CONFIG_PM */
 
 static const struct dev_pm_ops wil6210_pm_ops = {
+#ifdef CONFIG_PM
 	SET_SYSTEM_SLEEP_PM_OPS(wil6210_pm_suspend, wil6210_pm_resume)
 	SET_RUNTIME_PM_OPS(wil6210_pm_runtime_suspend,
 			   wil6210_pm_runtime_resume,
 			   wil6210_pm_runtime_idle)
+#endif /* CONFIG_PM */
 };
 
 static struct pci_driver wil6210_driver = {

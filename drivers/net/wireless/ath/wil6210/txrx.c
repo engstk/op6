@@ -323,6 +323,8 @@ static int wil_vring_alloc_skb(struct wil6210_priv *wil, struct vring *vring,
 		return -ENOMEM;
 	}
 
+	d->mac.pn_15_0 = 0;
+	d->mac.pn_47_16 = 0;
 	d->dma.d0 = RX_DMA_D0_CMD_DMA_RT | RX_DMA_D0_CMD_DMA_IT;
 	wil_desc_addr_set(&d->dma.addr, pa);
 	/* ip_length don't care */
@@ -636,8 +638,8 @@ static int wil_rx_refill(struct wil6210_priv *wil, int count)
 			v->swtail = next_tail) {
 		rc = wil_vring_alloc_skb(wil, v, v->swtail, headroom);
 		if (unlikely(rc)) {
-			wil_err(wil, "Error %d in wil_rx_refill[%d]\n",
-				rc, v->swtail);
+			wil_err_ratelimited(wil, "Error %d in rx refill[%d]\n",
+					    rc, v->swtail);
 			break;
 		}
 	}

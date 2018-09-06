@@ -2320,7 +2320,7 @@ iwl_mvm_mac_release_buffered_frames(struct ieee80211_hw *hw,
 {
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 
-	/* Called when we need to transmit (a) frame(s) from agg queue */
+	/* Called when we need to transmit (a) frame(s) from agg or dqa queue */
 
 	iwl_mvm_sta_modify_sleep_tx_count(mvm, sta, reason, num_frames,
 					  tids, more_data, true);
@@ -2340,7 +2340,8 @@ static void iwl_mvm_mac_sta_notify(struct ieee80211_hw *hw,
 	for (tid = 0; tid < IWL_MAX_TID_COUNT; tid++) {
 		struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 
-		if (tid_data->state != IWL_AGG_ON &&
+		if (!iwl_mvm_is_dqa_supported(mvm) &&
+		    tid_data->state != IWL_AGG_ON &&
 		    tid_data->state != IWL_EMPTYING_HW_QUEUE_DELBA)
 			continue;
 
@@ -2584,6 +2585,10 @@ static int iwl_mvm_mac_sta_state(struct ieee80211_hw *hw,
 
 		/* enable beacon filtering */
 		WARN_ON(iwl_mvm_enable_beacon_filter(mvm, vif, 0));
+
+		iwl_mvm_rs_rate_init(mvm, sta, mvmvif->phy_ctxt->channel->band,
+				     false);
+
 		ret = 0;
 	} else if (old_state == IEEE80211_STA_AUTHORIZED &&
 		   new_state == IEEE80211_STA_ASSOC) {

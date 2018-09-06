@@ -224,7 +224,7 @@ EXPORT_SYMBOL_GPL(cpufreq_cooling_get_level);
 static int cpufreq_cooling_pm_notify(struct notifier_block *nb,
 				unsigned long mode, void *_unused)
 {
-	struct cpufreq_cooling_device *cpufreq_dev;
+	struct cpufreq_cooling_device *cpufreq_dev, *next;
 	unsigned int cpu;
 
 	switch (mode) {
@@ -236,8 +236,8 @@ static int cpufreq_cooling_pm_notify(struct notifier_block *nb,
 	case PM_POST_HIBERNATION:
 	case PM_POST_RESTORE:
 	case PM_POST_SUSPEND:
-		mutex_lock(&cooling_list_lock);
-		list_for_each_entry(cpufreq_dev, &cpufreq_dev_list, node) {
+		list_for_each_entry_safe(cpufreq_dev, next, &cpufreq_dev_list,
+						node) {
 			mutex_lock(&core_isolate_lock);
 			if (cpufreq_dev->cpufreq_state ==
 				cpufreq_dev->max_level) {
@@ -259,7 +259,6 @@ static int cpufreq_cooling_pm_notify(struct notifier_block *nb,
 			}
 			mutex_unlock(&core_isolate_lock);
 		}
-		mutex_unlock(&cooling_list_lock);
 
 		atomic_set(&in_suspend, 0);
 		break;
@@ -337,7 +336,7 @@ static int cpufreq_thermal_notifier(struct notifier_block *nb,
 				    unsigned long event, void *data)
 {
 	struct cpufreq_policy *policy = data;
-	unsigned long clipped_freq, floor_freq;
+	unsigned long clipped_freq = ULONG_MAX, floor_freq = 0;
 	struct cpufreq_cooling_device *cpufreq_dev;
 
 	if (event != CPUFREQ_ADJUST)
@@ -345,31 +344,30 @@ static int cpufreq_thermal_notifier(struct notifier_block *nb,
 
 	mutex_lock(&cooling_list_lock);
 	list_for_each_entry(cpufreq_dev, &cpufreq_dev_list, node) {
-		if (!cpumask_test_cpu(policy->cpu, &cpufreq_dev->allowed_cpus))
+		if (!cpumask_intersects(&cpufreq_dev->allowed_cpus,
+					policy->related_cpus))
 			continue;
-
-		/*
-		 * policy->max is the maximum allowed frequency defined by user
-		 * and clipped_freq is the maximum that thermal constraints
-		 * allow.
-		 *
-		 * If clipped_freq is lower than policy->max, then we need to
-		 * readjust policy->max.
-		 *
-		 * But, if clipped_freq is greater than policy->max, we don't
-		 * need to do anything.
-		 *
-		 * Similarly, if policy minimum set by the user is less than
-		 * the floor_frequency, then adjust the policy->min.
-		 */
-		clipped_freq = cpufreq_dev->clipped_freq;
-		floor_freq = cpufreq_dev->floor_freq;
-
-		if (policy->max > clipped_freq || policy->min < floor_freq)
-			cpufreq_verify_within_limits(policy, floor_freq,
-						     clipped_freq);
-		break;
+		if (cpufreq_dev->clipped_freq < clipped_freq)
+			clipped_freq = cpufreq_dev->clipped_freq;
+		if (cpufreq_dev->floor_freq > floor_freq)
+			floor_freq = cpufreq_dev->floor_freq;
 	}
+	/*
+	 * policy->max is the maximum allowed frequency defined by user
+	 * and clipped_freq is the maximum that thermal constraints
+	 * allow.
+	 *
+	 * If clipped_freq is lower than policy->max, then we need to
+	 * readjust policy->max.
+	 *
+	 * But, if clipped_freq is greater than policy->max, we don't
+	 * need to do anything.
+	 *
+	 * Similarly, if policy minimum set by the user is less than
+	 * the floor_frequency, then adjust the policy->min.
+	 */
+	if (policy->max > clipped_freq || policy->min < floor_freq)
+		cpufreq_verify_within_limits(policy, floor_freq, clipped_freq);
 	mutex_unlock(&cooling_list_lock);
 
 	return NOTIFY_OK;

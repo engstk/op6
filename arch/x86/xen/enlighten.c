@@ -75,6 +75,7 @@
 #include <asm/mwait.h>
 #include <asm/pci_x86.h>
 #include <asm/cpu.h>
+#include <asm/unwind_hints.h>
 
 #ifdef CONFIG_ACPI
 #include <linux/acpi.h>
@@ -443,6 +444,12 @@ static void __init xen_init_cpuid_mask(void)
 	cpuid_leaf1_edx_mask =
 		~((1 << X86_FEATURE_MTRR) |  /* disable MTRR */
 		  (1 << X86_FEATURE_ACC));   /* thermal monitoring */
+
+	/*
+	 * Xen PV would need some work to support PCID: CR3 handling as well
+	 * as xen_flush_tlb_others() would need updating.
+	 */
+	cpuid_leaf1_ecx_mask &= ~(1 << (X86_FEATURE_PCID % 32));  /* disable PCID */
 
 	if (!xen_initial_domain())
 		cpuid_leaf1_edx_mask &=
@@ -1446,10 +1453,12 @@ static void __ref xen_setup_gdt(int cpu)
 		 * GDT. The new GDT has  __KERNEL_CS with CS.L = 1
 		 * and we are jumping to reload it.
 		 */
-		asm volatile ("pushq %0\n"
+		asm volatile (UNWIND_HINT_SAVE
+			      "pushq %0\n"
 			      "leaq 1f(%%rip),%0\n"
 			      "pushq %0\n"
 			      "lretq\n"
+			      UNWIND_HINT_RESTORE
 			      "1:\n"
 			      : "=&r" (dummy) : "0" (__KERNEL_CS));
 
@@ -1971,10 +1980,8 @@ EXPORT_SYMBOL_GPL(xen_hvm_need_lapic);
 
 static void xen_set_cpu_features(struct cpuinfo_x86 *c)
 {
-	if (xen_pv_domain()) {
-		clear_cpu_bug(c, X86_BUG_SYSRET_SS_ATTRS);
+	if (xen_pv_domain())
 		set_cpu_cap(c, X86_FEATURE_XENPV);
-	}
 }
 
 static void xen_pin_vcpu(int cpu)

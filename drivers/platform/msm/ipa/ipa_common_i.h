@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,6 +15,7 @@
 
 #ifndef _IPA_COMMON_I_H_
 #define _IPA_COMMON_I_H_
+#include <linux/errno.h>
 #include <linux/ipc_logging.h>
 #include <linux/ipa.h>
 #include <linux/ipa_uc_offload.h>
@@ -333,11 +334,13 @@ struct ipa_mhi_connect_params_internal {
  * @link: entry's link in global header offset entries list
  * @offset: the offset
  * @bin: bin
+ * @ipacm_installed: indicate if installed by ipacm
  */
 struct ipa_hdr_offset_entry {
 	struct list_head link;
 	u32 offset;
 	u32 bin;
+	bool ipacm_installed;
 };
 
 extern const char *ipa_clients_strings[];
@@ -408,7 +411,8 @@ int ipa_setup_uc_ntn_pipes(struct ipa_ntn_conn_in_params *in,
 	ipa_notify_cb notify, void *priv, u8 hdr_len,
 	struct ipa_ntn_conn_out_params *outp);
 
-int ipa_tear_down_uc_offload_pipes(int ipa_ep_idx_ul, int ipa_ep_idx_dl);
+int ipa_tear_down_uc_offload_pipes(int ipa_ep_idx_ul, int ipa_ep_idx_dl,
+	struct ipa_ntn_conn_in_params *params);
 u8 *ipa_write_64(u64 w, u8 *dest);
 u8 *ipa_write_32(u32 w, u8 *dest);
 u8 *ipa_write_16(u16 hw, u8 *dest);
@@ -419,18 +423,26 @@ int ipa_ntn_uc_reg_rdyCB(void (*ipauc_ready_cb)(void *user_data),
 			      void *user_data);
 void ipa_ntn_uc_dereg_rdyCB(void);
 
-int ipa_conn_wdi3_pipes(struct ipa_wdi3_conn_in_params *in,
-	struct ipa_wdi3_conn_out_params *out);
+int ipa_conn_wdi_pipes(struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out,
+	ipa_wdi_meter_notifier_cb wdi_notify);
 
-int ipa_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
+int ipa_disconn_wdi_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
 
-int ipa_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
+int ipa_enable_wdi_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
 
-int ipa_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
+int ipa_disable_wdi_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
 
 const char *ipa_get_version_string(enum ipa_hw_type ver);
 int ipa_start_gsi_channel(u32 clnt_hdl);
 
 bool ipa_pm_is_used(void);
+
+int ipa_smmu_store_sgt(struct sg_table **out_ch_ptr,
+		struct sg_table *in_sgt_ptr);
+int ipa_smmu_free_sgt(struct sg_table **out_sgt_ptr);
+
+int ipa_ut_module_init(void);
+void ipa_ut_module_exit(void);
 
 #endif /* _IPA_COMMON_I_H_ */

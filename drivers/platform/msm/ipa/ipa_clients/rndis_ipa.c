@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -363,7 +363,7 @@ static struct ipa_ep_cfg usb_to_ipa_ep_cfg_deaggr_dis = {
 			sizeof(struct rndis_pkt_hdr),
 		.hdr_a5_mux = false,
 		.hdr_remove_additional = false,
-		.hdr_metadata_reg_valid = false,
+		.hdr_metadata_reg_valid = true,
 	},
 	.hdr_ext = {
 		.hdr_pad_to_alignment = 0,
@@ -410,7 +410,7 @@ static struct ipa_ep_cfg usb_to_ipa_ep_cfg_deaggr_en = {
 		.hdr_ofst_pkt_size = 3 * sizeof(u32),
 		.hdr_a5_mux = false,
 		.hdr_remove_additional = false,
-		.hdr_metadata_reg_valid = false,
+		.hdr_metadata_reg_valid = true,
 	},
 	.hdr_ext = {
 		.hdr_pad_to_alignment = 0,
@@ -574,13 +574,15 @@ int rndis_ipa_init(struct ipa_usb_init_params *params)
 		goto fail_set_device_ethernet;
 	}
 	RNDIS_IPA_DEBUG("Device Ethernet address set %pM\n", net->dev_addr);
-
+#ifdef CONFIG_IPA3
 	if (ipa_is_vlan_mode(IPA_VLAN_IF_RNDIS,
 		&rndis_ipa_ctx->is_vlan_mode)) {
 		RNDIS_IPA_ERROR("couldn't acquire vlan mode, is ipa ready?\n");
-		goto fail_get_vlan_mode;
+		goto fail_hdrs_cfg;
 	}
-
+#else
+	rndis_ipa_ctx->is_vlan_mode = 0;
+#endif
 	RNDIS_IPA_DEBUG("is_vlan_mode %d\n", rndis_ipa_ctx->is_vlan_mode);
 
 	result = rndis_ipa_hdrs_cfg
@@ -631,7 +633,6 @@ fail_register_netdev:
 fail_register_tx:
 	rndis_ipa_hdrs_destroy(rndis_ipa_ctx);
 fail_hdrs_cfg:
-fail_get_vlan_mode:
 fail_set_device_ethernet:
 	rndis_ipa_debugfs_destroy(rndis_ipa_ctx);
 fail_netdev_priv:
@@ -2025,8 +2026,10 @@ static struct sk_buff *rndis_encapsulate_skb(struct sk_buff *skb,
 	}
 
 	if (rndis_ipa_ctx->is_vlan_mode)
-		if (unlikely(skb->protocol != ETH_P_8021Q))
-			RNDIS_IPA_DEBUG("ether_type != ETH_P_8021Q && vlan\n");
+		if (unlikely(skb->protocol != htons(ETH_P_8021Q)))
+			RNDIS_IPA_DEBUG(
+				"ether_type != ETH_P_8021Q && vlan, prot = 0x%X\n"
+				, skb->protocol);
 
 	/* make room at the head of the SKB to put the RNDIS header */
 	rndis_hdr = (struct rndis_pkt_hdr *)skb_push(skb,
@@ -2180,6 +2183,9 @@ static int rndis_ipa_ep_registers_cfg(
 		ipa_to_usb_ep_cfg.aggr.aggr_byte_limit,
 		ipa_to_usb_ep_cfg.aggr.aggr_time_limit,
 		ipa_to_usb_ep_cfg.aggr.aggr_pkt_limit);
+
+	/* enable hdr_metadata_reg_valid */
+	usb_to_ipa_ep_cfg->hdr.hdr_metadata_reg_valid = true;
 
 	result = ipa_cfg_ep(ipa_to_usb_hdl, &ipa_to_usb_ep_cfg);
 	if (result) {

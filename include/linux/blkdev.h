@@ -345,7 +345,7 @@ struct request_queue {
 	 */
 	struct delayed_work	delay_work;
 
-	struct backing_dev_info	backing_dev_info;
+	struct backing_dev_info	*backing_dev_info;
 
 	/*
 	 * The queue owner gets to use this for whatever they like.
@@ -509,6 +509,7 @@ struct request_queue {
 #define QUEUE_FLAG_FLUSH_NQ    25	/* flush not queueuable */
 #define QUEUE_FLAG_DAX         26	/* device supports DAX */
 #define QUEUE_FLAG_FAST        27	/* fast block device (e.g. ram based) */
+#define QUEUE_FLAG_INLINECRYPT 28	/* inline encryption support */
 
 #define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
@@ -600,6 +601,8 @@ static inline void queue_flag_clear(unsigned int flag, struct request_queue *q)
 	(test_bit(QUEUE_FLAG_SECERASE, &(q)->queue_flags))
 #define blk_queue_dax(q)	test_bit(QUEUE_FLAG_DAX, &(q)->queue_flags)
 #define blk_queue_fast(q)	test_bit(QUEUE_FLAG_FAST, &(q)->queue_flags)
+#define blk_queue_inlinecrypt(q) \
+	test_bit(QUEUE_FLAG_INLINECRYPT, &(q)->queue_flags)
 
 #define blk_noretry_request(rq) \
 	((rq)->cmd_flags & (REQ_FAILFAST_DEV|REQ_FAILFAST_TRANSPORT| \
@@ -1031,7 +1034,6 @@ extern void blk_queue_rq_timed_out(struct request_queue *, rq_timed_out_fn *);
 extern void blk_queue_rq_timeout(struct request_queue *, unsigned int);
 extern void blk_queue_flush_queueable(struct request_queue *q, bool queueable);
 extern void blk_queue_write_cache(struct request_queue *q, bool enabled, bool fua);
-extern struct backing_dev_info *blk_get_backing_dev_info(struct block_device *bdev);
 
 extern int blk_rq_map_sg(struct request_queue *, struct request *, struct scatterlist *);
 extern int blk_rq_map_sg_no_cluster(struct request_queue *q, struct request *rq,
@@ -1743,43 +1745,26 @@ static const u_int64_t latency_x_axis_us[] = {
 #define BLK_IO_LAT_HIST_ZERO            2
 
 struct io_latency_state {
-	u_int64_t	latency_y_axis_read[ARRAY_SIZE(latency_x_axis_us) + 1];
-	u_int64_t	latency_reads_elems;
-	u_int64_t	latency_y_axis_write[ARRAY_SIZE(latency_x_axis_us) + 1];
-	u_int64_t	latency_writes_elems;
+	u_int64_t	latency_y_axis[ARRAY_SIZE(latency_x_axis_us) + 1];
+	u_int64_t	latency_elems;
+	u_int64_t	latency_sum;
 };
 
 static inline void
-blk_update_latency_hist(struct io_latency_state *s,
-			int read,
-			u_int64_t delta_us)
+blk_update_latency_hist(struct io_latency_state *s, u_int64_t delta_us)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(latency_x_axis_us); i++) {
-		if (delta_us < (u_int64_t)latency_x_axis_us[i]) {
-			if (read)
-				s->latency_y_axis_read[i]++;
-			else
-				s->latency_y_axis_write[i]++;
+	for (i = 0; i < ARRAY_SIZE(latency_x_axis_us); i++)
+		if (delta_us < (u_int64_t)latency_x_axis_us[i])
 			break;
-		}
-	}
-	if (i == ARRAY_SIZE(latency_x_axis_us)) {
-		/* Overflowed the histogram */
-		if (read)
-			s->latency_y_axis_read[i]++;
-		else
-			s->latency_y_axis_write[i]++;
-	}
-	if (read)
-		s->latency_reads_elems++;
-	else
-		s->latency_writes_elems++;
+	s->latency_y_axis[i]++;
+	s->latency_elems++;
+	s->latency_sum += delta_us;
 }
 
-void blk_zero_latency_hist(struct io_latency_state *s);
-ssize_t blk_latency_hist_show(struct io_latency_state *s, char *buf);
+ssize_t blk_latency_hist_show(char* name, struct io_latency_state *s,
+		char *buf, int buf_size);
 
 #else /* CONFIG_BLOCK */
 

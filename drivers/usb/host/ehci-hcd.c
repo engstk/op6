@@ -377,6 +377,9 @@ static void ehci_shutdown(struct usb_hcd *hcd)
 	if (!ehci->sbrn)
 		return;
 
+	if (!HCD_HW_ACCESSIBLE(hcd))
+		return;
+
 	spin_lock_irq(&ehci->lock);
 	ehci->shutdown = true;
 	ehci->rh_state = EHCI_RH_STOPPING;
@@ -1017,7 +1020,7 @@ idle_timeout:
 		/* caller was supposed to have unlinked any requests;
 		 * that's not our job.  just leak this memory.
 		 */
-		ehci_err (ehci, "qh %p (#%02x) state %d%s\n",
+		ehci_err (ehci, "qh %pK (#%02x) state %d%s\n",
 			qh, ep->desc.bEndpointAddress, qh->qh_state,
 			list_empty (&qh->qtd_list) ? "" : "(has tds)");
 		break;

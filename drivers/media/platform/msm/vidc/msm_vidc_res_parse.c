@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,6 +25,7 @@
 enum clock_properties {
 	CLOCK_PROP_HAS_SCALING = 1 << 0,
 	CLOCK_PROP_HAS_MEM_RETENTION    = 1 << 1,
+	CLOCK_PROP_DISABLE_MEMCORE_ONLY = 1 << 2,
 };
 
 #define PERF_GOV "performance"
@@ -666,6 +667,11 @@ static int msm_vidc_load_clock_table(
 		else
 			vc->has_mem_retention = false;
 
+		if (clock_props[c] & CLOCK_PROP_DISABLE_MEMCORE_ONLY)
+			vc->disable_memcore_only = true;
+		else
+			vc->disable_memcore_only = false;
+
 		dprintk(VIDC_DBG, "Found clock %s: scale-able = %s\n", vc->name,
 			vc->count ? "yes" : "no");
 	}
@@ -992,10 +998,11 @@ int msm_vidc_smmu_fault_handler(struct iommu_domain *domain,
 
 	if (core->smmu_fault_handled) {
 		if (core->resources.non_fatal_pagefaults) {
-			msm_vidc_noc_error_info(core);
-			MSM_VIDC_ERROR(true);
+			dprintk(VIDC_ERR,
+					"%s: non-fatal pagefault address: %lx\n",
+					__func__, iova);
+			return 0;
 		}
-		return -ENOSYS;
 	}
 
 	dprintk(VIDC_ERR, "%s - faulting address: %lx\n", __func__, iova);

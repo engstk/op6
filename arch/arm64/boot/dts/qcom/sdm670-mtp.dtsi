@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,7 +14,10 @@
 #include "sdm670-pmic-overlay.dtsi"
 #include "sdm670-sde-display.dtsi"
 #include "sdm670-camera-sensor-mtp.dtsi"
+
+&qupv3_se10_i2c {
 #include "smb1355.dtsi"
+};
 
 &ufsphy_mem {
 	compatible = "qcom,ufs-phy-qmp-v3";
@@ -141,6 +144,10 @@
 	qcom,battery-data = <&mtp_batterydata>;
 };
 
+&pm660_charger {
+	qcom,battery-data = <&mtp_batterydata>;
+};
+
 &tlmm {
 	smb_int_default: smb_int_default {
 		mux {
@@ -198,7 +205,7 @@
 
 		cam_snapshot {
 			label = "cam_snapshot";
-			gpios = <&tlmm 91 0>;
+			gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
 			linux,input-type = <1>;
 			linux,code = <766>;
 			gpio-key,wakeup;
@@ -208,7 +215,7 @@
 
 		cam_focus {
 			label = "cam_focus";
-			gpios = <&tlmm 92 0>;
+			gpios = <&tlmm 92 GPIO_ACTIVE_HIGH>;
 			linux,input-type = <1>;
 			linux,code = <528>;
 			gpio-key,wakeup;
@@ -351,6 +358,17 @@
 	qcom,platform-te-gpio = <&tlmm 10 0>;
 };
 
+&dsi_hx8399_truly_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,platform-reset-gpio = <&tlmm 75 0>;
+	qcom,platform-te-gpio = <&tlmm 10 0>;
+	qcom,panel-mode-gpio = <&tlmm 76 0>;
+	qcom,mdss-dsi-mode-sel-gpio-state = "single_port";
+};
+
 &dsi_dual_nt35597_truly_video_display {
 	qcom,dsi-display-active;
 };
@@ -365,13 +383,7 @@
 };
 
 &thermal_zones {
-	xo-therm-cpu-step {
-		status = "disabled";
-	};
-	xo-therm-mdm-step {
-		status = "disabled";
-	};
-	xo-therm-batt-step {
+	xo-therm-step {
 		status = "disabled";
 	};
 };

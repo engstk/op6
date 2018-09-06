@@ -191,14 +191,15 @@ is_prefetch(struct pt_regs *regs, unsigned long error_code, unsigned long addr)
  * 6. T1   : reaches here, sees vma_pkey(vma)=5, when we really
  *	     faulted on a pte with its pkey=4.
  */
-static void fill_sig_info_pkey(int si_code, siginfo_t *info, u32 *pkey)
+static void fill_sig_info_pkey(int si_signo, int si_code, siginfo_t *info,
+		u32 *pkey)
 {
 	/* This is effectively an #ifdef */
 	if (!boot_cpu_has(X86_FEATURE_OSPKE))
 		return;
 
 	/* Fault not from Protection Keys: nothing to do */
-	if (si_code != SEGV_PKUERR)
+	if ((si_code != SEGV_PKUERR) || (si_signo != SIGSEGV))
 		return;
 	/*
 	 * force_sig_info_fault() is called from a number of
@@ -237,7 +238,7 @@ force_sig_info_fault(int si_signo, int si_code, unsigned long address,
 		lsb = PAGE_SHIFT;
 	info.si_addr_lsb = lsb;
 
-	fill_sig_info_pkey(si_code, &info, pkey);
+	fill_sig_info_pkey(si_signo, si_code, &info, pkey);
 
 	force_sig_info(si_signo, &info, tsk);
 }
@@ -342,7 +343,7 @@ static noinline int vmalloc_fault(unsigned long address)
 	if (!pmd_k)
 		return -1;
 
-	if (pmd_huge(*pmd_k))
+	if (pmd_large(*pmd_k))
 		return 0;
 
 	pte_k = pte_offset_kernel(pmd_k, address);
@@ -462,7 +463,7 @@ static noinline int vmalloc_fault(unsigned long address)
 	if (pud_none(*pud) || pud_pfn(*pud) != pud_pfn(*pud_ref))
 		BUG();
 
-	if (pud_huge(*pud))
+	if (pud_large(*pud))
 		return 0;
 
 	pmd = pmd_offset(pud, address);
@@ -473,7 +474,7 @@ static noinline int vmalloc_fault(unsigned long address)
 	if (pmd_none(*pmd) || pmd_pfn(*pmd) != pmd_pfn(*pmd_ref))
 		BUG();
 
-	if (pmd_huge(*pmd))
+	if (pmd_large(*pmd))
 		return 0;
 
 	pte_ref = pte_offset_kernel(pmd_ref, address);
@@ -758,7 +759,6 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 	if (is_vmalloc_addr((void *)address) &&
 	    (((unsigned long)tsk->stack - 1 - address < PAGE_SIZE) ||
 	     address - ((unsigned long)tsk->stack + THREAD_SIZE) < PAGE_SIZE)) {
-		register void *__sp asm("rsp");
 		unsigned long stack = this_cpu_read(orig_ist.ist[DOUBLEFAULT_STACK]) - sizeof(void *);
 		/*
 		 * We're likely to be running with very little stack space
@@ -773,7 +773,7 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 		asm volatile ("movq %[stack], %%rsp\n\t"
 			      "call handle_stack_overflow\n\t"
 			      "1: jmp 1b"
-			      : "+r" (__sp)
+			      : ASM_CALL_CONSTRAINT
 			      : "D" ("kernel stack overflow (page fault)"),
 				"S" (regs), "d" (address),
 				[stack] "rm" (stack));
@@ -1393,7 +1393,17 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.  Since we never set FAULT_FLAG_RETRY_NOWAIT, if
 	 * we get VM_FAULT_RETRY back, the mmap_sem has been unlocked.
+	 *
+	 * Note that handle_userfault() may also release and reacquire mmap_sem
+	 * (and not return with VM_FAULT_RETRY), when returning to userland to
+	 * repeat the page fault later with a VM_FAULT_NOPAGE retval
+	 * (potentially after handling any pending signal during the return to
+	 * userland). The return to userland is identified whenever
+	 * FAULT_FLAG_USER|FAULT_FLAG_KILLABLE are both set in flags.
+	 * Thus we have to be careful about not touching vma after handling the
+	 * fault, so we read the pkey beforehand.
 	 */
+	pkey = vma_pkey(vma);
 	fault = handle_mm_fault(vma, address, flags);
 	major |= fault & VM_FAULT_MAJOR;
 
@@ -1420,7 +1430,6 @@ good_area:
 		return;
 	}
 
-	pkey = vma_pkey(vma);
 	up_read(&mm->mmap_sem);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		mm_fault_error(regs, error_code, address, &pkey, fault);

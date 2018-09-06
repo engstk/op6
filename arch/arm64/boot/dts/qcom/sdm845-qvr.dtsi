@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,9 +10,18 @@
  * GNU General Public License for more details.
  */
 
+#include <dt-bindings/clock/qcom,gcc-sdm845.h>
+#include <dt-bindings/clock/qcom,camcc-sdm845.h>
+#include <dt-bindings/clock/qcom,dispcc-sdm845.h>
+#include <dt-bindings/clock/qcom,rpmh.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+
 #include "sdm845-pmic-overlay.dtsi"
 #include "sdm845-pinctrl-overlay.dtsi"
+
+&qupv3_se10_i2c {
 #include "smb1355.dtsi"
+};
 
 &vendor {
 	bluetooth: bt_wcn3990 {
@@ -60,6 +69,30 @@
 	qcom,sw-jeita-enable;
 };
 
+&qupv3_se3_i2c {
+	status = "ok";
+	nq@28 {
+		compatible = "qcom,nq-nci";
+		reg = <0x28>;
+		qcom,nq-irq = <&tlmm 63 0x00>;
+		qcom,nq-ven = <&tlmm 12 0x00>;
+		qcom,nq-firm = <&tlmm 62 0x00>;
+		qcom,nq-clkreq = <&pm8998_gpios 21 0x00>;
+		qcom,nq-esepwr = <&tlmm 116 0x00>;
+		interrupt-parent = <&tlmm>;
+		qcom,clk-src = "BBCLK3";
+		interrupts = <63 0>;
+		interrupt-names = "nfc_irq";
+		pinctrl-names = "nfc_active", "nfc_suspend";
+		pinctrl-0 = <&nfc_int_active
+			     &nfc_enable_active
+			     &nfc_clk_default>;
+		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend>;
+		clocks = <&clock_rpmh RPMH_LN_BB_CLK3>;
+		clock-names = "ref_clk";
+	};
+};
+
 &qupv3_se10_i2c {
 	status = "ok";
 };
@@ -104,6 +137,29 @@
 			linux,can-disable;
 		};
 	};
+};
+
+&qusb_phy0 {
+		qcom,qusb-phy-init-seq =
+			/* <value reg_offset> */
+			   <0x23 0x210 /* PWR_CTRL1 */
+			    0x03 0x04  /* PLL_ANALOG_CONTROLS_TWO */
+			    0x7c 0x18c /* PLL_CLOCK_INVERTERS */
+			    0x80 0x2c  /* PLL_CMODE */
+			    0x0a 0x184 /* PLL_LOCK_DELAY */
+			    0x19 0xb4  /* PLL_DIGITAL_TIMERS_TWO */
+			    0x40 0x194 /* PLL_BIAS_CONTROL_1 */
+			    0x20 0x198 /* PLL_BIAS_CONTROL_2 */
+			    0x21 0x214 /* PWR_CTRL2 */
+			    0x00 0x220 /* IMP_CTRL1 */
+			    0x58 0x224 /* IMP_CTRL2 */
+			    0x27 0x240 /* TUNE1 */
+			    0x29 0x244 /* TUNE2 */
+			    0xca 0x248 /* TUNE3 */
+			    0x04 0x24c /* TUNE4 */
+			    0x03 0x250 /* TUNE5 */
+			    0x00 0x23c /* CHG_CTRL2 */
+			    0x22 0x210>; /* PWR_CTRL1 */
 };
 
 &pmi8998_haptics {
@@ -153,8 +209,8 @@
 	qcom,vdd-io-current-level = <200 22000>;
 
 	pinctrl-names = "active", "sleep";
-	pinctrl-0 = <&sdc2_clk_on  &sdc2_cmd_on &storage_cd>;
-	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &storage_cd>;
+	pinctrl-0 = <&sdc2_clk_on  &sdc2_cmd_on &sdc2_data_on &storage_cd>;
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &storage_cd>;
 
 	cd-gpios = <&tlmm 126 GPIO_ACTIVE_HIGH>;
 
@@ -163,4 +219,31 @@
 
 &wil6210 {
 	status = "ok";
+};
+
+&qupv3_se5_i2c {
+	status = "ok";
+	synaptics_dsx@20 {
+		compatible = "synaptics,dsx-i2c";
+		reg = <0x20>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <122 0x2008>;
+		vdd-supply = <&pm8998_l14>;
+		avdd-supply = <&pm8998_l28>;
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend",
+				"pmx_ts_release";
+		pinctrl-0 = <&ts_int_active &ts_reset_active>;
+		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+		pinctrl-2 = <&ts_release>;
+		synaptics,pwr-reg-name = "avdd";
+		synaptics,bus-reg-name = "vdd";
+		synaptics,ub-i2c-addr = <0x2c>;
+		synaptics,irq-gpio = <&tlmm 122 0x2008>;
+		synaptics,reset-gpio = <&tlmm 99 0x0>;
+		synaptics,irq-on-state = <0>;
+		synaptics,power-delay-ms = <200>;
+		synaptics,reset-delay-ms = <200>;
+		synaptics,reset-on-state = <0>;
+		synaptics,reset-active-ms = <20>;
+	};
 };

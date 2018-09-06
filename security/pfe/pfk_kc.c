@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -435,6 +435,7 @@ int pfk_kc_init(void)
 	}
 	kc_ready = true;
 	kc_spin_unlock();
+
 	return 0;
 }
 
@@ -446,8 +447,8 @@ int pfk_kc_init(void)
 int pfk_kc_deinit(void)
 {
 	int res = pfk_kc_clear();
-
 	kc_ready = false;
+
 	return res;
 }
 

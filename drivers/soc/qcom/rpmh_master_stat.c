@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,21 +13,26 @@
 
 #define pr_fmt(fmt) "%s: " fmt, KBUILD_MODNAME
 
-#include <linux/debugfs.h>
-#include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/init.h>
-#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <linux/sched.h>
-#include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/mm.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/uaccess.h>
+#include <asm/arch_timer.h>
 #include <soc/qcom/smem.h>
+#include "rpmh_master_stat.h"
+
+#define UNIT_DIST 0x14
+#define REG_VALID 0x0
+#define REG_DATA_LO 0x4
+#define REG_DATA_HI 0x8
+
+#define GET_ADDR(REG, UNIT_NO) (REG + (UNIT_DIST * UNIT_NO))
 
 enum master_smem_id {
 	MPSS = 605,
@@ -48,6 +53,14 @@ enum master_pid {
 	PID_DISPLAY = PID_APSS,
 };
 
+enum profile_data {
+	POWER_DOWN_START,
+	POWER_UP_END,
+	POWER_DOWN_END,
+	POWER_UP_START,
+	NUM_UNIT,
+};
+
 struct msm_rpmh_master_data {
 	char *master_name;
 	enum master_smem_id smem_id;
@@ -66,9 +79,14 @@ static const struct msm_rpmh_master_data rpmh_masters[] = {
 struct msm_rpmh_master_stats {
 	uint32_t version_id;
 	uint32_t counts;
-	uint64_t last_entered_at;
-	uint64_t last_exited_at;
+	uint64_t last_entered;
+	uint64_t last_exited;
 	uint64_t accumulated_duration;
+};
+
+struct msm_rpmh_profile_unit {
+	uint64_t value;
+	uint64_t valid;
 };
 
 struct rpmh_master_stats_prv_data {
@@ -76,20 +94,35 @@ struct rpmh_master_stats_prv_data {
 	struct kobject *kobj;
 };
 
+static struct msm_rpmh_master_stats apss_master_stats;
+static void __iomem *rpmh_unit_base;
+
 static DEFINE_MUTEX(rpmh_stats_mutex);
 
 static ssize_t msm_rpmh_master_stats_print_data(char *prvbuf, ssize_t length,
 				struct msm_rpmh_master_stats *record,
 				const char *name)
 {
+	uint64_t temp_accumulated_duration = record->accumulated_duration;
+	/*
+	 * If a master is in sleep when reading the sleep stats from SMEM
+	 * adjust the accumulated sleep duration to show actual sleep time.
+	 * This ensures that the displayed stats are real when used for
+	 * the purpose of computing battery utilization.
+	 */
+	if (record->last_entered > record->last_exited)
+		temp_accumulated_duration +=
+				(arch_counter_get_cntvct()
+				- record->last_entered);
+
 	return snprintf(prvbuf, length, "%s\n\tVersion:0x%x\n"
 			"\tSleep Count:0x%x\n"
 			"\tSleep Last Entered At:0x%llx\n"
 			"\tSleep Last Exited At:0x%llx\n"
 			"\tSleep Accumulated Duration:0x%llx\n\n",
 			name, record->version_id, record->counts,
-			record->last_entered_at, record->last_exited_at,
-			record->accumulated_duration);
+			record->last_entered, record->last_exited,
+			temp_accumulated_duration);
 }
 
 static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
@@ -100,13 +133,16 @@ static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
 	unsigned int size = 0;
 	struct msm_rpmh_master_stats *record = NULL;
 
-	/*
-	 * Read SMEM data written by masters
-	 */
-
 	mutex_lock(&rpmh_stats_mutex);
 
-	for (i = 0, length = 0; i < ARRAY_SIZE(rpmh_masters); i++) {
+	/* First Read APSS master stats */
+
+	length = msm_rpmh_master_stats_print_data(buf, PAGE_SIZE,
+						&apss_master_stats, "APSS");
+
+	/* Read SMEM data written by other masters */
+
+	for (i = 0; i < ARRAY_SIZE(rpmh_masters); i++) {
 		record = (struct msm_rpmh_master_stats *) smem_get_entry(
 					rpmh_masters[i].smem_id, &size,
 					rpmh_masters[i].pid, 0);
@@ -122,30 +158,66 @@ static ssize_t msm_rpmh_master_stats_show(struct kobject *kobj,
 	return length;
 }
 
+static inline void msm_rpmh_apss_master_stats_update(
+				struct msm_rpmh_profile_unit *profile_unit)
+{
+	apss_master_stats.counts++;
+	apss_master_stats.last_entered = profile_unit[POWER_DOWN_END].value;
+	apss_master_stats.last_exited = profile_unit[POWER_UP_START].value;
+	apss_master_stats.accumulated_duration +=
+					(apss_master_stats.last_exited
+					- apss_master_stats.last_entered);
+}
+
+void msm_rpmh_master_stats_update(void)
+{
+	int i;
+	struct msm_rpmh_profile_unit profile_unit[NUM_UNIT];
+
+	if (!rpmh_unit_base)
+		return;
+
+	for (i = POWER_DOWN_END; i < NUM_UNIT; i++) {
+		profile_unit[i].valid = readl_relaxed(rpmh_unit_base +
+						GET_ADDR(REG_VALID, i));
+
+		/*
+		 * Do not update APSS stats if valid bit is not set.
+		 * It means APSS did not execute cx-off sequence.
+		 * This can be due to fall through at some point.
+		 */
+
+		if (!(profile_unit[i].valid & BIT(REG_VALID)))
+			return;
+
+		profile_unit[i].value = readl_relaxed(rpmh_unit_base +
+						GET_ADDR(REG_DATA_LO, i));
+		profile_unit[i].value |= ((uint64_t)
+					readl_relaxed(rpmh_unit_base +
+					GET_ADDR(REG_DATA_HI, i)) << 32);
+	}
+	msm_rpmh_apss_master_stats_update(profile_unit);
+}
+EXPORT_SYMBOL(msm_rpmh_master_stats_update);
+
 static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 {
 	struct rpmh_master_stats_prv_data *prvdata = NULL;
 	struct kobject *rpmh_master_stats_kobj = NULL;
-	int ret = 0;
+	int ret = -ENOMEM;
 
 	if (!pdev)
 		return -EINVAL;
 
-	prvdata = kzalloc(sizeof(struct rpmh_master_stats_prv_data),
-							GFP_KERNEL);
-	if (!prvdata) {
-		ret = -ENOMEM;
-		goto fail;
-	}
+	prvdata = devm_kzalloc(&pdev->dev, sizeof(*prvdata), GFP_KERNEL);
+	if (!prvdata)
+		return ret;
 
 	rpmh_master_stats_kobj = kobject_create_and_add(
 					"rpmh_stats",
 					power_kobj);
-	if (!rpmh_master_stats_kobj) {
-		ret = -ENOMEM;
-		kfree(prvdata);
-		goto fail;
-	}
+	if (!rpmh_master_stats_kobj)
+		return ret;
 
 	prvdata->kobj = rpmh_master_stats_kobj;
 
@@ -158,14 +230,24 @@ static int msm_rpmh_master_stats_probe(struct platform_device *pdev)
 	ret = sysfs_create_file(prvdata->kobj, &prvdata->ka.attr);
 	if (ret) {
 		pr_err("sysfs_create_file failed\n");
-		kobject_put(prvdata->kobj);
-		kfree(prvdata);
-		goto fail;
+		goto fail_sysfs;
 	}
 
-	platform_set_drvdata(pdev, prvdata);
+	rpmh_unit_base = of_iomap(pdev->dev.of_node, 0);
+	if (!rpmh_unit_base) {
+		pr_err("Failed to get rpmh_unit_base\n");
+		ret = -ENOMEM;
+		goto fail_iomap;
+	}
 
-fail:
+	apss_master_stats.version_id = 0x1;
+	platform_set_drvdata(pdev, prvdata);
+	return ret;
+
+fail_iomap:
+	sysfs_remove_file(prvdata->kobj, &prvdata->ka.attr);
+fail_sysfs:
+	kobject_put(prvdata->kobj);
 	return ret;
 }
 
@@ -181,14 +263,15 @@ static int msm_rpmh_master_stats_remove(struct platform_device *pdev)
 
 	sysfs_remove_file(prvdata->kobj, &prvdata->ka.attr);
 	kobject_put(prvdata->kobj);
-	kfree(prvdata);
 	platform_set_drvdata(pdev, NULL);
+	iounmap(rpmh_unit_base);
+	rpmh_unit_base = NULL;
 
 	return 0;
 }
 
 static const struct of_device_id rpmh_master_table[] = {
-	{.compatible = "qcom,rpmh-master-stats"},
+	{.compatible = "qcom,rpmh-master-stats-v1"},
 	{},
 };
 
@@ -197,24 +280,11 @@ static struct platform_driver msm_rpmh_master_stats_driver = {
 	.remove = msm_rpmh_master_stats_remove,
 	.driver = {
 		.name = "msm_rpmh_master_stats",
-		.owner = THIS_MODULE,
 		.of_match_table = rpmh_master_table,
 	},
 };
 
-static int __init msm_rpmh_master_stats_init(void)
-{
-	return platform_driver_register(&msm_rpmh_master_stats_driver);
-}
-
-static void __exit msm_rpmh_master_stats_exit(void)
-{
-	platform_driver_unregister(&msm_rpmh_master_stats_driver);
-}
-
-module_init(msm_rpmh_master_stats_init);
-module_exit(msm_rpmh_master_stats_exit);
-
+module_platform_driver(msm_rpmh_master_stats_driver);
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("MSM RPMH Master Statistics driver");
 MODULE_ALIAS("platform:msm_rpmh_master_stat_log");

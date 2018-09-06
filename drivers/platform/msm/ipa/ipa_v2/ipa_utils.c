@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -72,6 +72,9 @@ static const int ipa_ihl_ofst_meq32[] = { IPA_IHL_OFFSET_MEQ32_0,
 
 #define INVALID_EP_MAPPING_INDEX (-1)
 
+#define IPA_IS_RAN_OUT_OF_EQ(__eq_array, __eq_index) \
+		(ARRAY_SIZE(__eq_array) <= (__eq_index))
+
 struct ipa_ep_confing {
 	bool valid;
 	int pipe_num;
@@ -119,6 +122,7 @@ static const struct ipa_ep_confing ep_mapping[3][IPA_CLIENT_MAX] = {
 	[IPA_2_0][IPA_CLIENT_MHI_PROD]           = {true, 18},
 	[IPA_2_0][IPA_CLIENT_Q6_LAN_PROD]        = {true,  6},
 	[IPA_2_0][IPA_CLIENT_Q6_CMD_PROD]        = {true,  7},
+
 	[IPA_2_0][IPA_CLIENT_MEMCPY_DMA_SYNC_PROD]
 						 = {true, 12},
 	[IPA_2_0][IPA_CLIENT_MEMCPY_DMA_ASYNC_PROD]
@@ -161,6 +165,7 @@ static const struct ipa_ep_confing ep_mapping[3][IPA_CLIENT_MAX] = {
 	[IPA_2_0][IPA_CLIENT_TEST4_CONS]         = {true, 15},
 
 
+	[IPA_2_6L][IPA_CLIENT_USB_PROD]          =  {true,  1},
 	[IPA_2_6L][IPA_CLIENT_APPS_LAN_WAN_PROD]  = {true,  4},
 	[IPA_2_6L][IPA_CLIENT_APPS_CMD_PROD]      = {true,  3},
 	[IPA_2_6L][IPA_CLIENT_Q6_LAN_PROD]        = {true,  6},
@@ -1407,6 +1412,47 @@ int ipa_generate_hw_rule(enum ipa_ip_type ip,
 			ihl_ofst_meq32++;
 		}
 
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) {
+			if (IPA_IS_RAN_OUT_OF_EQ(ipa_ihl_ofst_meq32,
+							ihl_ofst_meq32)) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 22  => offset of IP type after v6 header */
+			*buf = ipa_write_8(22, *buf);
+			*buf = ipa_write_32(0xF0000000, *buf);
+			if (attrib->type == 0x40)
+				*buf = ipa_write_32(0x40000000, *buf);
+			else
+				*buf = ipa_write_32(0x60000000, *buf);
+			*buf = ipa_pad_to_32(*buf);
+			ihl_ofst_meq32++;
+		}
+
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+			if (IPA_IS_RAN_OUT_OF_EQ(ipa_ihl_ofst_meq32,
+							ihl_ofst_meq32)) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 38  => offset of inner IPv4 addr */
+			*buf = ipa_write_8(38, *buf);
+			*buf = ipa_write_32(attrib->u.v4.dst_addr_mask, *buf);
+			*buf = ipa_write_32(attrib->u.v4.dst_addr, *buf);
+			*buf = ipa_pad_to_32(*buf);
+			ihl_ofst_meq32++;
+		}
+
 		if (attrib->attrib_mask & IPA_FLT_SRC_PORT) {
 			if (ipa_ihl_ofst_rng16[ihl_ofst_rng16] == -1) {
 				IPAERR("ran out of ihl_rng16 eq\n");
@@ -2003,6 +2049,36 @@ int ipa_generate_flt_eq(enum ipa_ip_type ip,
 				0xFFFFFFFF;
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
 				attrib->spi;
+			ihl_ofst_meq32++;
+		}
+
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) {
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 22  => offset of inner IP type after v6 header */
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 22;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+				0xF0000000;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+				(u32)attrib->type << 24;
+			ihl_ofst_meq32++;
+		}
+
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 38  => offset of inner IPv4 addr */
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 38;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+				attrib->u.v4.dst_addr_mask;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+				attrib->u.v4.dst_addr;
 			ihl_ofst_meq32++;
 		}
 
@@ -4922,6 +4998,11 @@ static void ipa2_set_tag_process_before_gating(bool val)
 	ipa_ctx->tag_process_before_gating = val;
 }
 
+static bool ipa2_pm_is_used(void)
+{
+	return false;
+}
+
 int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	struct ipa_api_controller *api_ctrl)
 {
@@ -4953,6 +5034,7 @@ int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	api_ctrl->ipa_cfg_ep_holb_by_client = ipa2_cfg_ep_holb_by_client;
 	api_ctrl->ipa_cfg_ep_ctrl = ipa2_cfg_ep_ctrl;
 	api_ctrl->ipa_add_hdr = ipa2_add_hdr;
+	api_ctrl->ipa_add_hdr_usr = ipa2_add_hdr_usr;
 	api_ctrl->ipa_del_hdr = ipa2_del_hdr;
 	api_ctrl->ipa_commit_hdr = ipa2_commit_hdr;
 	api_ctrl->ipa_reset_hdr = ipa2_reset_hdr;
@@ -4962,6 +5044,7 @@ int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	api_ctrl->ipa_add_hdr_proc_ctx = ipa2_add_hdr_proc_ctx;
 	api_ctrl->ipa_del_hdr_proc_ctx = ipa2_del_hdr_proc_ctx;
 	api_ctrl->ipa_add_rt_rule = ipa2_add_rt_rule;
+	api_ctrl->ipa_add_rt_rule_usr = ipa2_add_rt_rule_usr;
 	api_ctrl->ipa_del_rt_rule = ipa2_del_rt_rule;
 	api_ctrl->ipa_commit_rt = ipa2_commit_rt;
 	api_ctrl->ipa_reset_rt = ipa2_reset_rt;
@@ -4970,6 +5053,7 @@ int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	api_ctrl->ipa_query_rt_index = ipa2_query_rt_index;
 	api_ctrl->ipa_mdfy_rt_rule = ipa2_mdfy_rt_rule;
 	api_ctrl->ipa_add_flt_rule = ipa2_add_flt_rule;
+	api_ctrl->ipa_add_flt_rule_usr = ipa2_add_flt_rule_usr;
 	api_ctrl->ipa_del_flt_rule = ipa2_del_flt_rule;
 	api_ctrl->ipa_mdfy_flt_rule = ipa2_mdfy_flt_rule;
 	api_ctrl->ipa_commit_flt = ipa2_commit_flt;
@@ -5093,10 +5177,11 @@ int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	api_ctrl->ipa_get_pdev = ipa2_get_pdev;
 	api_ctrl->ipa_ntn_uc_reg_rdyCB = ipa2_ntn_uc_reg_rdyCB;
 	api_ctrl->ipa_ntn_uc_dereg_rdyCB = ipa2_ntn_uc_dereg_rdyCB;
-	api_ctrl->ipa_conn_wdi3_pipes = ipa2_conn_wdi3_pipes;
-	api_ctrl->ipa_disconn_wdi3_pipes = ipa2_disconn_wdi3_pipes;
-	api_ctrl->ipa_enable_wdi3_pipes = ipa2_enable_wdi3_pipes;
-	api_ctrl->ipa_disable_wdi3_pipes = ipa2_disable_wdi3_pipes;
+	api_ctrl->ipa_conn_wdi_pipes = ipa2_conn_wdi3_pipes;
+	api_ctrl->ipa_disconn_wdi_pipes = ipa2_disconn_wdi3_pipes;
+	api_ctrl->ipa_enable_wdi_pipes = ipa2_enable_wdi3_pipes;
+	api_ctrl->ipa_disable_wdi_pipes = ipa2_disable_wdi3_pipes;
+	api_ctrl->ipa_pm_is_used = ipa2_pm_is_used;
 
 	return 0;
 }

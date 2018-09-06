@@ -32,6 +32,7 @@ struct mipi_dsi_device;
  * @type: payload data type
  * @flags: flags controlling this message transmission
  * @ctrl: ctrl index to transmit on
+ * @wait_ms: duration in ms to wait after message transmission
  * @tx_len: length of @tx_buf
  * @tx_buf: data to be written
  * @rx_len: length of @rx_buf
@@ -42,6 +43,7 @@ struct mipi_dsi_msg {
 	u8 type;
 	u16 flags;
 	u32 ctrl;
+	u32 wait_ms;
 
 	size_t tx_len;
 	const void *tx_buf;
@@ -140,6 +142,10 @@ struct mipi_dsi_host *of_find_mipi_dsi_host_by_node(struct device_node *node);
 #define MIPI_DSI_CLOCK_NON_CONTINUOUS	BIT(10)
 /* transmit data in low power */
 #define MIPI_DSI_MODE_LPM		BIT(11)
+/* disable BLLP area */
+#define MIPI_DSI_MODE_VIDEO_BLLP	BIT(12)
+/* disable EOF BLLP area */
+#define MIPI_DSI_MODE_VIDEO_EOF_BLLP	BIT(13)
 
 enum mipi_dsi_pixel_format {
 	MIPI_DSI_FMT_RGB888,

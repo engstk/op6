@@ -1940,6 +1940,14 @@ static int mlx4_comm_check_offline(struct mlx4_dev *dev)
 			       (u32)(1 << COMM_CHAN_OFFLINE_OFFSET));
 		if (!offline_bit)
 			return 0;
+
+		/* If device removal has been requested,
+		 * do not continue retrying.
+		 */
+		if (dev->persist->interface_state &
+		    MLX4_INTERFACE_STATE_NOWAIT)
+			break;
+
 		/* There are cases as part of AER/Reset flow that PF needs
 		 * around 100 msec to load. We therefore sleep for 100 msec
 		 * to allow other tasks to make use of that CPU during this
@@ -2975,6 +2983,7 @@ static int mlx4_init_port_info(struct mlx4_dev *dev, int port)
 		mlx4_err(dev, "Failed to create file for port %d\n", port);
 		devlink_port_unregister(&info->devlink_port);
 		info->port = -1;
+		return err;
 	}
 
 	sprintf(info->dev_mtu_name, "mlx4_port%d_mtu", port);
@@ -2996,9 +3005,10 @@ static int mlx4_init_port_info(struct mlx4_dev *dev, int port)
 				   &info->port_attr);
 		devlink_port_unregister(&info->devlink_port);
 		info->port = -1;
+		return err;
 	}
 
-	return err;
+	return 0;
 }
 
 static void mlx4_cleanup_port_info(struct mlx4_port_info *info)
@@ -3953,6 +3963,9 @@ static void mlx4_remove_one(struct pci_dev *pdev)
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	struct devlink *devlink = priv_to_devlink(priv);
 	int active_vfs = 0;
+
+	if (mlx4_is_slave(dev))
+		persist->interface_state |= MLX4_INTERFACE_STATE_NOWAIT;
 
 	mutex_lock(&persist->interface_state_mutex);
 	persist->interface_state |= MLX4_INTERFACE_STATE_DELETION;

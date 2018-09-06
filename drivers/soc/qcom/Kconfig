@@ -250,6 +250,17 @@ config QCOM_WATCHDOG_V2
 	  deadlocks. It does not run during the bootup process, so it will
 	  not catch any early lockups.
 
+config QCOM_WDOG_IPI_ENABLE
+	bool "Qcom WDT pet optimization"
+	depends on QCOM_WATCHDOG_V2
+	default n
+	help
+	  When this option is enabled, watchdog sends IPI to cores in low power
+	  mode also. For power optimizations, by default watchdog don't ping
+	  cores in low power mode at pettime.
+
+	  To track CPUs health on LPM, or on debug builds enable it.
+
 config QPNP_PBS
 	tristate "PBS trigger support for QPNP PMIC"
 	depends on SPMI
@@ -266,6 +277,15 @@ config QCOM_MEMORY_DUMP_V2
 	  subsystems to register respective dump regions. At the time
 	  of deadlocks or cpu hangs these dump regions are captured to
 	  give a snapshot of the system at the time of the crash.
+
+config MSM_DEBUG_LAR_UNLOCK
+        bool "MSM Debug LAR Unlock Support"
+        depends on QCOM_MEMORY_DUMP_V2
+        help
+         This allows unlocking Core Debug lock to allow capture
+         of upper 32 bits of program counter at the time of
+         system crash. This is useful in getting correct crash
+         location.
 
 config QCOM_MINIDUMP
 	bool "QCOM Minidump Support"
@@ -366,8 +386,8 @@ config MSM_GLINK
 	  configured separately.
 
 config MSM_TZ_SMMU
-	depends on ARCH_MSM8953
 	bool "Helper functions for SMMU configuration through TZ"
+	default n
 	help
 	  Say 'Y' here for targets that need to call into TZ to configure
 	  SMMUs for any reason (for example, for errata workarounds or
@@ -538,6 +558,14 @@ config MSM_SUBSYSTEM_RESTART
          It also notifies userspace of transitions between these states via
          sysfs.
 
+config MSM_SYSMON_COMM
+	bool "MSM System Monitor communication support"
+	depends on MSM_SMD && MSM_SUBSYSTEM_RESTART
+	help
+	  This option adds support for MSM System Monitor library, which
+	  provides an API that may be used for notifying subsystems within
+	  the SoC about other subsystems' power-up/down state-changes.
+
 config MSM_PIL
        bool "Peripheral image loading"
        select FW_LOADER
@@ -635,6 +663,15 @@ config MSM_EVENT_TIMER
 	  monitor events that require the core to be awake and ready to
 	  handle the event.
 
+config MSM_AVTIMER
+	tristate "Avtimer Driver"
+	default n
+	help
+	  This driver gets the Q6 out of power collapsed state
+	  and exposes ioctl control to read avtimer tick.
+	  Enables camera to use for VT call to get avtimer
+	  timestamp.
+
 config MSM_PM
 	depends on PM
 	select MSM_IDLE_STATS if DEBUG_FS
@@ -646,6 +683,17 @@ config MSM_PM
 	  into low power modes. It implements OS initiated scheme and
 	  determines last CPU to call into PSCI for cluster Low power
 	  modes.
+
+config MSM_PM_LEGACY
+	depends on PM
+	select MSM_IDLE_STATS if DEBUG_FS
+	select CPU_IDLE_MULTIPLE_DRIVERS
+	bool "Qualcomm platform specific Legacy PM driver"
+	help
+	  Platform specific legacy power driver to manage
+	  cores and l2 low power modes. It interface with
+	  various system driver and put the cores into
+	  low power modes.
 
 config MSM_NOPM
 	default y if !PM
@@ -663,7 +711,7 @@ config MSM_QBT1000
 	  trusted apps, unloading them and marshalling buffers to the
 	  trusted fingerprint app.
 
-if MSM_PM
+if (MSM_PM || MSM_PM_LEGACY)
 menuconfig MSM_IDLE_STATS
 	bool "Collect idle statistics"
 	help
@@ -696,7 +744,7 @@ config MSM_SUSPEND_STATS_FIRST_BUCKET
 	  histogram.  This is for collecting statistics on suspend.
 
 endif # MSM_IDLE_STATS
-endif # MSM_PM
+endif # MSM_PM || MSM_PM_LEGACY
 
 config QCOM_DCC_V2
 	bool "Qualcomm Technologies Data Capture and Compare engine support for V2"
@@ -774,3 +822,68 @@ config QCOM_QDSS_BRIDGE
 	  The driver will help route diag traffic from modem side over the QDSS
 	  sub-system to USB on APSS side. The driver acts as a bridge between the
 	  MHI and USB interface. If unsure, say N.
+
+config MSM_BAM_DMUX
+	bool "BAM Data Mux Driver"
+	depends on SPS
+	help
+	  Support Muxed Data Channels over BAM interface.
+	  BAM has a limited number of pipes.  This driver
+	  provides a means to support more logical channels
+	  via muxing than BAM could without muxing.
+
+	config MSM_GLINK_BGCOM_XPRT
+	depends on MSM_GLINK
+	depends on MSM_BGCOM
+	tristate "Generic Link (G-Link) BGCOM Transport"
+	help
+		G-Link BGCOM Transport is a Transport plug-in developed over BGCOM.
+		This transport plug-in performs marshaling of G-Link
+		commands & data to the appropriate BGCOM format and
+		allows for G-Link communication with remote subsystems that are
+		external to the System-on-Chip.
+
+	config MSM_BGCOM_INTERFACE
+	bool "Driver support for Blackghost Communication"
+	depends on MSM_BGCOM
+	help
+		Create a bg_com_dev device node for user space communication.
+		Single user space client can open device node for communication
+		from hardware. Hardware will provide access to read
+		registers and read/write AHB memory in the device.
+
+	config MSM_BGRSB
+	bool "Provide support for rsb events on Blackghost chipset"
+	depends on MSM_GLINK
+	help
+		BGRSB communicates to BG over Glink for RSB configuration and
+		enable/disable on device power state change. It enables/disables
+		the regulator specific to RSB. Sends the side band events generated
+		by BG to input framework.
+
+	config MSM_PIL_SSR_BG
+	tristate "MSM Subsystem Blackghost(BG) Support"
+	depends on MSM_PIL && MSM_SUBSYSTEM_RESTART
+	help
+		Support for booting and shutting down Blackghost(BG) SOC which is
+		an external SOC. This driver communicates with Blackghost(BG) SOC
+		via pair of IPC GPIOs for inward and outward signals between MSM
+		and Blackghost(BG) SOC.
+
+	config MSM_BGCOM
+	bool "Provide APIs to communicate with Blackghost chipset"
+	help
+		BGCOM is a thin layer above SPI. It is used whithin a SoC for
+		communication between G-Link/bg_com_dev and BG processor over SPI.
+		This handle the interrupts raised by BG and notify the G-link with
+		interrupt event and event data.
+
+source "drivers/soc/qcom/wcnss/Kconfig"
+
+config BIG_CLUSTER_MIN_FREQ_ADJUST
+	bool "Adjust BIG cluster min frequency based on power collapse state"
+	default n
+	help
+	  This driver is used to set the floor of the min frequency of big cluster
+	  to the user specified value when the cluster is not power collapsed. When
+	  the cluster is power collpsed it resets the value to physical limits.

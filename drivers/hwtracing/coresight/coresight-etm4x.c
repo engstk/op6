@@ -1,4 +1,4 @@
-/* Copyright (c) 2014, 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,6 +27,7 @@
 #include <linux/cpu.h>
 #include <linux/coresight.h>
 #include <linux/coresight-pmu.h>
+#include <linux/of.h>
 #include <linux/pm_wakeup.h>
 #include <linux/amba/bus.h>
 #include <linux/seq_file.h>
@@ -38,6 +39,7 @@
 
 #include "coresight-etm4x.h"
 #include "coresight-etm-perf.h"
+#include "coresight-priv.h"
 
 static int boot_enable;
 module_param_named(boot_enable, boot_enable, int, 0444);
@@ -166,12 +168,14 @@ static void etm4_enable_hw(void *info)
 	writel_relaxed(config->vmid_mask0, drvdata->base + TRCVMIDCCTLR0);
 	writel_relaxed(config->vmid_mask1, drvdata->base + TRCVMIDCCTLR1);
 
-	/*
-	 * Request to keep the trace unit powered and also
-	 * emulation of powerdown
-	 */
-	writel_relaxed(readl_relaxed(drvdata->base + TRCPDCR) | TRCPDCR_PU,
-		       drvdata->base + TRCPDCR);
+	if (!drvdata->tupwr_disable) {
+		/*
+		 * Request to keep the trace unit powered and also
+		 * emulation of powerdown
+		 */
+		writel_relaxed(readl_relaxed(drvdata->base + TRCPDCR)
+				| TRCPDCR_PU, drvdata->base + TRCPDCR);
+	}
 
 	/* Enable the trace unit */
 	writel_relaxed(1, drvdata->base + TRCPRGCTLR);
@@ -312,10 +316,12 @@ static void etm4_disable_hw(void *info)
 
 	CS_UNLOCK(drvdata->base);
 
-	/* power can be removed from the trace unit now */
-	control = readl_relaxed(drvdata->base + TRCPDCR);
-	control &= ~TRCPDCR_PU;
-	writel_relaxed(control, drvdata->base + TRCPDCR);
+	if (!drvdata->tupwr_disable) {
+		/* power can be removed from the trace unit now */
+		control = readl_relaxed(drvdata->base + TRCPDCR);
+		control &= ~TRCPDCR_PU;
+		writel_relaxed(control, drvdata->base + TRCPDCR);
+	}
 
 	control = readl_relaxed(drvdata->base + TRCPRGCTLR);
 
@@ -435,6 +441,9 @@ static void etm4_init_arch_data(void *info)
 	etm4_os_unlock(drvdata);
 
 	CS_UNLOCK(drvdata->base);
+
+	if (!coresight_authstatus_enabled(drvdata->base))
+		goto out;
 
 	/* find all capabilities of the tracing unit */
 	etmidr0 = readl_relaxed(drvdata->base + TRCIDR0);
@@ -582,6 +591,8 @@ static void etm4_init_arch_data(void *info)
 	drvdata->nrseqstate = BMVAL(etmidr5, 25, 27);
 	/* NUMCNTR, bits[30:28] number of counters available for tracing */
 	drvdata->nr_cntr = BMVAL(etmidr5, 28, 30);
+
+out:
 	CS_LOCK(drvdata->base);
 }
 
@@ -1035,7 +1046,11 @@ static int etm4_probe(struct amba_device *adev, const struct amba_id *id)
 
 	etmdrvdata[drvdata->cpu] = drvdata;
 
-	dev_info(dev, "%s initialized\n", (char *)id->data);
+	drvdata->tupwr_disable = of_property_read_bool(drvdata->dev->of_node,
+				"qcom,tupwr-disable");
+
+	dev_info(dev, "CPU%d: %s initialized\n",
+			drvdata->cpu, (char *)id->data);
 
 	if (boot_enable) {
 		coresight_enable(drvdata->csdev);
@@ -1054,20 +1069,25 @@ err_arch_supported:
 }
 
 static struct amba_id etm4_ids[] = {
-	{       /* ETM 4.0 - Cortex-A53  */
+	{
 		.id	= 0x000bb95d,
 		.mask	= 0x000fffff,
-		.data	= "ETM 4.0",
+		.data	= "Cortex-A53 ETM v4.0",
 	},
-	{       /* ETM 4.0 - Cortex-A57 */
+	{
 		.id	= 0x000bb95e,
 		.mask	= 0x000fffff,
-		.data	= "ETM 4.0",
+		.data	= "Cortex-A57 ETM v4.0",
 	},
-	{       /* ETM 4.0 - A72, Maia, HiSilicon */
+	{
 		.id = 0x000bb95a,
 		.mask = 0x000fffff,
-		.data = "ETM 4.0",
+		.data	= "Cortex-A72 ETM v4.0",
+	},
+	{
+		.id = 0x000bb959,
+		.mask = 0x000fffff,
+		.data	= "Cortex-A73 ETM v4.0",
 	},
 	{ 0, 0},
 };

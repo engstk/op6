@@ -240,6 +240,7 @@ static struct ipv6_devconf ipv6_devconf __read_mostly = {
 	.use_oif_addrs_only	= 0,
 	.ignore_routes_with_linkdown = 0,
 	.keep_addr_on_down	= 0,
+	.accept_ra_prefix_route = 1,
 };
 
 static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
@@ -288,12 +289,13 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.use_oif_addrs_only	= 0,
 	.ignore_routes_with_linkdown = 0,
 	.keep_addr_on_down	= 0,
+	.accept_ra_prefix_route = 1,
 };
 
-/* Check if a valid qdisc is available */
-static inline bool addrconf_qdisc_ok(const struct net_device *dev)
+/* Check if link is ready: is it up and is a valid qdisc available */
+static inline bool addrconf_link_ready(const struct net_device *dev)
 {
-	return !qdisc_tx_is_noop(dev);
+	return netif_oper_up(dev) && !qdisc_tx_is_noop(dev);
 }
 
 static void addrconf_del_rs_timer(struct inet6_dev *idev)
@@ -438,7 +440,7 @@ static struct inet6_dev *ipv6_add_dev(struct net_device *dev)
 
 	ndev->token = in6addr_any;
 
-	if (netif_running(dev) && addrconf_qdisc_ok(dev))
+	if (netif_running(dev) && addrconf_link_ready(dev))
 		ndev->if_flags |= IF_READY;
 
 	ipv6_mc_init_dev(ndev);
@@ -992,7 +994,10 @@ ipv6_add_addr(struct inet6_dev *idev, const struct in6_addr *addr,
 	INIT_HLIST_NODE(&ifa->addr_lst);
 	ifa->scope = scope;
 	ifa->prefix_len = pfxlen;
-	ifa->flags = flags | IFA_F_TENTATIVE;
+	ifa->flags = flags;
+	/* No need to add the TENTATIVE flag for addresses with NODAD */
+	if (!(flags & IFA_F_NODAD))
+		ifa->flags |= IFA_F_TENTATIVE;
 	ifa->valid_lft = valid_lft;
 	ifa->prefered_lft = prefered_lft;
 	ifa->cstamp = ifa->tstamp = jiffies;
@@ -2607,8 +2612,11 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len, bool sllao)
 				flags |= RTF_EXPIRES;
 				expires = jiffies_to_clock_t(rt_expires);
 			}
-			addrconf_prefix_route(&pinfo->prefix, pinfo->prefix_len,
-					      dev, expires, flags);
+			if (dev->ip6_ptr->cnf.accept_ra_prefix_route) {
+				addrconf_prefix_route(&pinfo->prefix,
+						      pinfo->prefix_len,
+						      dev, expires, flags);
+			}
 		}
 		ip6_rt_put(rt);
 	}
@@ -3408,7 +3416,7 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 			/* restore routes for permanent addresses */
 			addrconf_permanent_addr(dev);
 
-			if (!addrconf_qdisc_ok(dev)) {
+			if (!addrconf_link_ready(dev)) {
 				/* device is not ready yet. */
 				pr_info("ADDRCONF(NETDEV_UP): %s: link is not ready\n",
 					dev->name);
@@ -3423,7 +3431,7 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 				run_pending = 1;
 			}
 		} else if (event == NETDEV_CHANGE) {
-			if (!addrconf_qdisc_ok(dev)) {
+			if (!addrconf_link_ready(dev)) {
 				/* device is still not ready. */
 				break;
 			}
@@ -6123,6 +6131,13 @@ static const struct ctl_table addrconf_sysctl[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 
+	},
+	{
+		.procname	= "accept_ra_prefix_route",
+		.data		= &ipv6_devconf.accept_ra_prefix_route,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
 	},
 	{
 		/* sentinel */

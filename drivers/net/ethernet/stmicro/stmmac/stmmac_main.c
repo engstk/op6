@@ -280,7 +280,13 @@ static void stmmac_eee_ctrl_timer(unsigned long arg)
 bool stmmac_eee_init(struct stmmac_priv *priv)
 {
 	unsigned long flags;
+	int interface = priv->plat->interface;
 	bool ret = false;
+
+	if ((interface != PHY_INTERFACE_MODE_MII) &&
+	    (interface != PHY_INTERFACE_MODE_GMII) &&
+	    !phy_interface_mode_is_rgmii(interface))
+		goto out;
 
 	/* Using PCS we cannot dial with the phy registers at this stage
 	 * so we do not support extra feature like EEE.
@@ -472,7 +478,10 @@ static int stmmac_hwtstamp_ioctl(struct net_device *dev, struct ifreq *ifr)
 			/* PTP v1, UDP, any kind of event packet */
 			config.rx_filter = HWTSTAMP_FILTER_PTP_V1_L4_EVENT;
 			/* take time stamp for all event messages */
-			snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
+			if (priv->plat->has_gmac4)
+				snap_type_sel = PTP_GMAC4_TCR_SNAPTYPSEL_1;
+			else
+				snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
 
 			ptp_over_ipv4_udp = PTP_TCR_TSIPV4ENA;
 			ptp_over_ipv6_udp = PTP_TCR_TSIPV6ENA;
@@ -504,7 +513,10 @@ static int stmmac_hwtstamp_ioctl(struct net_device *dev, struct ifreq *ifr)
 			config.rx_filter = HWTSTAMP_FILTER_PTP_V2_L4_EVENT;
 			ptp_v2 = PTP_TCR_TSVER2ENA;
 			/* take time stamp for all event messages */
-			snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
+			if (priv->plat->has_gmac4)
+				snap_type_sel = PTP_GMAC4_TCR_SNAPTYPSEL_1;
+			else
+				snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
 
 			ptp_over_ipv4_udp = PTP_TCR_TSIPV4ENA;
 			ptp_over_ipv6_udp = PTP_TCR_TSIPV6ENA;
@@ -538,7 +550,10 @@ static int stmmac_hwtstamp_ioctl(struct net_device *dev, struct ifreq *ifr)
 			config.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
 			ptp_v2 = PTP_TCR_TSVER2ENA;
 			/* take time stamp for all event messages */
-			snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
+			if (priv->plat->has_gmac4)
+				snap_type_sel = PTP_GMAC4_TCR_SNAPTYPSEL_1;
+			else
+				snap_type_sel = PTP_TCR_SNAPTYPSEL_1;
 
 			ptp_over_ipv4_udp = PTP_TCR_TSIPV4ENA;
 			ptp_over_ipv6_udp = PTP_TCR_TSIPV6ENA;
@@ -1328,6 +1343,11 @@ static void stmmac_tx_clean(struct stmmac_priv *priv)
 		if (unlikely(status & tx_dma_own))
 			break;
 
+		/* Make sure descriptor fields are read after reading
+		 * the own bit.
+		 */
+		dma_rmb();
+
 		/* Just consider the last segment and ...*/
 		if (likely(!(status & tx_not_ls))) {
 			/* ... verify the status error condition */
@@ -1795,6 +1815,7 @@ static int stmmac_open(struct net_device *dev)
 
 	priv->dma_buf_sz = STMMAC_ALIGN(buf_sz);
 	priv->rx_copybreak = STMMAC_RX_COPYBREAK;
+	priv->mss = 0;
 
 	ret = alloc_dma_desc_resources(priv);
 	if (ret < 0) {
@@ -2120,8 +2141,15 @@ static netdev_tx_t stmmac_tso_xmit(struct sk_buff *skb, struct net_device *dev)
 			tcp_hdrlen(skb) / 4, (skb->len - proto_hdr_len));
 
 	/* If context desc is used to change MSS */
-	if (mss_desc)
+	if (mss_desc) {
+		/* Make sure that first descriptor has been completely
+		 * written, including its own bit. This is because MSS is
+		 * actually before first descriptor, so we need to make
+		 * sure that MSS's own bit is the last thing written.
+		 */
+		dma_wmb();
 		priv->hw->desc->set_tx_owner(mss_desc);
+	}
 
 	/* The own bit must be the latest setting done when prepare the
 	 * descriptor and then barrier is needed to make sure that

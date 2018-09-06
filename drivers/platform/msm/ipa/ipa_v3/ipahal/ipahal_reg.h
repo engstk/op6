@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,6 +29,9 @@ enum ipahal_reg_name {
 	IPA_IRQ_SUSPEND_INFO_EE_n,
 	IPA_SUSPEND_IRQ_EN_EE_n,
 	IPA_SUSPEND_IRQ_CLR_EE_n,
+	IPA_HOLB_DROP_IRQ_INFO_EE_n,
+	IPA_HOLB_DROP_IRQ_EN_EE_n,
+	IPA_HOLB_DROP_IRQ_CLR_EE_n,
 	IPA_BCR,
 	IPA_ENABLED_PIPES,
 	IPA_COMP_SW_RESET,
@@ -38,7 +41,20 @@ enum ipahal_reg_name {
 	IPA_SPARE_REG_1,
 	IPA_SPARE_REG_2,
 	IPA_COMP_CFG,
+	IPA_STATE_TX_WRAPPER,
+	IPA_STATE_TX1,
+	IPA_STATE_FETCHER,
+	IPA_STATE_FETCHER_MASK,
+	IPA_STATE_DFETCHER,
+	IPA_STATE_ACL,
+	IPA_STATE,
+	IPA_STATE_RX_ACTIVE,
+	IPA_STATE_TX0,
 	IPA_STATE_AGGR_ACTIVE,
+	IPA_STATE_GSI_TLV,
+	IPA_STATE_GSI_AOS,
+	IPA_STATE_GSI_IF,
+	IPA_STATE_GSI_SKIP,
 	IPA_ENDP_INIT_HDR_n,
 	IPA_ENDP_INIT_HDR_EXT_n,
 	IPA_ENDP_INIT_AGGR_n,
@@ -49,6 +65,7 @@ enum ipahal_reg_name {
 	IPA_ENDP_INIT_CONN_TRACK_n,
 	IPA_ENDP_INIT_CTRL_n,
 	IPA_ENDP_INIT_CTRL_SCND_n,
+	IPA_ENDP_INIT_CTRL_STATUS_n,
 	IPA_ENDP_INIT_HOL_BLOCK_EN_n,
 	IPA_ENDP_INIT_HOL_BLOCK_TIMER_n,
 	IPA_ENDP_INIT_DEAGGR_n,
@@ -58,6 +75,7 @@ enum ipahal_reg_name {
 	IPA_IRQ_EE_UC_n,
 	IPA_ENDP_INIT_HDR_METADATA_MASK_n,
 	IPA_ENDP_INIT_HDR_METADATA_n,
+	IPA_ENDP_INIT_PROD_CFG_n,
 	IPA_ENDP_INIT_RSRC_GRP_n,
 	IPA_SHARED_MEM_SIZE,
 	IPA_SRAM_DIRECT_ACCESS_n,
@@ -69,6 +87,8 @@ enum ipahal_reg_name {
 	IPA_SYS_PKT_PROC_CNTXT_BASE,
 	IPA_LOCAL_PKT_PROC_CNTXT_BASE,
 	IPA_ENDP_STATUS_n,
+	IPA_ENDP_WEIGHTS_n,
+	IPA_ENDP_YELLOW_RED_MARKER,
 	IPA_ENDP_FILTER_ROUTER_HSH_CFG_n,
 	IPA_SRC_RSRC_GRP_01_RSRC_TYPE_n,
 	IPA_SRC_RSRC_GRP_23_RSRC_TYPE_n,
@@ -108,6 +128,17 @@ enum ipahal_reg_name {
 	IPA_STAT_ROUTER_IPV6_END_ID,
 	IPA_STAT_DROP_CNT_BASE_n,
 	IPA_STAT_DROP_CNT_MASK_n,
+	IPA_SNOC_FEC_EE_n,
+	IPA_FEC_ADDR_EE_n,
+	IPA_FEC_ADDR_MSB_EE_n,
+	IPA_FEC_ATTR_EE_n,
+	IPA_MBIM_DEAGGR_FEC_ATTR_EE_n,
+	IPA_GEN_DEAGGR_FEC_ATTR_EE_n,
+	IPA_GSI_CONF,
+	IPA_ENDP_GSI_CFG1_n,
+	IPA_ENDP_GSI_CFG2_n,
+	IPA_ENDP_GSI_CFG_AOS_n,
+	IPA_ENDP_GSI_CFG_TLV_n,
 	IPA_REG_MAX,
 };
 
@@ -196,6 +227,75 @@ struct ipahal_reg_ep_cfg_status {
 	u8 status_ep;
 	bool status_location;
 	u8 status_pkt_suppress;
+};
+
+/*
+ * struct ipahal_reg_clkon_cfg-  Enables SW bypass clock-gating for the IPA core
+ *
+ * @all: Enables SW bypass clock-gating controls for this sub-module;
+ *	0: CGC is enabled by internal logic, 1: No CGC (clk is always 'ON').
+ *	sub-module affected is based on var name -> ex: open_rx refers
+ *	to IPA_RX sub-module and open_global refers to global IPA 1x clock
+ */
+struct ipahal_reg_clkon_cfg {
+	bool open_global_2x_clk;
+	bool open_global;
+	bool open_gsi_if;
+	bool open_weight_arb;
+	bool open_qmb;
+	bool open_ram_slaveway;
+	bool open_aggr_wrapper;
+	bool open_qsb2axi_cmdq_l;
+	bool open_fnr;
+	bool open_tx_1;
+	bool open_tx_0;
+	bool open_ntf_tx_cmdqs;
+	bool open_dcmp;
+	bool open_h_dcph;
+	bool open_d_dcph;
+	bool open_ack_mngr;
+	bool open_ctx_handler;
+	bool open_rsrc_mngr;
+	bool open_dps_tx_cmdqs;
+	bool open_hps_dps_cmdqs;
+	bool open_rx_hps_cmdqs;
+	bool open_dps;
+	bool open_hps;
+	bool open_ftch_dps;
+	bool open_ftch_hps;
+	bool open_ram_arb;
+	bool open_misc;
+	bool open_tx_wrapper;
+	bool open_proc;
+	bool open_rx;
+};
+
+/*
+ * struct ipahal_reg_comp_cfg- IPA Core QMB/Master Port selection
+ *
+ * @all: QMB/Master port selection policy is configured via IPA_COMP_CFG
+ *	- Address based Selection
+ *	- Endpoint based selection / Legacy Mode
+ */
+struct ipahal_reg_comp_cfg {
+	bool ipa_atomic_fetcher_arb_lock_dis;
+	bool ipa_qmb_select_by_address_global_en;
+	bool gsi_multi_axi_masters_dis;
+	bool gsi_snoc_cnoc_loop_protection_disable;
+	bool gen_qmb_0_snoc_cnoc_loop_protection_disable;
+	bool gen_qmb_1_multi_inorder_wr_dis;
+	bool gen_qmb_0_multi_inorder_wr_dis;
+	bool gen_qmb_1_multi_inorder_rd_dis;
+	bool gen_qmb_0_multi_inorder_rd_dis;
+	bool gsi_multi_inorder_wr_dis;
+	bool gsi_multi_inorder_rd_dis;
+	bool ipa_qmb_select_by_address_prod_en;
+	bool ipa_qmb_select_by_address_cons_en;
+	bool ipa_dcmp_fast_clk_en;
+	bool gen_qmb_1_snoc_bypass_dis;
+	bool gen_qmb_0_snoc_bypass_dis;
+	bool gsi_snoc_bypass_dis;
+	bool enable;
 };
 
 /*
@@ -423,6 +523,9 @@ struct ipahal_ep_cfg_ctrl_scnd {
 	bool endp_delay;
 };
 
+
+void ipahal_print_all_regs(bool print_to_dmesg);
+
 /*
  * ipahal_reg_name_str() - returns string that represent the register
  * @reg_name: [in] register name
@@ -543,4 +646,3 @@ void ipahal_get_fltrt_hash_flush_valmask(
 	struct ipahal_reg_valmask *valmask);
 
 #endif /* _IPAHAL_REG_H_ */
-

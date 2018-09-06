@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -68,6 +68,7 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	struct sde_connector *c_conn;
 	int bl_lvl;
 	struct drm_event event;
+	int rc = 0;
 
 	brightness = bd->props.brightness;
 
@@ -93,10 +94,10 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 		event.length = sizeof(u32);
 		msm_mode_object_event_notify(&c_conn->base.base,
 				c_conn->base.dev, &event, (u8 *)&brightness);
-		c_conn->ops.set_backlight(c_conn->display, bl_lvl);
+		rc = c_conn->ops.set_backlight(c_conn->display, bl_lvl);
 	}
 
-	return 0;
+	return rc;
 }
 
 static int sde_backlight_device_get_brightness(struct backlight_device *bd)
@@ -413,16 +414,32 @@ void sde_connector_schedule_status_work(struct drm_connector *connector,
 	if (!c_conn)
 		return;
 
+	/* Return if there is no change in ESD status check condition */
+	if (en == c_conn->esd_status_check)
+		return;
+
 	sde_connector_get_info(connector, &info);
 	if (c_conn->ops.check_status &&
 		(info.capabilities & MSM_DISPLAY_ESD_ENABLED)) {
-		if (en)
+		if (en) {
+			u32 interval;
+
+			/*
+			 * If debugfs property is not set then take
+			 * default value
+			 */
+			interval = c_conn->esd_status_interval ?
+				c_conn->esd_status_interval :
+					STATUS_CHECK_INTERVAL_MS;
 			/* Schedule ESD status check */
 			schedule_delayed_work(&c_conn->status_work,
-				msecs_to_jiffies(STATUS_CHECK_INTERVAL_MS));
-		else
+				msecs_to_jiffies(interval));
+			c_conn->esd_status_check = true;
+		} else {
 			/* Cancel any pending ESD status check */
 			cancel_delayed_work_sync(&c_conn->status_work);
+			c_conn->esd_status_check = false;
+		}
 	}
 }
 
@@ -471,8 +488,12 @@ static int _sde_connector_update_power_locked(struct sde_connector *c_conn)
 	}
 	c_conn->last_panel_power_mode = mode;
 
+	mutex_unlock(&c_conn->lock);
 	if (mode != SDE_MODE_DPMS_ON)
 		sde_connector_schedule_status_work(connector, false);
+	else
+		sde_connector_schedule_status_work(connector, true);
+	mutex_lock(&c_conn->lock);
 
 	return rc;
 }
@@ -602,6 +623,7 @@ end:
 void sde_connector_helper_bridge_disable(struct drm_connector *connector)
 {
 	int rc;
+	struct sde_connector *c_conn = NULL;
 
 	if (!connector)
 		return;
@@ -611,6 +633,34 @@ void sde_connector_helper_bridge_disable(struct drm_connector *connector)
 		SDE_ERROR("conn %d final pre kickoff failed %d\n",
 				connector->base.id, rc);
 		SDE_EVT32(connector->base.id, SDE_EVTLOG_ERROR);
+	}
+
+	/* Disable ESD thread */
+	sde_connector_schedule_status_work(connector, false);
+
+	c_conn = to_sde_connector(connector);
+	if (c_conn->panel_dead) {
+		c_conn->bl_device->props.power = FB_BLANK_POWERDOWN;
+		c_conn->bl_device->props.state |= BL_CORE_FBBLANK;
+		backlight_update_status(c_conn->bl_device);
+	}
+}
+
+void sde_connector_helper_bridge_enable(struct drm_connector *connector)
+{
+	struct sde_connector *c_conn = NULL;
+
+	if (!connector)
+		return;
+
+	c_conn = to_sde_connector(connector);
+
+	/* Special handling for ESD recovery case */
+	if (c_conn->panel_dead) {
+		c_conn->bl_device->props.power = FB_BLANK_UNBLANK;
+		c_conn->bl_device->props.state &= ~BL_CORE_FBBLANK;
+		backlight_update_status(c_conn->bl_device);
+		c_conn->panel_dead = false;
 	}
 }
 
@@ -939,34 +989,38 @@ static int _sde_connector_set_ext_hdr_info(
 	struct sde_connector_state *c_state,
 	void *usr_ptr)
 {
+	int rc = 0;
 	struct drm_connector *connector;
 	struct drm_msm_ext_hdr_metadata *hdr_meta;
 	int i;
 
 	if (!c_conn || !c_state) {
 		SDE_ERROR_CONN(c_conn, "invalid args\n");
-		return -EINVAL;
+		rc = -EINVAL;
+		goto end;
 	}
 
 	connector = &c_conn->base;
 
 	if (!connector->hdr_supported) {
 		SDE_ERROR_CONN(c_conn, "sink doesn't support HDR\n");
-		return -ENOTSUPP;
+		rc = -ENOTSUPP;
+		goto end;
 	}
 
 	memset(&c_state->hdr_meta, 0, sizeof(c_state->hdr_meta));
 
 	if (!usr_ptr) {
 		SDE_DEBUG_CONN(c_conn, "hdr metadata cleared\n");
-		return 0;
+		goto end;
 	}
 
 	if (copy_from_user(&c_state->hdr_meta,
 		(void __user *)usr_ptr,
 			sizeof(*hdr_meta))) {
 		SDE_ERROR_CONN(c_conn, "failed to copy hdr metadata\n");
-		return -EFAULT;
+		rc = -EFAULT;
+		goto end;
 	}
 
 	hdr_meta = &c_state->hdr_meta;
@@ -989,7 +1043,10 @@ static int _sde_connector_set_ext_hdr_info(
 				   hdr_meta->display_primaries_y[i]);
 	}
 
-	return 0;
+	if (c_conn->ops.config_hdr)
+		rc = c_conn->ops.config_hdr(c_conn->display, c_state);
+end:
+	return rc;
 }
 
 static int sde_connector_atomic_set_property(struct drm_connector *connector,
@@ -1049,7 +1106,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 			goto end;
 		}
 
-		rc = copy_to_user((uint64_t __user *)val, &fence_fd,
+		rc = copy_to_user((uint64_t __user *)(uintptr_t)val, &fence_fd,
 			sizeof(uint64_t));
 		if (rc) {
 			SDE_ERROR("copy to user failed rc:%d\n", rc);
@@ -1060,7 +1117,8 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		}
 		break;
 	case CONNECTOR_PROP_ROI_V1:
-		rc = _sde_connector_set_roi_v1(c_conn, c_state, (void *)val);
+		rc = _sde_connector_set_roi_v1(c_conn, c_state,
+				(void *)(uintptr_t)val);
 		if (rc)
 			SDE_ERROR_CONN(c_conn, "invalid roi_v1, rc: %d\n", rc);
 		break;
@@ -1083,7 +1141,7 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 
 	if (idx == CONNECTOR_PROP_HDR_METADATA) {
 		rc = _sde_connector_set_ext_hdr_info(c_conn,
-			c_state, (void *)val);
+			c_state, (void *)(uintptr_t)val);
 		if (rc)
 			SDE_ERROR_CONN(c_conn, "cannot set hdr info %d\n", rc);
 	}
@@ -1179,7 +1237,7 @@ void sde_connector_prepare_fence(struct drm_connector *connector)
 }
 
 void sde_connector_complete_commit(struct drm_connector *connector,
-		ktime_t ts)
+		ktime_t ts, enum sde_fence_event fence_event)
 {
 	if (!connector) {
 		SDE_ERROR("invalid connector\n");
@@ -1187,7 +1245,8 @@ void sde_connector_complete_commit(struct drm_connector *connector,
 	}
 
 	/* signal connector's retire fence */
-	sde_fence_signal(&to_sde_connector(connector)->retire_fence, ts, false);
+	sde_fence_signal(&to_sde_connector(connector)->retire_fence,
+			ts, fence_event);
 }
 
 void sde_connector_commit_reset(struct drm_connector *connector, ktime_t ts)
@@ -1198,7 +1257,8 @@ void sde_connector_commit_reset(struct drm_connector *connector, ktime_t ts)
 	}
 
 	/* signal connector's retire fence */
-	sde_fence_signal(&to_sde_connector(connector)->retire_fence, ts, true);
+	sde_fence_signal(&to_sde_connector(connector)->retire_fence,
+			ts, SDE_FENCE_RESET_TIMELINE);
 }
 
 static void sde_connector_update_hdr_props(struct drm_connector *connector)
@@ -1383,6 +1443,28 @@ int sde_connector_helper_reset_custom_properties(
 	return 0;
 }
 
+int sde_connector_get_panel_vfp(struct drm_connector *connector,
+	struct drm_display_mode *mode)
+{
+	struct sde_connector *c_conn;
+	int vfp = -EINVAL;
+
+	if (!connector || !mode) {
+		SDE_ERROR("invalid connector\n");
+		return vfp;
+	}
+	c_conn = to_sde_connector(connector);
+	if (!c_conn->ops.get_panel_vfp)
+		return vfp;
+
+	vfp = c_conn->ops.get_panel_vfp(c_conn->display,
+		mode->hdisplay, mode->vdisplay);
+	if (vfp <= 0)
+		SDE_ERROR("Failed get_panel_vfp %d\n", vfp);
+
+	return vfp;
+}
+
 static int _sde_debugfs_conn_cmd_tx_open(struct inode *inode, struct file *file)
 {
 	/* non-seekable */
@@ -1531,10 +1613,14 @@ static int sde_connector_init_debugfs(struct drm_connector *connector)
 
 	sde_connector_get_info(connector, &info);
 	if (sde_connector->ops.check_status &&
-		(info.capabilities & MSM_DISPLAY_ESD_ENABLED))
+		(info.capabilities & MSM_DISPLAY_ESD_ENABLED)) {
 		debugfs_create_u32("force_panel_dead", 0600,
 				connector->debugfs_entry,
 				&sde_connector->force_panel_dead);
+		debugfs_create_u32("esd_status_interval", 0600,
+				connector->debugfs_entry,
+				&sde_connector->esd_status_interval);
+	}
 
 	if (!debugfs_create_bool("fb_kmap", 0600, connector->debugfs_entry,
 			&sde_connector->fb_kmap)) {
@@ -1677,12 +1763,67 @@ sde_connector_best_encoder(struct drm_connector *connector)
 	return c_conn->encoder;
 }
 
+static void _sde_connector_report_panel_dead(struct sde_connector *conn)
+{
+	struct drm_event event;
+
+	if (!conn)
+		return;
+
+	/* Panel dead notification can come:
+	 * 1) ESD thread
+	 * 2) Commit thread (if TE stops coming)
+	 * So such case, avoid failure notification twice.
+	 */
+	if (conn->panel_dead)
+		return;
+
+	conn->panel_dead = true;
+	event.type = DRM_EVENT_PANEL_DEAD;
+	event.length = sizeof(bool);
+	msm_mode_object_event_notify(&conn->base.base,
+		conn->base.dev, &event, (u8 *)&conn->panel_dead);
+	sde_encoder_display_failure_notification(conn->encoder);
+	SDE_EVT32(SDE_EVTLOG_ERROR);
+	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
+			conn->base.base.id, conn->encoder->base.id);
+}
+
+int sde_connector_esd_status(struct drm_connector *conn)
+{
+	struct sde_connector *sde_conn = NULL;
+	int ret = 0;
+
+	if (!conn)
+		return ret;
+
+	sde_conn = to_sde_connector(conn);
+	if (!sde_conn || !sde_conn->ops.check_status)
+		return ret;
+
+	/* protect this call with ESD status check call */
+	mutex_lock(&sde_conn->lock);
+	ret = sde_conn->ops.check_status(sde_conn->display, true);
+	mutex_unlock(&sde_conn->lock);
+
+	if (ret <= 0) {
+		/* cancel if any pending esd work */
+		sde_connector_schedule_status_work(conn, false);
+		_sde_connector_report_panel_dead(sde_conn);
+		ret = -ETIMEDOUT;
+	} else {
+		SDE_DEBUG("Successfully received TE from panel\n");
+		ret = 0;
+	}
+	SDE_EVT32(ret);
+
+	return ret;
+}
+
 static void sde_connector_check_status_work(struct work_struct *work)
 {
 	struct sde_connector *conn;
-	struct drm_event event;
 	int rc = 0;
-	bool panel_dead = false;
 
 	conn = container_of(to_delayed_work(work),
 			struct sde_connector, status_work);
@@ -1699,7 +1840,7 @@ static void sde_connector_check_status_work(struct work_struct *work)
 		return;
 	}
 
-	rc = conn->ops.check_status(conn->display);
+	rc = conn->ops.check_status(conn->display, false);
 	mutex_unlock(&conn->lock);
 
 	if (conn->force_panel_dead) {
@@ -1709,22 +1850,21 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	}
 
 	if (rc > 0) {
+		u32 interval;
+
 		SDE_DEBUG("esd check status success conn_id: %d enc_id: %d\n",
 				conn->base.base.id, conn->encoder->base.id);
+
+		/* If debugfs property is not set then take default value */
+		interval = conn->esd_status_interval ?
+			conn->esd_status_interval : STATUS_CHECK_INTERVAL_MS;
 		schedule_delayed_work(&conn->status_work,
-			msecs_to_jiffies(STATUS_CHECK_INTERVAL_MS));
+			msecs_to_jiffies(interval));
 		return;
 	}
 
 status_dead:
-	SDE_EVT32(rc, SDE_EVTLOG_ERROR);
-	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
-			conn->base.base.id, conn->encoder->base.id);
-	panel_dead = true;
-	event.type = DRM_EVENT_PANEL_DEAD;
-	event.length = sizeof(bool);
-	msm_mode_object_event_notify(&conn->base.base,
-		conn->base.dev, &event, (u8 *)&panel_dead);
+	_sde_connector_report_panel_dead(conn);
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {

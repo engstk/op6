@@ -37,6 +37,8 @@ Optional:
 	compatible "qcom,ipa-smmu-uc-cb"
 - qcom,use-a2-service: determine if A2 service will be used
 - qcom,use-ipa-tethering-bridge: determine if tethering bridge will be used
+- qcom,use-ipa-in-mhi-mode: Boolean context flag to indicate whether
+				device booting in MHI config or not.
 - qcom,use-ipa-bamdma-a2-bridge: determine if a2/ipa hw bridge will be used
 - qcom,ee: which EE is assigned to (non-secure) APPS from IPA-BAM POV. This
 is a number
@@ -85,6 +87,8 @@ memory allocation over a PCIe bridge
                                 need to be unlocked by TZ.
 - qcom,ipa-uc-monitor-holb:   	Boolean context flag to indicate whether
                                 monitoring of holb via IPA uc is required.
+- qcom,wlan-ce-db-over-pcie: Boolean context flag to represent WLAN CE DB
+				over pcie bus or not.
 
 IPA pipe sub nodes (A2 static pipes configurations):
 
@@ -116,6 +120,10 @@ Optional properties:
     controller phandle and "clk_ipa_clk" as macro for "iface_clk"
 - clock-names: This property shall contain the clock input names used
     by driver in same order as the clocks property.This should be "iface_clk"
+- emulator-bar0-offset: Specifies the offset, within PCIe BAR0, where
+    IPA/GSI programmable registers reside.  This property is used only
+    with the IPA/GSI emulation system, which is connected to and
+    communicated with via PCIe.
 
 IPA SMMU sub nodes
 
@@ -134,6 +142,8 @@ IPA SMMU sub nodes
 
 - qcom,additional-mapping: specifies any addtional mapping needed for this
 				context bank. The format is <iova pa size>
+
+- qcom,ipa-q6-smem-size: specifies the Q6 SMEM partition size
 
 IPA SMP2P sub nodes
 

@@ -586,7 +586,8 @@ static int create_bulk_endpoints(struct acc_dev *dev,
 
 	/* now allocate requests for our endpoints */
 	for (i = 0; i < TX_REQ_MAX; i++) {
-		req = acc_request_new(dev->ep_in, BULK_BUFFER_SIZE);
+		req = acc_request_new(dev->ep_in,
+			BULK_BUFFER_SIZE + cdev->gadget->extra_buf_alloc);
 		if (!req)
 			goto fail;
 		req->complete = acc_complete_in;
@@ -886,6 +887,12 @@ int acc_ctrlrequest(struct usb_composite_dev *cdev,
 	u16	w_length = le16_to_cpu(ctrl->wLength);
 	unsigned long flags;
 
+	/*
+	 * If instance is not created which is the case in power off charging
+	 * mode, dev will be NULL. Hence return error if it is the case.
+	 */
+	if (!dev)
+		return -ENODEV;
 /*
 	printk(KERN_INFO "acc_ctrlrequest "
 			"%02x.%02x v%04x i%04x l%u\n",

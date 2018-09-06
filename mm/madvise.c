@@ -135,8 +135,10 @@ success:
 	/*
 	 * vm_flags is protected by the mmap_sem held in write mode.
 	 */
-	vma->vm_flags = new_flags;
 
+	vm_write_begin(vma);
+	WRITE_ONCE(vma->vm_flags, new_flags);
+	vm_write_end(vma);
 out:
 	if (error == -ENOMEM)
 		error = -EAGAIN;
@@ -230,15 +232,14 @@ static long madvise_willneed(struct vm_area_struct *vma,
 {
 	struct file *file = vma->vm_file;
 
+	*prev = vma;
 #ifdef CONFIG_SWAP
 	if (!file) {
-		*prev = vma;
 		force_swapin_readahead(vma, start, end);
 		return 0;
 	}
 
 	if (shmem_mapping(file->f_mapping)) {
-		*prev = vma;
 		force_shm_swapin_readahead(vma, start, end,
 					file->f_mapping);
 		return 0;
@@ -253,7 +254,6 @@ static long madvise_willneed(struct vm_area_struct *vma,
 		return 0;
 	}
 
-	*prev = vma;
 	start = ((start - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
 	if (end > vma->vm_end)
 		end = vma->vm_end;
@@ -406,9 +406,11 @@ static void madvise_free_page_range(struct mmu_gather *tlb,
 		.private = tlb,
 	};
 
+	vm_write_begin(vma);
 	tlb_start_vma(tlb, vma);
 	walk_page_range(addr, end, &free_walk);
 	tlb_end_vma(tlb, vma);
+	vm_write_end(vma);
 }
 
 static int madvise_free_single_vma(struct vm_area_struct *vma,

@@ -40,7 +40,6 @@ extern unsigned int max_possible_efficiency;
 extern unsigned int min_possible_efficiency;
 extern unsigned int max_possible_freq;
 extern unsigned int sched_major_task_runtime;
-extern unsigned int __read_mostly sched_init_task_load_windows;
 extern unsigned int __read_mostly sched_load_granule;
 
 extern struct mutex cluster_lock;
@@ -293,7 +292,7 @@ static inline int walt_start_cpu(int prev_cpu)
 
 static inline void walt_update_last_enqueue(struct task_struct *p)
 {
-	p->last_enqueued_ts = ktime_get_ns();
+	p->last_enqueued_ts = sched_ktime_clock();
 }
 extern void walt_rotate_work_init(void);
 extern void walt_rotation_checkpoint(int nr_big);
@@ -378,6 +377,12 @@ static inline int walt_start_cpu(int prev_cpu)
 	return prev_cpu;
 }
 
+static inline u64 sched_irqload(int cpu)
+{
+	return 0;
+}
 #endif /* CONFIG_SCHED_WALT */
+
+#define walt_cpu_high_irqload(cpu) sched_cpu_high_irqload(cpu)
 
 #endif

@@ -87,6 +87,7 @@ struct scan_control {
 	/* The highest zone to isolate pages for reclaim from */
 	enum zone_type reclaim_idx;
 
+	/* Writepage batching in laptop mode; RECLAIM_WRITE */
 	unsigned int may_writepage:1;
 
 	/* Can mapped pages be reclaimed? */
@@ -297,10 +298,13 @@ EXPORT_SYMBOL(register_shrinker);
  */
 void unregister_shrinker(struct shrinker *shrinker)
 {
+	if (!shrinker->nr_deferred)
+		return;
 	down_write(&shrinker_rwsem);
 	list_del(&shrinker->list);
 	up_write(&shrinker_rwsem);
 	kfree(shrinker->nr_deferred);
+	shrinker->nr_deferred = NULL;
 }
 EXPORT_SYMBOL(unregister_shrinker);
 
@@ -1054,6 +1058,15 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 		 *    throttling so we could easily OOM just because too many
 		 *    pages are in writeback and there is nothing else to
 		 *    reclaim. Wait for the writeback to complete.
+		 *
+		 * In cases 1) and 2) we activate the pages to get them out of
+		 * the way while we continue scanning for clean pages on the
+		 * inactive list and refilling from the active list. The
+		 * observation here is that waiting for disk writes is more
+		 * expensive than potentially causing reloads down the line.
+		 * Since they're marked for immediate reclaim, they won't put
+		 * memory pressure on the cache working set any longer than it
+		 * takes to write them to disk.
 		 */
 		if (PageWriteback(page)) {
 			/* Case 1 above */
@@ -1061,7 +1074,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			    PageReclaim(page) &&
 			    (pgdat && test_bit(PGDAT_WRITEBACK, &pgdat->flags))) {
 				nr_immediate++;
-				goto keep_locked;
+				goto activate_locked;
 
 			/* Case 2 above */
 			} else if (sane_reclaim(sc) ||
@@ -1079,7 +1092,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				 */
 				SetPageReclaim(page);
 				nr_writeback++;
-				goto keep_locked;
+				goto activate_locked;
 
 			/* Case 3 above */
 			} else {
@@ -1150,14 +1163,18 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 
 		if (PageDirty(page)) {
 			/*
-			 * Only kswapd can writeback filesystem pages to
-			 * avoid risk of stack overflow but only writeback
-			 * if many dirty pages have been encountered.
+			 * Only kswapd can writeback filesystem pages
+			 * to avoid risk of stack overflow. But avoid
+			 * injecting inefficient single-page IO into
+			 * flusher writeback as much as possible: only
+			 * write pages when we've encountered many
+			 * dirty pages, and when we've already scanned
+			 * the rest of the LRU for clean pages and see
+			 * the same dirty pages again (PageReclaim).
 			 */
 			if (page_is_file_cache(page) &&
-					(!current_is_kswapd() ||
-					(pgdat &&
-					 !test_bit(PGDAT_DIRTY, &pgdat->flags)))) {
+			    (!current_is_kswapd() || !PageReclaim(page) ||
+			     !test_bit(PGDAT_DIRTY, &pgdat->flags))) {
 				/*
 				 * Immediately reclaim when written back.
 				 * Similar in principal to deactivate_page()
@@ -1167,7 +1184,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				inc_node_page_state(page, NR_VMSCAN_IMMEDIATE);
 				SetPageReclaim(page);
 
-				goto keep_locked;
+				goto activate_locked;
 			}
 
 			if (references == PAGEREF_RECLAIM_CLEAN)
@@ -1413,31 +1430,34 @@ int __isolate_lru_page(struct page *page, isolate_mode_t mode)
 	 * wants to isolate pages it will be able to operate on without
 	 * blocking - clean pages for the most part.
 	 *
-	 * ISOLATE_CLEAN means that only clean pages should be isolated. This
-	 * is used by reclaim when it is cannot write to backing storage
-	 *
 	 * ISOLATE_ASYNC_MIGRATE is used to indicate that it only wants to pages
 	 * that it is possible to migrate without blocking
 	 */
-	if (mode & (ISOLATE_CLEAN|ISOLATE_ASYNC_MIGRATE)) {
+	if (mode & ISOLATE_ASYNC_MIGRATE) {
 		/* All the caller can do on PageWriteback is block */
 		if (PageWriteback(page))
 			return ret;
 
 		if (PageDirty(page)) {
 			struct address_space *mapping;
-
-			/* ISOLATE_CLEAN means only clean pages */
-			if (mode & ISOLATE_CLEAN)
-				return ret;
+			bool migrate_dirty;
 
 			/*
 			 * Only pages without mappings or that have a
 			 * ->migratepage callback are possible to migrate
-			 * without blocking
+			 * without blocking. However, we can be racing with
+			 * truncation so it's necessary to lock the page
+			 * to stabilise the mapping as truncation holds
+			 * the page lock until after the page is removed
+			 * from the page cache.
 			 */
+			if (!trylock_page(page))
+				return ret;
+
 			mapping = page_mapping(page);
-			if (mapping && !mapping->a_ops->migratepage)
+			migrate_dirty = mapping && mapping->a_ops->migratepage;
+			unlock_page(page);
+			if (!migrate_dirty)
 				return ret;
 		}
 	}
@@ -1828,8 +1848,6 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 
 	if (!sc->may_unmap)
 		isolate_mode |= ISOLATE_UNMAPPED;
-	if (!sc->may_writepage)
-		isolate_mode |= ISOLATE_CLEAN;
 
 	spin_lock_irq(&pgdat->lru_lock);
 
@@ -1891,6 +1909,20 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		set_bit(PGDAT_WRITEBACK, &pgdat->flags);
 
 	/*
+	 * If dirty pages are scanned that are not queued for IO, it
+	 * implies that flushers are not doing their job. This can
+	 * happen when memory pressure pushes dirty pages to the end of
+	 * the LRU before the dirty limits are breached and the dirty
+	 * data has expired. It can also happen when the proportion of
+	 * dirty pages grows not through writes but through memory
+	 * pressure reclaiming all the clean cache. And in some cases,
+	 * the flushers simply cannot keep up with the allocation
+	 * rate. Nudge the flusher threads in case they are asleep.
+	 */
+	if (nr_unqueued_dirty == nr_taken)
+		wakeup_flusher_threads(0, WB_REASON_VMSCAN);
+
+	/*
 	 * Legacy memcg will stall in page writeback so avoid forcibly
 	 * stalling here.
 	 */
@@ -1902,12 +1934,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		if (nr_dirty && nr_dirty == nr_congested)
 			set_bit(PGDAT_CONGESTED, &pgdat->flags);
 
-		/*
-		 * If dirty pages are scanned that are not queued for IO, it
-		 * implies that flushers are not keeping up. In this case, flag
-		 * the pgdat PGDAT_DIRTY and kswapd will start writing pages from
-		 * reclaim context.
-		 */
+		/* Allow kswapd to start writing pages during reclaim. */
 		if (nr_unqueued_dirty == nr_taken)
 			set_bit(PGDAT_DIRTY, &pgdat->flags);
 
@@ -2017,8 +2044,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 
 	if (!sc->may_unmap)
 		isolate_mode |= ISOLATE_UNMAPPED;
-	if (!sc->may_writepage)
-		isolate_mode |= ISOLATE_CLEAN;
 
 	spin_lock_irq(&pgdat->lru_lock);
 
@@ -2820,8 +2845,6 @@ static unsigned long do_try_to_free_pages(struct zonelist *zonelist,
 					  struct scan_control *sc)
 {
 	int initial_priority = sc->priority;
-	unsigned long total_scanned = 0;
-	unsigned long writeback_threshold;
 retry:
 	delayacct_freepages_start();
 
@@ -2834,7 +2857,6 @@ retry:
 		sc->nr_scanned = 0;
 		shrink_zones(zonelist, sc);
 
-		total_scanned += sc->nr_scanned;
 		if (sc->nr_reclaimed >= sc->nr_to_reclaim)
 			break;
 
@@ -2847,20 +2869,6 @@ retry:
 		 */
 		if (sc->priority < DEF_PRIORITY - 2)
 			sc->may_writepage = 1;
-
-		/*
-		 * Try to write back as many pages as we just scanned.  This
-		 * tends to cause slow streaming writers to write data to the
-		 * disk smoothly, at the dirtying rate, which is nice.   But
-		 * that's undesirable in laptop mode, where we *want* lumpy
-		 * writeout.  So in laptop mode, write out the whole world.
-		 */
-		writeback_threshold = sc->nr_to_reclaim + sc->nr_to_reclaim / 2;
-		if (total_scanned > writeback_threshold) {
-			wakeup_flusher_threads(laptop_mode ? 0 : total_scanned,
-						WB_REASON_TRY_TO_FREE_PAGES);
-			sc->may_writepage = 1;
-		}
 	} while (--sc->priority >= 0);
 
 	delayacct_freepages_end();
@@ -3020,7 +3028,7 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 	unsigned long nr_reclaimed;
 	struct scan_control sc = {
 		.nr_to_reclaim = SWAP_CLUSTER_MAX,
-		.gfp_mask = (gfp_mask = memalloc_noio_flags(gfp_mask)),
+		.gfp_mask = memalloc_noio_flags(gfp_mask),
 		.reclaim_idx = gfp_zone(gfp_mask),
 		.order = order,
 		.nodemask = nodemask,
@@ -3035,12 +3043,12 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 	 * 1 is returned so that the page allocator does not OOM kill at this
 	 * point.
 	 */
-	if (throttle_direct_reclaim(gfp_mask, zonelist, nodemask))
+	if (throttle_direct_reclaim(sc.gfp_mask, zonelist, nodemask))
 		return 1;
 
 	trace_mm_vmscan_direct_reclaim_begin(order,
 				sc.may_writepage,
-				gfp_mask,
+				sc.gfp_mask,
 				sc.reclaim_idx);
 
 	nr_reclaimed = do_try_to_free_pages(zonelist, &sc);
@@ -3824,16 +3832,15 @@ static int __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned in
 	const unsigned long nr_pages = 1 << order;
 	struct task_struct *p = current;
 	struct reclaim_state reclaim_state;
-	int classzone_idx = gfp_zone(gfp_mask);
 	struct scan_control sc = {
 		.nr_to_reclaim = max(nr_pages, SWAP_CLUSTER_MAX),
-		.gfp_mask = (gfp_mask = memalloc_noio_flags(gfp_mask)),
+		.gfp_mask = memalloc_noio_flags(gfp_mask),
 		.order = order,
 		.priority = NODE_RECLAIM_PRIORITY,
 		.may_writepage = !!(node_reclaim_mode & RECLAIM_WRITE),
 		.may_unmap = !!(node_reclaim_mode & RECLAIM_UNMAP),
 		.may_swap = 1,
-		.reclaim_idx = classzone_idx,
+		.reclaim_idx = gfp_zone(gfp_mask),
 	};
 
 	cond_resched();
@@ -3843,7 +3850,7 @@ static int __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned in
 	 * and RECLAIM_UNMAP.
 	 */
 	p->flags |= PF_MEMALLOC | PF_SWAPWRITE;
-	lockdep_set_current_reclaim_state(gfp_mask);
+	lockdep_set_current_reclaim_state(sc.gfp_mask);
 	reclaim_state.reclaimed_slab = 0;
 	p->reclaim_state = &reclaim_state;
 
@@ -3923,7 +3930,13 @@ int node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned int order)
  */
 int page_evictable(struct page *page)
 {
-	return !mapping_unevictable(page_mapping(page)) && !PageMlocked(page);
+	int ret;
+
+	/* Prevent address_space of inode and swap cache from being freed */
+	rcu_read_lock();
+	ret = !mapping_unevictable(page_mapping(page)) && !PageMlocked(page);
+	rcu_read_unlock();
+	return ret;
 }
 
 #ifdef CONFIG_SHMEM

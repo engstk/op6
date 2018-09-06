@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -187,7 +187,7 @@ static void get_decode_sel(unsigned long blk, u32 *decode_sel)
 			*decode_sel |= BIT(21);
 			break;
 		default:
-			DRM_ERROR("block not supported %zx\n", BIT(i));
+			DRM_ERROR("block not supported %zx\n", (size_t)BIT(i));
 			break;
 		}
 	}
@@ -292,7 +292,7 @@ static int validate_write_multi_lut_reg(struct sde_reg_dma_setup_ops_cfg *cfg)
 
 	if (cfg->wrap_size < WRAP_MIN_SIZE || cfg->wrap_size > WRAP_MAX_SIZE) {
 		DRM_ERROR("invalid wrap sz %d min %d max %zd\n",
-			cfg->wrap_size, WRAP_MIN_SIZE, WRAP_MAX_SIZE);
+			cfg->wrap_size, WRAP_MIN_SIZE, (size_t)WRAP_MAX_SIZE);
 		rc = -EINVAL;
 	}
 
@@ -319,7 +319,7 @@ static int validate_write_reg(struct sde_reg_dma_setup_ops_cfg *cfg)
 	if ((SIZE_DWORD(cfg->data_size)) > MAX_DWORDS_SZ ||
 	    NOT_WORD_ALIGNED(cfg->data_size)) {
 		DRM_ERROR("Invalid data size %d max %zd align %x\n",
-			cfg->data_size, MAX_DWORDS_SZ,
+			cfg->data_size, (size_t)MAX_DWORDS_SZ,
 			NOT_WORD_ALIGNED(cfg->data_size));
 		return -EINVAL;
 	}
@@ -327,7 +327,7 @@ static int validate_write_reg(struct sde_reg_dma_setup_ops_cfg *cfg)
 	if (cfg->blk_offset > MAX_RELATIVE_OFF ||
 			NOT_WORD_ALIGNED(cfg->blk_offset)) {
 		DRM_ERROR("invalid offset %d max %zd align %x\n",
-				cfg->blk_offset, MAX_RELATIVE_OFF,
+				cfg->blk_offset, (size_t)MAX_RELATIVE_OFF,
 				NOT_WORD_ALIGNED(cfg->blk_offset));
 		return -EINVAL;
 	}
@@ -391,7 +391,7 @@ static int validate_dma_cfg(struct sde_reg_dma_setup_ops_cfg *cfg)
 
 	if (cfg->dma_buf->iova & GUARD_BYTES || !cfg->dma_buf->vaddr) {
 		DRM_ERROR("iova not aligned to %zx iova %x kva %pK",
-				ADDR_ALIGN, cfg->dma_buf->iova,
+				(size_t)ADDR_ALIGN, cfg->dma_buf->iova,
 				cfg->dma_buf->vaddr);
 		return -EINVAL;
 	}
@@ -449,8 +449,8 @@ static int validate_kick_off_v1(struct sde_reg_dma_kickoff_cfg *cfg)
 				(WRITE_TRIGGER);
 
 	if (cfg->dma_buf->iova & GUARD_BYTES) {
-		DRM_ERROR("Address is not aligned to %zx iova %x", ADDR_ALIGN,
-				cfg->dma_buf->iova);
+		DRM_ERROR("Address is not aligned to %zx iova %x",
+				(size_t)ADDR_ALIGN, cfg->dma_buf->iova);
 		return -EINVAL;
 	}
 
@@ -462,7 +462,8 @@ static int validate_kick_off_v1(struct sde_reg_dma_kickoff_cfg *cfg)
 	if (SIZE_DWORD(cfg->dma_buf->index) > MAX_DWORDS_SZ ||
 			!cfg->dma_buf->index) {
 		DRM_ERROR("invalid dword size %zd max %zd\n",
-			SIZE_DWORD(cfg->dma_buf->index), MAX_DWORDS_SZ);
+			(size_t)SIZE_DWORD(cfg->dma_buf->index),
+				(size_t)MAX_DWORDS_SZ);
 		return -EINVAL;
 	}
 	return 0;
@@ -474,6 +475,7 @@ static int write_kick_off_v1(struct sde_reg_dma_kickoff_cfg *cfg)
 	struct sde_hw_blk_reg_map hw;
 
 	memset(&hw, 0, sizeof(hw));
+	msm_gem_sync(cfg->dma_buf->buf);
 	cmd1 = (cfg->op == REG_DMA_READ) ?
 		(dspp_read_sel[cfg->block_select] << 30) : 0;
 	cmd1 |= (cfg->last_command) ? BIT(24) : 0;
@@ -481,7 +483,6 @@ static int write_kick_off_v1(struct sde_reg_dma_kickoff_cfg *cfg)
 	cmd1 |= (cfg->op == REG_DMA_WRITE) ? (BIT(22)) : 0;
 	cmd1 |= (SIZE_DWORD(cfg->dma_buf->index) & MAX_DWORDS_SZ);
 
-	msm_gem_sync(cfg->dma_buf->buf);
 	SET_UP_REG_DMA_REG(hw, reg_dma);
 	SDE_REG_WRITE(&hw, REG_DMA_OP_MODE_OFF, BIT(0));
 	SDE_REG_WRITE(&hw, reg_dma_clear_status_off,

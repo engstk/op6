@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -327,6 +327,11 @@ int ipa2_nat_init_cmd(struct ipa_ioc_v4_nat_init *init)
 	size_t tmp;
 	gfp_t flag = GFP_KERNEL | (ipa_ctx->use_dma_zone ? GFP_DMA : 0);
 
+	if (!ipa_ctx->nat_mem.is_dev_init) {
+		IPAERR_RL("Nat table not initialized\n");
+		return -EPERM;
+	}
+
 	IPADBG("\n");
 	if (init->table_entries == 0) {
 		IPADBG("Table entries is zero\n");
@@ -576,6 +581,11 @@ int ipa2_nat_dma_cmd(struct ipa_ioc_nat_dma_cmd *dma)
 	int ret = 0;
 	gfp_t flag = GFP_KERNEL | (ipa_ctx->use_dma_zone ? GFP_DMA : 0);
 
+	if (!ipa_ctx->nat_mem.is_dev_init) {
+		IPAERR_RL("Nat table not initialized\n");
+		return -EPERM;
+	}
+
 	IPADBG("\n");
 	if (dma->entries <= 0) {
 		IPAERR_RL("Invalid number of commands %d\n",
@@ -762,17 +772,21 @@ int ipa2_nat_del_cmd(struct ipa_ioc_v4_nat_del *del)
 	int result;
 	gfp_t flag = GFP_KERNEL | (ipa_ctx->use_dma_zone ? GFP_DMA : 0);
 
+	if (!ipa_ctx->nat_mem.is_dev_init) {
+		IPAERR_RL("Nat table not initialized\n");
+		return -EPERM;
+	}
+
+	if (ipa_ctx->nat_mem.public_ip_addr) {
+		IPAERR_RL("Public IP addr not assigned and trying to delete\n");
+		return -EPERM;
+	}
+
 	IPADBG("\n");
 	if (ipa_ctx->nat_mem.is_tmp_mem) {
 		IPAERR("using temp memory during nat del\n");
 		mem_type = IPA_NAT_SYSTEM_MEMORY;
 		base_addr = ipa_ctx->nat_mem.tmp_dma_handle;
-	}
-
-	if (del->public_ip_addr == 0) {
-		IPADBG("Bad Parameter\n");
-		result = -EPERM;
-		goto bail;
 	}
 
 	memset(&desc, 0, sizeof(desc));

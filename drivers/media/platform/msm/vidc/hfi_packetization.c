@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -575,8 +575,11 @@ static int get_hfi_extradata_index(enum hal_extradata_id index)
 	case HAL_EXTRADATA_STREAM_USERDATA:
 		ret = HFI_PROPERTY_PARAM_VDEC_STREAM_USERDATA_EXTRADATA;
 		break;
-	case HAL_EXTRADATA_FRAME_QP:
+	case HAL_EXTRADATA_DEC_FRAME_QP:
 		ret = HFI_PROPERTY_PARAM_VDEC_FRAME_QP_EXTRADATA;
+		break;
+	case HAL_EXTRADATA_ENC_FRAME_QP:
+		ret = HFI_PROPERTY_PARAM_VENC_FRAME_QP_EXTRADATA;
 		break;
 	case HAL_EXTRADATA_FRAME_BITS_INFO:
 		ret = HFI_PROPERTY_PARAM_VDEC_FRAME_BITS_INFO_EXTRADATA;
@@ -803,7 +806,7 @@ int create_pkt_cmd_session_etb_decoder(
 	pkt->offset = input_frame->offset;
 	pkt->alloc_len = input_frame->alloc_len;
 	pkt->filled_len = input_frame->filled_len;
-	pkt->input_tag = input_frame->clnt_data;
+	pkt->input_tag = input_frame->input_tag;
 	pkt->packet_buffer = (u32)input_frame->device_addr;
 
 	trace_msm_v4l2_vidc_buffer_event_start("ETB",
@@ -838,7 +841,7 @@ int create_pkt_cmd_session_etb_encoder(
 	pkt->offset = input_frame->offset;
 	pkt->alloc_len = input_frame->alloc_len;
 	pkt->filled_len = input_frame->filled_len;
-	pkt->input_tag = input_frame->clnt_data;
+	pkt->input_tag = input_frame->input_tag;
 	pkt->packet_buffer = (u32)input_frame->device_addr;
 	pkt->extra_data_buffer = (u32)input_frame->extradata_addr;
 
@@ -874,6 +877,7 @@ int create_pkt_cmd_session_ftb(struct hfi_cmd_session_fill_buffer_packet *pkt,
 		return -EINVAL;
 
 	pkt->packet_buffer = (u32)output_frame->device_addr;
+	pkt->output_tag = output_frame->output_tag;
 	pkt->extra_data_buffer = (u32)output_frame->extradata_addr;
 	pkt->alloc_len = output_frame->alloc_len;
 	pkt->filled_len = output_frame->filled_len;
@@ -1235,6 +1239,51 @@ int create_pkt_cmd_session_set_property(
 			struct hfi_h264_entropy_control);
 		break;
 	}
+	case HAL_CONFIG_HEIC_FRAME_QUALITY:
+	{
+		struct hfi_heic_frame_quality *hfi;
+
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_CONFIG_HEIC_FRAME_QUALITY;
+		hfi =
+		(struct hfi_heic_frame_quality *) &pkt->rg_property_data[1];
+		hfi->frame_quality =
+			((struct hal_heic_frame_quality *)pdata)->frame_quality;
+		pkt->size += sizeof(u32) +
+			sizeof(struct hfi_heic_frame_quality);
+		break;
+	}
+	case HAL_CONFIG_HEIC_GRID_ENABLE:
+	{
+		struct hfi_heic_grid_enable *hfi;
+
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_CONFIG_HEIC_GRID_ENABLE;
+		hfi = (struct hfi_heic_grid_enable *) &pkt->rg_property_data[1];
+		hfi->grid_enable =
+			((struct hal_heic_grid_enable *)pdata)->grid_enable;
+		pkt->size += sizeof(u32) + sizeof(struct hfi_heic_grid_enable);
+		break;
+	}
+	case HAL_CONFIG_HEIC_FRAME_CROP_INFO:
+	{
+		struct hfi_frame_crop *hfi_crop_info;
+		struct hal_frame_crop *hal_crop_info =
+		(struct hal_frame_crop *) pdata;
+
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_CONFIG_HEIC_FRAME_CROP_INFO;
+		hfi_crop_info =
+			(struct hfi_frame_crop *) &pkt->rg_property_data[1];
+
+		hfi_crop_info->left = hal_crop_info->left;
+		hfi_crop_info->top = hal_crop_info->top;
+		hfi_crop_info->width = hal_crop_info->width;
+		hfi_crop_info->height = hal_crop_info->height;
+
+		pkt->size += sizeof(u32) + sizeof(struct hfi_frame_crop);
+		break;
+	}
 	case HAL_PARAM_VENC_RATE_CONTROL:
 	{
 		u32 *rc;
@@ -1261,6 +1310,9 @@ int create_pkt_cmd_session_set_property(
 			break;
 		case HAL_RATE_CONTROL_MBR_VFR:
 			pkt->rg_property_data[1] = HFI_RATE_CONTROL_MBR_VFR;
+			break;
+		case HAL_RATE_CONTROL_CQ:
+			pkt->rg_property_data[1] = HFI_RATE_CONTROL_CQ;
 			break;
 		default:
 			dprintk(VIDC_ERR,

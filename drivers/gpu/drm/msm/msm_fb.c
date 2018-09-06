@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -68,7 +68,7 @@ static void msm_framebuffer_destroy(struct drm_framebuffer *fb)
 	msm_fb = to_msm_framebuffer(fb);
 	n = drm_format_num_planes(fb->pixel_format);
 
-	DBG("destroy: FB ID: %d (%p)", fb->base.id, fb);
+	DBG("destroy: FB ID: %d (%pK)", fb->base.id, fb);
 
 	drm_framebuffer_cleanup(fb);
 
@@ -151,8 +151,8 @@ static int msm_framebuffer_kmap(struct drm_framebuffer *fb)
 		}
 		dma_buf_begin_cpu_access(bo->dma_buf, DMA_BIDIRECTIONAL);
 		msm_fb->vaddr[i] = dma_buf_kmap(bo->dma_buf, 0);
-		DRM_INFO("FB[%u]: vaddr[%d]:%ux%u:0x%llx\n", fb->base.id, i,
-				fb->width, fb->height, (u64) msm_fb->vaddr[i]);
+		DRM_INFO("FB[%u]: vaddr[%d]:%ux%u\n", fb->base.id, i,
+			fb->width, fb->height);
 	}
 
 	return 0;
@@ -336,7 +336,7 @@ struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 	unsigned int hsub, vsub;
 	bool is_modified = false;
 
-	DBG("create framebuffer: dev=%p, mode_cmd=%p (%dx%d@%4.4s)",
+	DBG("create framebuffer: dev=%pK, mode_cmd=%pK (%dx%d@%4.4s)",
 			dev, mode_cmd, mode_cmd->width, mode_cmd->height,
 			(char *)&mode_cmd->pixel_format);
 
@@ -420,7 +420,7 @@ struct drm_framebuffer *msm_framebuffer_init(struct drm_device *dev,
 		goto fail;
 	}
 
-	DBG("create: FB ID: %d (%p)", fb->base.id, fb);
+	DBG("create: FB ID: %d (%pK)", fb->base.id, fb);
 
 	return fb;
 

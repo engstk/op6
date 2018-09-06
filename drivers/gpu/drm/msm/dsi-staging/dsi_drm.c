@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -63,6 +63,11 @@ static void convert_to_dsi_mode(const struct drm_display_mode *drm_mode,
 		dsi_mode->dsi_mode_flags |= DSI_MODE_FLAG_DMS;
 	if (msm_is_mode_seamless_vrr(drm_mode))
 		dsi_mode->dsi_mode_flags |= DSI_MODE_FLAG_VRR;
+
+	dsi_mode->timing.h_sync_polarity =
+			!!(drm_mode->flags & DRM_MODE_FLAG_PHSYNC);
+	dsi_mode->timing.v_sync_polarity =
+			!!(drm_mode->flags & DRM_MODE_FLAG_PVSYNC);
 }
 
 void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
@@ -101,6 +106,11 @@ void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
 	if (dsi_mode->dsi_mode_flags & DSI_MODE_FLAG_VRR)
 		drm_mode->private_flags |= MSM_MODE_FLAG_SEAMLESS_VRR;
 
+	if (dsi_mode->timing.h_sync_polarity)
+		drm_mode->flags |= DRM_MODE_FLAG_PHSYNC;
+	if (dsi_mode->timing.v_sync_polarity)
+		drm_mode->flags |= DRM_MODE_FLAG_PVSYNC;
+
 	drm_mode_set_name(drm_mode);
 }
 
@@ -129,8 +139,12 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	if (!c_bridge || !c_bridge->display)
+	if (!c_bridge || !c_bridge->display || !c_bridge->display->panel) {
 		pr_err("Incorrect bridge details\n");
+		return;
+	}
+
+	atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
 	/* By this point mode should have been validated through mode_fixup */
 	rc = dsi_display_set_mode(c_bridge->display,
@@ -176,6 +190,7 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct dsi_display *display;
 
 	if (!bridge) {
 		pr_err("Invalid params\n");
@@ -187,11 +202,15 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 		pr_debug("[%d] seamless enable\n", c_bridge->id);
 		return;
 	}
+	display = c_bridge->display;
 
-	rc = dsi_display_post_enable(c_bridge->display);
+	rc = dsi_display_post_enable(display);
 	if (rc)
 		pr_err("[%d] DSI display post enabled failed, rc=%d\n",
 		       c_bridge->id, rc);
+
+	if (display && display->drm_conn)
+		sde_connector_helper_bridge_enable(display->drm_conn);
 }
 
 static void dsi_bridge_disable(struct drm_bridge *bridge)
@@ -288,17 +307,23 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 
 	convert_to_dsi_mode(mode, &dsi_mode);
 
-	/*
-	 * retrieve dsi mode from dsi driver's cache since not safe to take
-	 * the drm mode config mutex in all paths
-	 */
-	rc = dsi_display_find_mode(display, &dsi_mode, &panel_dsi_mode);
-	if (rc)
-		return rc;
+	/* external bridge doesn't use priv_info and dsi_mode_flags */
+	if (!dsi_display_has_ext_bridge(display)) {
+		/*
+		 * retrieve dsi mode from dsi driver's cache since not safe to
+		 * take the drm mode config mutex in all paths
+		 */
+		rc = dsi_display_find_mode(display, &dsi_mode, &panel_dsi_mode);
+		if (rc)
+			return rc;
 
-	/* propagate the private info to the adjusted_mode derived dsi mode */
-	dsi_mode.priv_info = panel_dsi_mode->priv_info;
-	dsi_mode.dsi_mode_flags = panel_dsi_mode->dsi_mode_flags;
+		/*
+		 * propagate the private info to the adjusted_mode derived dsi
+		 * mode
+		 */
+		dsi_mode.priv_info = panel_dsi_mode->priv_info;
+		dsi_mode.dsi_mode_flags = panel_dsi_mode->dsi_mode_flags;
+	}
 
 	rc = dsi_display_validate_mode(c_bridge->display, &dsi_mode,
 			DSI_VALIDATE_FLAG_ALLOW_ADJUST);
@@ -320,9 +345,11 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 
 		cur_mode = crtc_state->crtc->mode;
 
+		/* No DMS/VRR when drm pipeline is changing */
 		if (!drm_mode_equal(&cur_mode, adjusted_mode) &&
-			(!(dsi_mode.dsi_mode_flags &
-				DSI_MODE_FLAG_VRR)))
+			(!(dsi_mode.dsi_mode_flags & DSI_MODE_FLAG_VRR)) &&
+			(!crtc_state->active_changed ||
+			 display->is_cont_splash_enabled))
 			dsi_mode.dsi_mode_flags |= DSI_MODE_FLAG_DMS;
 	}
 
@@ -371,6 +398,35 @@ int dsi_conn_get_mode_info(const struct drm_display_mode *drm_mode,
 		memcpy(&mode_info->roi_caps, &dsi_mode.priv_info->roi_caps,
 			sizeof(dsi_mode.priv_info->roi_caps));
 	}
+
+	return 0;
+}
+
+int dsi_conn_ext_bridge_get_mode_info(const struct drm_display_mode *drm_mode,
+	struct msm_mode_info *mode_info,
+	u32 max_mixer_width, void *display)
+{
+	struct msm_display_topology *topology;
+	struct dsi_display_mode dsi_mode;
+	struct dsi_mode_info *timing;
+
+	if (!drm_mode || !mode_info)
+		return -EINVAL;
+
+	convert_to_dsi_mode(drm_mode, &dsi_mode);
+
+	memset(mode_info, 0, sizeof(*mode_info));
+
+	timing = &dsi_mode.timing;
+	mode_info->frame_rate = dsi_mode.timing.refresh_rate;
+	mode_info->vtotal = DSI_V_TOTAL(timing);
+
+	topology = &mode_info->topology;
+	topology->num_lm = (max_mixer_width <= drm_mode->hdisplay) ? 2 : 1;
+	topology->num_enc = 0;
+	topology->num_intf = topology->num_lm;
+
+	mode_info->comp_info.comp_type = MSM_DISPLAY_COMPRESSION_NONE;
 
 	return 0;
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,8 +25,26 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/qseecomi.h>
 #include "iceregs.h"
-#include <linux/pfk.h>
 
+#ifdef CONFIG_PFK
+#include <linux/pfk.h>
+#else
+#include <linux/bio.h>
+static inline int pfk_load_key_start(const struct bio *bio,
+	struct ice_crypto_setting *ice_setting, bool *is_pfe, bool async)
+{
+	return 0;
+}
+
+static inline int pfk_load_key_end(const struct bio *bio, bool *is_pfe)
+{
+	return 0;
+}
+
+static inline void pfk_clear_on_reset(void)
+{
+}
+#endif
 
 #define TZ_SYSCALL_CREATE_SMC_ID(o, s, f) \
 	((uint32_t)((((o & 0x3f) << 24) | (s & 0xff) << 8) | (f & 0xff)))
@@ -56,6 +74,11 @@
 #define QCOM_ICE_MAX_BIST_CHECK_COUNT 100
 #define QCOM_ICE_UFS		10
 #define QCOM_ICE_SDCC		20
+#define QCOM_ICE_ENCRYPT	0x1
+#define QCOM_ICE_DECRYPT	0x2
+#define QCOM_SECT_LEN_IN_BYTE	512
+#define QCOM_UD_FOOTER_SIZE	0x4000
+#define QCOM_UD_FOOTER_SECS	(QCOM_UD_FOOTER_SIZE / QCOM_SECT_LEN_IN_BYTE)
 
 struct ice_clk_info {
 	struct list_head list;
@@ -105,6 +128,9 @@ struct ice_device {
 	ktime_t			ice_reset_complete_time;
 };
 
+static int ice_fde_flag;
+static struct ice_crypto_setting ice_data;
+
 static int qti_ice_setting_config(struct request *req,
 		struct platform_device *pdev,
 		struct ice_crypto_setting *crypto_data,
@@ -134,19 +160,33 @@ static int qti_ice_setting_config(struct request *req,
 		memcpy(&setting->crypto_data, crypto_data,
 				sizeof(setting->crypto_data));
 
-		if (rq_data_dir(req) == WRITE)
-			setting->encr_bypass = false;
-		else if (rq_data_dir(req) == READ)
-			setting->decr_bypass = false;
-		else {
+		switch (rq_data_dir(req)) {
+		case WRITE:
+			if (!ice_fde_flag || (ice_fde_flag & QCOM_ICE_ENCRYPT))
+				setting->encr_bypass = false;
+			break;
+		case READ:
+			if (!ice_fde_flag || (ice_fde_flag & QCOM_ICE_DECRYPT))
+				setting->decr_bypass = false;
+			break;
+		default:
 			/* Should I say BUG_ON */
 			setting->encr_bypass = true;
 			setting->decr_bypass = true;
+			pr_debug("%s(): direction unknown\n", __func__);
+			break;
 		}
 	}
 
 	return 0;
 }
+
+void qcom_ice_set_fde_flag(int flag)
+{
+	ice_fde_flag = flag;
+	pr_debug("%s read_write setting %d\n", __func__, ice_fde_flag);
+}
+EXPORT_SYMBOL(qcom_ice_set_fde_flag);
 
 static int qcom_ice_enable_clocks(struct ice_device *, bool);
 
@@ -1432,9 +1472,11 @@ static int qcom_ice_config_start(struct platform_device *pdev,
 {
 	struct ice_crypto_setting *crypto_data;
 	struct ice_crypto_setting pfk_crypto_data = {0};
-	union map_info *info;
 	int ret = 0;
 	bool is_pfe = false;
+	sector_t data_size;
+	union map_info *info;
+	unsigned long sec_end = 0;
 
 	if (!pdev || !req) {
 		pr_err("%s: Invalid params passed\n", __func__);
@@ -1470,28 +1512,46 @@ static int qcom_ice_config_start(struct platform_device *pdev,
 				&pfk_crypto_data, setting);
 	}
 
-	/*
-	 * info field in req->end_io_data could be used by mulitple dm or
-	 * non-dm entities. To ensure that we are running operation on dm
-	 * based request, check BIO_DONT_FREE flag
-	 */
-	if (bio_flagged(req->bio, BIO_INLINECRYPT)) {
-		info = dm_get_rq_mapinfo(req);
-		if (!info) {
-			pr_debug("%s info not available in request\n",
-				 __func__);
-			return 0;
+	if (!ice_fde_flag) {
+		if (bio_flagged(req->bio, BIO_INLINECRYPT)) {
+			info = dm_get_rq_mapinfo(req);
+			if (!info) {
+				pr_debug("%s info not available in request\n",
+							__func__);
+				return 0;
+			}
+			crypto_data = (struct ice_crypto_setting *)info->ptr;
+			if (!crypto_data) {
+				pr_err("%s crypto_data not available in req\n",
+							__func__);
+				return -EINVAL;
+			}
+			return qti_ice_setting_config(req, pdev,
+						crypto_data, setting);
 		}
+		return 0;
+	}
 
-		crypto_data = (struct ice_crypto_setting *)info->ptr;
-		if (!crypto_data) {
-			pr_err("%s crypto_data not available in request\n",
-				 __func__);
-			return -EINVAL;
+	if (req->part && req->part->info && req->part->info->volname[0]) {
+		if (!strcmp(req->part->info->volname, "userdata")) {
+			sec_end = req->part->start_sect + req->part->nr_sects -
+					QCOM_UD_FOOTER_SECS;
+			if ((req->__sector >= req->part->start_sect) &&
+				(req->__sector < sec_end)) {
+				/*
+				 * Ugly hack to address non-block-size aligned
+				 * userdata end address in eMMC based devices.
+				 */
+				data_size = req->__data_len /
+						QCOM_SECT_LEN_IN_BYTE;
+
+				if ((req->__sector + data_size) > sec_end)
+					return 0;
+				else
+					return qti_ice_setting_config(req, pdev,
+						&ice_data, setting);
+			}
 		}
-
-		return qti_ice_setting_config(req, pdev,
-				crypto_data, setting);
 	}
 
 	/*

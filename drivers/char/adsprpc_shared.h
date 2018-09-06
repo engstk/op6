@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,6 +19,8 @@
 #define FASTRPC_IOCTL_INVOKE	_IOWR('R', 1, struct fastrpc_ioctl_invoke)
 #define FASTRPC_IOCTL_MMAP	_IOWR('R', 2, struct fastrpc_ioctl_mmap)
 #define FASTRPC_IOCTL_MUNMAP	_IOWR('R', 3, struct fastrpc_ioctl_munmap)
+#define FASTRPC_IOCTL_MMAP_64	_IOWR('R', 14, struct fastrpc_ioctl_mmap_64)
+#define FASTRPC_IOCTL_MUNMAP_64	_IOWR('R', 15, struct fastrpc_ioctl_munmap_64)
 #define FASTRPC_IOCTL_INVOKE_FD	_IOWR('R', 4, struct fastrpc_ioctl_invoke_fd)
 #define FASTRPC_IOCTL_SETMODE	_IOWR('R', 5, uint32_t)
 #define FASTRPC_IOCTL_INIT	_IOWR('R', 6, struct fastrpc_ioctl_init)
@@ -47,6 +49,9 @@
 /* Fastrpc attribute for keeping the map persistent */
 #define FASTRPC_ATTR_KEEP_MAP	0x8
 
+/* Fastrpc attribute for no map */
+#define FASTRPC_ATTR_NOMAP   (16)
+
 /* Driver should operate in parallel with the co-processor */
 #define FASTRPC_MODE_PARALLEL    0
 
@@ -63,6 +68,7 @@
 #define FASTRPC_INIT_ATTACH      0
 #define FASTRPC_INIT_CREATE      1
 #define FASTRPC_INIT_CREATE_STATIC  2
+#define FASTRPC_INIT_ATTACH_SENSORS 3
 
 /* Retrives number of input buffers from the scalars parameter */
 #define REMOTE_SCALARS_INBUFS(sc)        (((sc) >> 16) & 0x0ff)
@@ -200,12 +206,25 @@ struct fastrpc_ioctl_munmap {
 	size_t size;		/* size */
 };
 
+struct fastrpc_ioctl_munmap_64 {
+	uint64_t vaddrout;	/* address to unmap */
+	size_t size;		/* size */
+};
+
 struct fastrpc_ioctl_mmap {
 	int fd;				/* ion fd */
 	uint32_t flags;			/* flags for dsp to map with */
 	uintptr_t vaddrin;		/* optional virtual address */
 	size_t size;			/* size */
 	uintptr_t vaddrout;		/* dsps virtual address */
+};
+
+struct fastrpc_ioctl_mmap_64 {
+	int fd;				/* ion fd */
+	uint32_t flags;			/* flags for dsp to map with */
+	uint64_t vaddrin;		/* optional virtual address */
+	size_t size;			/* size */
+	uint64_t vaddrout;		/* dsps virtual address */
 };
 
 struct fastrpc_ioctl_munmap_fd {
@@ -226,11 +245,15 @@ struct fastrpc_ctrl_latency {
 	uint32_t enable;	//!latency control enable
 	uint32_t level;		//!level of control
 };
-
+#define FASTRPC_CONTROL_SMMU   (2)
+struct fastrpc_ctrl_smmu {
+	uint32_t sharedcb;
+};
 struct fastrpc_ioctl_control {
 	uint32_t req;
 	union {
 		struct fastrpc_ctrl_latency lp;
+		struct fastrpc_ctrl_smmu smmu;
 	};
 };
 

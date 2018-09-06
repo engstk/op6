@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -82,7 +82,7 @@ static unsigned long compute_freq(struct cpu_pmu_stats *cpustats,
 {
 	ktime_t ts;
 	unsigned int diff;
-	unsigned long freq = 0;
+	uint64_t freq = 0;
 
 	ts = ktime_get();
 	diff = ktime_to_us(ktime_sub(ts, cpustats->prev_ts));
@@ -420,6 +420,7 @@ static struct platform_driver arm_memlat_mon_driver = {
 	.driver = {
 		.name = "arm-memlat-mon",
 		.of_match_table = memlat_match_table,
+		.suppress_bind_attrs = true,
 	},
 };
 

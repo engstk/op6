@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -120,6 +120,7 @@ enum {
  * @SDE_SSPP_TS_PREFILL      Supports prefill with traffic shaper
  * @SDE_SSPP_TS_PREFILL_REC1 Supports prefill with traffic shaper multirec
  * @SDE_SSPP_CDP             Supports client driven prefetch
+ * @SDE_SSPP_BLOCK_SEC_UI    Blocks secure-ui layers
  * @SDE_SSPP_MAX             maximum value
  */
 enum {
@@ -143,6 +144,7 @@ enum {
 	SDE_SSPP_TS_PREFILL,
 	SDE_SSPP_TS_PREFILL_REC1,
 	SDE_SSPP_CDP,
+	SDE_SSPP_BLOCK_SEC_UI,
 	SDE_SSPP_MAX
 };
 
@@ -259,6 +261,7 @@ enum {
  * @SDE_WB_QOS,             Writeback supports QoS control, danger/safe/creq
  * @SDE_WB_QOS_8LVL,        Writeback supports 8-level QoS control
  * @SDE_WB_CDP              Writeback supports client driven prefetch
+ * @SDE_WB_HAS_CWB          Writeback block supports concurrent writeback
  * @SDE_WB_MAX              maximum value
  */
 enum {
@@ -277,6 +280,7 @@ enum {
 	SDE_WB_QOS,
 	SDE_WB_QOS_8LVL,
 	SDE_WB_CDP,
+	SDE_WB_HAS_CWB,
 	SDE_WB_MAX
 };
 
@@ -649,6 +653,7 @@ struct sde_ds_cfg {
  */
 struct sde_pingpong_cfg  {
 	SDE_HW_BLK_INFO;
+	u32 te_source;
 	const struct sde_pingpong_sub_blks *sblk;
 };
 
@@ -909,12 +914,18 @@ struct sde_perf_cfg {
  * @max_mixer_blendstages max layer mixer blend stages or
  *                       supported z order
  * @max_wb_linewidth   max writeback line width support.
+ * @max_display_width   maximum display width support.
+ * @max_display_height  maximum display height support.
+ * @max_lm_per_display  maximum layer mixer per display
+ * @min_display_width   minimum display width support.
+ * @min_display_height  minimum display height support.
  * @qseed_type         qseed2 or qseed3 support.
  * @csc_type           csc or csc_10bit support.
  * @smart_dma_rev      Supported version of SmartDMA feature.
  * @has_src_split      source split feature status
  * @has_cdp            Client driven prefetch feature status
  * @has_wb_ubwc        UBWC feature supported on WB
+ * @has_cwb_support    indicates if device supports primary capture through CWB
  * @ubwc_version       UBWC feature version (0x0 for not supported)
  * @has_sbuf           indicate if stream buffer is available
  * @sbuf_headroom      stream buffer headroom in lines
@@ -927,6 +938,9 @@ struct sde_perf_cfg {
  * @wb_formats         Supported formats for wb
  * @vbif_qos_nlvl      number of vbif QoS priority level
  * @ts_prefill_rev     prefill traffic shaper feature revision
+ * @sui_misr_supported  indicate if secure-ui-misr is supported
+ * @sui_block_xin_mask  mask of all the xin-clients to be blocked during
+ *                         secure-ui when secure-ui-misr feature is supported
  */
 struct sde_mdss_cfg {
 	u32 hwversion;
@@ -935,6 +949,13 @@ struct sde_mdss_cfg {
 	u32 max_mixer_width;
 	u32 max_mixer_blendstages;
 	u32 max_wb_linewidth;
+
+	u32 max_display_width;
+	u32 max_display_height;
+	u32 min_display_width;
+	u32 min_display_height;
+	u32 max_lm_per_display;
+
 	u32 qseed_type;
 	u32 csc_type;
 	u32 smart_dma_rev;
@@ -942,6 +963,7 @@ struct sde_mdss_cfg {
 	bool has_cdp;
 	bool has_dim_layer;
 	bool has_wb_ubwc;
+	bool has_cwb_support;
 	u32 ubwc_version;
 	bool has_sbuf;
 	u32 sbuf_headroom;
@@ -949,6 +971,9 @@ struct sde_mdss_cfg {
 	bool has_idle_pc;
 	u32 vbif_qos_nlvl;
 	u32 ts_prefill_rev;
+
+	bool sui_misr_supported;
+	u32 sui_block_xin_mask;
 
 	bool has_hdr;
 	u32 mdss_count;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -104,6 +104,18 @@ static void sde_hw_setup_split_pipe(struct sde_hw_mdp *mdp,
 	SDE_REG_WRITE(c, SPLIT_DISPLAY_LOWER_PIPE_CTRL, lower_pipe);
 	SDE_REG_WRITE(c, SPLIT_DISPLAY_UPPER_PIPE_CTRL, upper_pipe);
 	SDE_REG_WRITE(c, SPLIT_DISPLAY_EN, cfg->en & 0x1);
+}
+
+static u32 sde_hw_get_split_flush(struct sde_hw_mdp *mdp)
+{
+	struct sde_hw_blk_reg_map *c;
+
+	if (!mdp)
+	return 0;
+
+	c = &mdp->hw;
+
+	return (SDE_REG_READ(c, SSPP_SPARE) & 0x1);
 }
 
 static void sde_hw_setup_pp_split(struct sde_hw_mdp *mdp,
@@ -364,6 +376,18 @@ static void sde_hw_intf_audio_select(struct sde_hw_mdp *mdp)
 	SDE_REG_WRITE(c, HDMI_DP_CORE_SELECT, 0x1);
 }
 
+static void sde_hw_program_cwb_ppb_ctrl(struct sde_hw_mdp *mdp,
+		bool dual, bool dspp_out)
+{
+	u32 value = dspp_out ? 0x4 : 0x0;
+
+	SDE_REG_WRITE(&mdp->hw, PPB2_CNTL, value);
+	if (dual) {
+		value |= 0x1;
+		SDE_REG_WRITE(&mdp->hw, PPB3_CNTL, value);
+	}
+}
+
 static void _setup_mdp_ops(struct sde_hw_mdp_ops *ops,
 		unsigned long cap)
 {
@@ -373,7 +397,9 @@ static void _setup_mdp_ops(struct sde_hw_mdp_ops *ops,
 	ops->setup_clk_force_ctrl = sde_hw_setup_clk_force_ctrl;
 	ops->get_danger_status = sde_hw_get_danger_status;
 	ops->setup_vsync_source = sde_hw_setup_vsync_source;
+	ops->set_cwb_ppb_cntl = sde_hw_program_cwb_ppb_ctrl;
 	ops->get_safe_status = sde_hw_get_safe_status;
+	ops->get_split_flush_status = sde_hw_get_split_flush;
 	ops->setup_dce = sde_hw_setup_dce;
 	ops->reset_ubwc = sde_hw_reset_ubwc;
 	ops->intf_audio_select = sde_hw_intf_audio_select;

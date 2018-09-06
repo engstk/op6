@@ -25,6 +25,7 @@ typedef void (bio_end_io_t) (struct bio *);
 struct bio {
 	struct bio		*bi_next;	/* request queue link */
 	struct block_device	*bi_bdev;
+	unsigned short		bi_write_hint;
 	int			bi_error;
 	unsigned int		bi_opf;		/* bottom bits req flags,
 						 * top bits REQ_OP. Use
@@ -65,6 +66,10 @@ struct bio {
 		struct bio_integrity_payload *bi_integrity; /* data integrity */
 #endif
 	};
+#ifdef CONFIG_PFK
+	/* Encryption key to use (NULL if none) */
+	const struct blk_encryption_key	*bi_crypt_key;
+#endif
 
 	unsigned short		bi_vcnt;	/* how many bio_vec's */
 

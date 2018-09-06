@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -144,6 +144,14 @@
 #define ADRENO_QUIRK_HFI_USE_REG BIT(6)
 /* Only set protected SECVID registers once */
 #define ADRENO_QUIRK_SECVID_SET_ONCE BIT(7)
+/*
+ * Limit number of read and write transactions from
+ * UCHE block to GBIF to avoid possible deadlock
+ * between GBIF, SMMU and MEMNOC.
+ */
+#define ADRENO_QUIRK_LIMIT_UCHE_GBIF_RW BIT(8)
+/* Select alternate secure context bank for mmu */
+#define ADRENO_QUIRK_MMU_SECURE_CB_ALT BIT(9)
 
 /* Flags to control command packet settings */
 #define KGSL_CMD_FLAGS_NONE             0
@@ -166,11 +174,11 @@
 /* Number of times to try hard reset */
 #define NUM_TIMES_RESET_RETRY 5
 
+/* Number of times to try loading of zap shader */
+#define ZAP_RETRY_MAX	5
+
 /* Number of times to poll the AHB fence in ISR */
 #define FENCE_RETRY_MAX 100
-
-/* Number of times to see if INT_0_STATUS changed or not */
-#define STATUS_RETRY_MAX 3
 
 /* One cannot wait forever for the core to idle, so set an upper limit to the
  * amount of time to wait for the core to go idle
@@ -198,6 +206,7 @@ enum adreno_gpurev {
 	ADRENO_REV_A418 = 418,
 	ADRENO_REV_A420 = 420,
 	ADRENO_REV_A430 = 430,
+	ADRENO_REV_A504 = 504,
 	ADRENO_REV_A505 = 505,
 	ADRENO_REV_A506 = 506,
 	ADRENO_REV_A508 = 508,
@@ -206,6 +215,7 @@ enum adreno_gpurev {
 	ADRENO_REV_A530 = 530,
 	ADRENO_REV_A540 = 540,
 	ADRENO_REV_A615 = 615,
+	ADRENO_REV_A616 = 616,
 	ADRENO_REV_A630 = 630,
 };
 
@@ -462,6 +472,7 @@ enum gpu_coresight_sources {
  * @gpuhtw_llc_slice: GPU pagetables system cache slice descriptor
  * @gpuhtw_llc_slice_enable: To enable the GPUHTW system cache slice or not
  * @zap_loaded: Used to track if zap was successfully loaded or not
+ * @soc_hw_rev: Indicate which SOC hardware revision to use
  */
 struct adreno_device {
 	struct kgsl_device dev;    /* Must be first field in this struct */
@@ -534,6 +545,7 @@ struct adreno_device {
 	void *gpuhtw_llc_slice;
 	bool gpuhtw_llc_slice_enable;
 	unsigned int zap_loaded;
+	unsigned int soc_hw_rev;
 };
 
 /**
@@ -713,6 +725,7 @@ enum adreno_regs {
 	ADRENO_REG_GMU_HOST2GMU_INTR_RAW_INFO,
 	ADRENO_REG_GMU_NMI_CONTROL_STATUS,
 	ADRENO_REG_GMU_CM3_CFG,
+	ADRENO_REG_GMU_RBBM_INT_UNMASKED_STATUS,
 	ADRENO_REG_GPMU_POWER_COUNTER_ENABLE,
 	ADRENO_REG_REGISTER_MAX,
 };
@@ -1121,6 +1134,7 @@ int adreno_efuse_map(struct adreno_device *adreno_dev);
 int adreno_efuse_read_u32(struct adreno_device *adreno_dev, unsigned int offset,
 		unsigned int *val);
 void adreno_efuse_unmap(struct adreno_device *adreno_dev);
+void adreno_efuse_speed_bin_array(struct adreno_device *adreno_dev);
 
 bool adreno_is_cx_dbgc_register(struct kgsl_device *device,
 		unsigned int offset);
@@ -1193,6 +1207,7 @@ static inline int adreno_is_a5xx(struct adreno_device *adreno_dev)
 			ADRENO_GPUREV(adreno_dev) < 600;
 }
 
+ADRENO_TARGET(a504, ADRENO_REV_A504)
 ADRENO_TARGET(a505, ADRENO_REV_A505)
 ADRENO_TARGET(a506, ADRENO_REV_A506)
 ADRENO_TARGET(a508, ADRENO_REV_A508)
@@ -1219,9 +1234,9 @@ static inline int adreno_is_a530v3(struct adreno_device *adreno_dev)
 		(ADRENO_CHIPID_PATCH(adreno_dev->chipid) == 2);
 }
 
-static inline int adreno_is_a505_or_a506(struct adreno_device *adreno_dev)
+static inline int adreno_is_a504_to_a506(struct adreno_device *adreno_dev)
 {
-	return ADRENO_GPUREV(adreno_dev) >= 505 &&
+	return ADRENO_GPUREV(adreno_dev) >= 504 &&
 			ADRENO_GPUREV(adreno_dev) <= 506;
 }
 
@@ -1244,6 +1259,7 @@ static inline int adreno_is_a6xx(struct adreno_device *adreno_dev)
 }
 
 ADRENO_TARGET(a615, ADRENO_REV_A615)
+ADRENO_TARGET(a616, ADRENO_REV_A616)
 ADRENO_TARGET(a630, ADRENO_REV_A630)
 
 static inline int adreno_is_a630v1(struct adreno_device *adreno_dev)
@@ -1792,7 +1808,7 @@ static inline bool is_power_counter_overflow(struct adreno_device *adreno_dev,
 		return ret;
 	}
 	adreno_readreg(adreno_dev, ADRENO_REG_RBBM_PERFCTR_RBBM_0_HI, &val);
-	if (val != *perfctr_pwr_hi) {
+	if (val > *perfctr_pwr_hi) {
 		*perfctr_pwr_hi = val;
 		ret = true;
 	}
@@ -1807,14 +1823,17 @@ static inline unsigned int counter_delta(struct kgsl_device *device,
 	unsigned int ret = 0;
 	bool overflow = true;
 	static unsigned int perfctr_pwr_hi;
+	unsigned int prev_perfctr_pwr_hi = 0;
 
 	/* Read the value */
 	kgsl_regread(device, reg, &val);
 
 	if (adreno_is_a5xx(adreno_dev) && reg == adreno_getreg
-		(adreno_dev, ADRENO_REG_RBBM_PERFCTR_RBBM_0_LO))
+		(adreno_dev, ADRENO_REG_RBBM_PERFCTR_RBBM_0_LO)) {
+		prev_perfctr_pwr_hi = perfctr_pwr_hi;
 		overflow = is_power_counter_overflow(adreno_dev, reg,
 				*counter, &perfctr_pwr_hi);
+	}
 
 	/* Return 0 for the first read */
 	if (*counter != 0) {
@@ -1827,9 +1846,12 @@ static inline unsigned int counter_delta(struct kgsl_device *device,
 			 * Since KGSL got abnormal value from the counter,
 			 * We will drop the value from being accumulated.
 			 */
-			pr_warn_once("KGSL: Abnormal value :0x%x (0x%x) from perf counter : 0x%x\n",
-					val, *counter, reg);
-			return 0;
+			KGSL_DRV_ERR_RATELIMIT(device,
+				"Abnormal value:0x%llx (0x%llx) from perf counter : 0x%x\n",
+				val | ((uint64_t)perfctr_pwr_hi << 32),
+				*counter |
+					((uint64_t)prev_perfctr_pwr_hi << 32),
+				reg);
 		}
 	}
 
@@ -1851,8 +1873,11 @@ static inline int adreno_perfcntr_active_oob_get(
 		ret = gpudev->oob_set(adreno_dev, OOB_PERFCNTR_SET_MASK,
 				OOB_PERFCNTR_CHECK_MASK,
 				OOB_PERFCNTR_CLEAR_MASK);
-		if (ret)
+		if (ret) {
+			adreno_set_gpu_fault(adreno_dev, ADRENO_GMU_FAULT);
+			adreno_dispatcher_schedule(KGSL_DEVICE(adreno_dev));
 			kgsl_active_count_put(KGSL_DEVICE(adreno_dev));
+		}
 	}
 
 	return ret;
@@ -1871,7 +1896,7 @@ static inline void adreno_perfcntr_active_oob_put(
 
 static inline bool adreno_has_gbif(struct adreno_device *adreno_dev)
 {
-	if (adreno_is_a615(adreno_dev))
+	if (adreno_is_a615(adreno_dev) || adreno_is_a616(adreno_dev))
 		return true;
 	else
 		return false;

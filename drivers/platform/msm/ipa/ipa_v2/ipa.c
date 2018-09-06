@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -278,6 +278,28 @@ int ipa2_active_clients_log_print_table(char *buf, int size)
 	return cnt;
 }
 
+
+static int ipa2_clean_modem_rule(void)
+{
+	struct ipa_install_fltr_rule_req_msg_v01 *req;
+	int val = 0;
+
+	req = kzalloc(
+		sizeof(struct ipa_install_fltr_rule_req_msg_v01),
+		GFP_KERNEL);
+	if (!req) {
+		IPAERR("mem allocated failed!\n");
+		return -ENOMEM;
+	}
+	req->filter_spec_list_valid = false;
+	req->filter_spec_list_len = 0;
+	req->source_pipe_index_valid = 0;
+	val = qmi_filter_request_send(req);
+	kfree(req);
+
+	return val;
+}
+
 static int ipa2_active_clients_panic_notifier(struct notifier_block *this,
 		unsigned long event, void *ptr)
 {
@@ -532,7 +554,8 @@ static void ipa_wan_msg_free_cb(void *buff, u32 len, u32 type)
 	kfree(buff);
 }
 
-static int ipa_send_wan_msg(unsigned long usr_param, uint8_t msg_type, bool is_cache)
+static int ipa_send_wan_msg(unsigned long usr_param, uint8_t msg_type,
+	bool is_cache)
 {
 	int retval;
 	struct ipa_wan_msg *wan_msg;
@@ -715,7 +738,8 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
-		if (ipa2_add_hdr((struct ipa_ioc_add_hdr *)param)) {
+		if (ipa2_add_hdr_usr((struct ipa_ioc_add_hdr *)param,
+			true)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -795,7 +819,8 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
-		if (ipa2_add_rt_rule((struct ipa_ioc_add_rt_rule *)param)) {
+		if (ipa2_add_rt_rule_usr((struct ipa_ioc_add_rt_rule *)param,
+				true)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -914,7 +939,8 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
-		if (ipa2_add_flt_rule((struct ipa_ioc_add_flt_rule *)param)) {
+		if (ipa2_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param,
+				true)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -1008,19 +1034,19 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		retval = ipa2_commit_hdr();
 		break;
 	case IPA_IOC_RESET_HDR:
-		retval = ipa2_reset_hdr();
+		retval = ipa2_reset_hdr(false);
 		break;
 	case IPA_IOC_COMMIT_RT:
 		retval = ipa2_commit_rt(arg);
 		break;
 	case IPA_IOC_RESET_RT:
-		retval = ipa2_reset_rt(arg);
+		retval = ipa2_reset_rt(arg, false);
 		break;
 	case IPA_IOC_COMMIT_FLT:
 		retval = ipa2_commit_flt(arg);
 		break;
 	case IPA_IOC_RESET_FLT:
-		retval = ipa2_reset_flt(arg);
+		retval = ipa2_reset_flt(arg, false);
 		break;
 	case IPA_IOC_GET_RT_TBL:
 		if (copy_from_user(header, (u8 *)arg,
@@ -1400,7 +1426,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			break;
 		}
 		if (ipa2_add_hdr_proc_ctx(
-			(struct ipa_ioc_add_hdr_proc_ctx *)param)) {
+			(struct ipa_ioc_add_hdr_proc_ctx *)param, true)) {
 			retval = -EFAULT;
 			break;
 		}
@@ -1462,6 +1488,21 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 			break;
 		}
+		break;
+
+	case IPA_IOC_CLEANUP:
+		/*Route and filter rules will also be clean*/
+		IPADBG("Got IPA_IOC_CLEANUP\n");
+		retval = ipa2_reset_hdr(true);
+		memset(&nat_del, 0, sizeof(nat_del));
+		nat_del.table_index = 0;
+		retval = ipa2_nat_del_cmd(&nat_del);
+		retval = ipa2_clean_modem_rule();
+		break;
+
+	case IPA_IOC_QUERY_WLAN_CLIENT:
+		IPADBG("Got IPA_IOC_QUERY_WLAN_CLIENT\n");
+		retval = ipa2_resend_wlan_msg();
 		break;
 
 	default:
@@ -3591,8 +3632,8 @@ int ipa2_set_required_perf_profile(enum ipa_voltage_level floor_voltage,
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	} else {
 		IPADBG_LOW("clocks are gated, not setting rate\n");
+		ipa_active_clients_unlock();
 	}
-	ipa_active_clients_unlock();
 	IPADBG_LOW("Done\n");
 	return 0;
 }
@@ -3925,7 +3966,6 @@ static int ipa_init(const struct ipa_plat_drv_res *resource_p,
 	ipa_ctx->skip_uc_pipe_reset = resource_p->skip_uc_pipe_reset;
 	ipa_ctx->use_dma_zone = resource_p->use_dma_zone;
 	ipa_ctx->tethered_flow_control = resource_p->tethered_flow_control;
-	ipa_ctx->use_ipa_pm = resource_p->use_ipa_pm;
 
 	/* Setting up IPA RX Polling Timeout Seconds */
 	ipa_rx_timeout_min_max_calc(&ipa_ctx->ipa_rx_min_timeout_usec,
@@ -4207,6 +4247,10 @@ static int ipa_init(const struct ipa_plat_drv_res *resource_p,
 	init_waitqueue_head(&ipa_ctx->msg_waitq);
 	mutex_init(&ipa_ctx->msg_lock);
 
+	/* store wlan client-connect-msg-list */
+	INIT_LIST_HEAD(&ipa_ctx->msg_wlan_client_list);
+	mutex_init(&ipa_ctx->msg_wlan_client_lock);
+
 	mutex_init(&ipa_ctx->lock);
 	mutex_init(&ipa_ctx->nat_mem.lock);
 	mutex_init(&ipa_ctx->ipa_cne_evt_lock);
@@ -4359,7 +4403,7 @@ static int ipa_init(const struct ipa_plat_drv_res *resource_p,
 	else
 		IPADBG(":ipa Uc interface init ok\n");
 
-	result = ipa_wdi_init();
+	result = ipa2_wdi_init();
 	if (result)
 		IPAERR(":wdi init failed (%d)\n", -result);
 	else
@@ -4451,20 +4495,12 @@ fail_mem_ctx:
 	return result;
 }
 
-bool ipa_pm_is_used(void)
-{
-	return (ipa_ctx) ? ipa_ctx->use_ipa_pm : false;
-}
-
 static int get_ipa_dts_configuration(struct platform_device *pdev,
 		struct ipa_plat_drv_res *ipa_drv_res)
 {
 	int result;
 	struct resource *resource;
 
-	ipa_drv_res->use_ipa_pm = of_property_read_bool(pdev->dev.of_node,
-		"qcom,use-ipa-pm");
-	IPADBG("use_ipa_pm=%d\n", ipa_drv_res->use_ipa_pm);
 	/* initialize ipa_res */
 	ipa_drv_res->ipa_pipe_mem_start_ofst = IPA_PIPE_MEM_START_OFST;
 	ipa_drv_res->ipa_pipe_mem_size = IPA_PIPE_MEM_SIZE;

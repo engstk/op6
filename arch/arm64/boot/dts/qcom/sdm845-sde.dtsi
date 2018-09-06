@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -233,6 +233,7 @@
 			qcom,sde-dspp-pcc = <0x1700 0x00040000>;
 			qcom,sde-dspp-gc = <0x17c0 0x00010008>;
 			qcom,sde-dspp-hist = <0x800 0x00010007>;
+			qcom,sde-dspp-dither = <0x82c 0x00010007>;
 		};
 
 		qcom,platform-supply-entries {
@@ -257,33 +258,13 @@
 
 		/* data and reg bus scale settings */
 		qcom,sde-data-bus {
-			qcom,msm-bus,name = "mdss_sde_mnoc";
+			qcom,msm-bus,name = "mdss_sde";
 			qcom,msm-bus,num-cases = <3>;
 			qcom,msm-bus,num-paths = <2>;
 			qcom,msm-bus,vectors-KBps =
-			    <22 773 0 0>, <23 773 0 0>,
-			    <22 773 0 6400000>, <23 773 0 6400000>,
-			    <22 773 0 6400000>, <23 773 0 6400000>;
-		};
-
-		qcom,sde-llcc-bus {
-			qcom,msm-bus,name = "mdss_sde_llcc";
-			qcom,msm-bus,num-cases = <3>;
-			qcom,msm-bus,num-paths = <1>;
-			qcom,msm-bus,vectors-KBps =
-			    <132 770 0 0>,
-			    <132 770 0 6400000>,
-			    <132 770 0 6400000>;
-		};
-
-		qcom,sde-ebi-bus {
-			qcom,msm-bus,name = "mdss_sde_ebi";
-			qcom,msm-bus,num-cases = <3>;
-			qcom,msm-bus,num-paths = <1>;
-			qcom,msm-bus,vectors-KBps =
-			    <129 512 0 0>,
-			    <129 512 0 6400000>,
-			    <129 512 0 6400000>;
+				<22 512 0 0>, <23 512 0 0>,
+				<22 512 0 6400000>, <23 512 0 6400000>,
+				<22 512 0 6400000>, <23 512 0 6400000>;
 		};
 
 		qcom,sde-reg-bus {

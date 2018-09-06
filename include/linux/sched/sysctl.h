@@ -21,7 +21,6 @@ extern unsigned int sysctl_sched_wakeup_granularity;
 extern unsigned int sysctl_sched_child_runs_first;
 extern unsigned int sysctl_sched_is_big_little;
 extern unsigned int sysctl_sched_sync_hint_enable;
-extern unsigned int sysctl_sched_initial_task_util;
 extern unsigned int sysctl_sched_cstate_aware;
 extern unsigned int sysctl_sched_capacity_margin;
 extern unsigned int sysctl_sched_capacity_margin_down;
@@ -42,6 +41,11 @@ walt_proc_update_handler(struct ctl_table *table, int write,
 			 loff_t *ppos);
 
 #endif /* CONFIG_SCHED_WALT */
+
+#if defined(CONFIG_PREEMPT_TRACER) || defined(CONFIG_IRQSOFF_TRACER)
+extern unsigned int sysctl_preemptoff_tracing_threshold_ns;
+extern unsigned int sysctl_irqsoff_tracing_threshold_ns;
+#endif
 
 enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_NONE,

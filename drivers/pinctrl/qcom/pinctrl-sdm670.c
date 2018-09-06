@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1586,9 +1586,9 @@ static const struct msm_pingroup sdm670_groups[] = {
 	[154] = SDC_QDSD_PINGROUP(sdc2_clk, 0x9a000, 14, 6),
 	[155] = SDC_QDSD_PINGROUP(sdc2_cmd, 0x9a000, 11, 3),
 	[156] = SDC_QDSD_PINGROUP(sdc2_data, 0x9a000, 9, 0),
-	[157] = UFS_RESET(ufs_reset, 0x9f000),
+	[157] = UFS_RESET(ufs_reset, 0x99d000),
 };
-static const struct msm_dir_conn sdm670_dir_conn[] = {
+static struct msm_dir_conn sdm670_dir_conn[] = {
 	{1, 510},
 	{3, 511},
 	{5, 512},
@@ -1636,6 +1636,9 @@ static const struct msm_dir_conn sdm670_dir_conn[] = {
 	{97, 563},
 	{101, 564},
 	{103, 565},
+	{108, 567},
+	{112, 568},
+	{113, 569},
 	{115, 570},
 	{116, 571},
 	{117, 572},
@@ -1647,6 +1650,7 @@ static const struct msm_dir_conn sdm670_dir_conn[] = {
 	{123, 613},
 	{124, 614},
 	{125, 615},
+	{126, 616},
 	{127, 617},
 	{128, 618},
 	{129, 619},

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -411,6 +411,27 @@ static struct clk_freq_tbl ftbl_gfx3d_clk_src_sdm450[] = {
 	F_END
 };
 
+static struct clk_freq_tbl ftbl_gfx3d_clk_src_sdm632[] = {
+	F_MM(  19200000, FIXED_CLK_SRC,                  xo,    1,    0,     0),
+	F_MM(  50000000, FIXED_CLK_SRC,  gpll0_main_div2_mm,    8,    0,     0),
+	F_MM(  80000000, FIXED_CLK_SRC,  gpll0_main_div2_mm,    5,    0,     0),
+	F_MM( 100000000, FIXED_CLK_SRC,  gpll0_main_div2_mm,    4,    0,     0),
+	F_MM( 133330000, FIXED_CLK_SRC,  gpll0_main_div2_mm,    3,    0,     0),
+	F_MM( 160000000, FIXED_CLK_SRC,  gpll0_main_div2_mm,  2.5,    0,     0),
+	F_MM( 200000000, FIXED_CLK_SRC,  gpll0_main_div2_mm,    2,    0,     0),
+	F_MM( 216000000, FIXED_CLK_SRC, gpll6_main_div2_gfx,  2.5,    0,     0),
+	F_MM( 266670000, FIXED_CLK_SRC,               gpll0,    3,    0,     0),
+	F_MM( 320000000, FIXED_CLK_SRC,               gpll0,  2.5,    0,     0),
+	F_MM( 400000000, FIXED_CLK_SRC,               gpll0,    2,    0,     0),
+	F_MM( 460800000, FIXED_CLK_SRC,       gpll4_out_aux,  2.5,    0,     0),
+	F_MM( 510000000,    1020000000,               gpll3,    1,    0,     0),
+	F_MM( 560000000,    1120000000,               gpll3,    1,    0,     0),
+	F_MM( 650000000,    1300000000,               gpll3,    1,    0,     0),
+	F_MM( 700000000,    1400000000,               gpll3,    1,    0,     0),
+	F_MM( 725000000,    1450000000,               gpll3,    1,    0,     0),
+
+	F_END
+};
 static struct rcg_clk gfx3d_clk_src = {
 	.cmd_rcgr_reg = GFX3D_CMD_RCGR,
 	.set_rate = set_rate_hid,
@@ -2786,6 +2807,7 @@ static struct branch_clk gcc_oxili_timer_clk = {
 	.base = &virt_bases[GFX_BASE],
 	.c = {
 		.dbg_name = "gcc_oxili_timer_clk",
+		.parent = &xo_clk_src.c,
 		.ops = &clk_ops_branch,
 		CLK_INIT(gcc_oxili_timer_clk.c),
 	},
@@ -3796,13 +3818,6 @@ static int msm_gcc_probe(struct platform_device *pdev)
 	clk_set_rate(&apss_ahb_clk_src.c, 19200000);
 	clk_prepare_enable(&apss_ahb_clk_src.c);
 
-	clk_prepare_enable(&gcc_blsp1_ahb_clk.c);
-	clk_prepare_enable(&gcc_usb30_master_clk.c);
-	clk_prepare_enable(&gcc_usb30_mock_utmi_clk.c);
-	clk_prepare_enable(&gcc_blsp1_uart1_apps_clk.c);
-	clk_prepare_enable(&gcc_apss_ahb_clk.c);
-	clk_prepare_enable(&gcc_crypto_ahb_clk.c);
-	clk_prepare_enable(&gcc_crypto_axi_clk.c);
 	/*
 	 * Hold an active set vote for PCNOC AHB source. Sleep set
 	 * vote is 0.
@@ -3821,6 +3836,7 @@ static int msm_gcc_probe(struct platform_device *pdev)
 
 static const struct of_device_id msm_clock_gcc_match_table[] = {
 	{ .compatible = "qcom,gcc-8953" },
+	{ .compatible = "qcom,gcc-sdm632" },
 	{},
 };
 
@@ -3870,6 +3886,7 @@ static int msm_clock_debug_probe(struct platform_device *pdev)
 
 static const struct of_device_id msm_clock_debug_match_table[] = {
 	{ .compatible = "qcom,cc-debug-8953" },
+	{ .compatible = "qcom,cc-debug-sdm632" },
 	{}
 };
 
@@ -3982,6 +3999,7 @@ pclk1_fail:
 
 static const struct of_device_id msm_clock_mdss_match_table[] = {
 	{ .compatible = "qcom,gcc-mdss-8953" },
+	{ .compatible = "qcom,gcc-mdss-sdm632" },
 	{}
 };
 
@@ -4071,7 +4089,16 @@ static int msm_gcc_gfx_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret;
 	u32 regval;
+	struct clk *xo_clk;
 	bool compat_bin = false;
+
+	/* Require the GCC-RPM-XO clock to be registered first */
+	xo_clk = devm_clk_get(&pdev->dev, "xo");
+	if (IS_ERR(xo_clk)) {
+		if (PTR_ERR(xo_clk) != -EPROBE_DEFER)
+			dev_err(&pdev->dev, "Unable to get xo clock\n");
+		return PTR_ERR(xo_clk);
+	}
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "cc_base");
 	if (!res) {
@@ -4098,6 +4125,11 @@ static int msm_gcc_gfx_probe(struct platform_device *pdev)
 	if (compat_bin)
 		gfx3d_clk_src.freq_tbl = ftbl_gfx3d_clk_src_sdm450;
 
+	compat_bin = of_device_is_compatible(pdev->dev.of_node,
+							"qcom,gcc-gfx-sdm632");
+	if (compat_bin)
+		gfx3d_clk_src.freq_tbl = ftbl_gfx3d_clk_src_sdm632;
+
 	ret = of_get_fmax_vdd_class(pdev, &gcc_oxili_gfx3d_clk.c,
 					"qcom,gfxfreq-corner");
 	if (ret) {
@@ -4121,6 +4153,7 @@ static int msm_gcc_gfx_probe(struct platform_device *pdev)
 static const struct of_device_id msm_clock_gfx_match_table[] = {
 	{ .compatible = "qcom,gcc-gfx-8953" },
 	{ .compatible = "qcom,gcc-gfx-sdm450" },
+	{ .compatible = "qcom,gcc-gfx-sdm632" },
 	{}
 };
 

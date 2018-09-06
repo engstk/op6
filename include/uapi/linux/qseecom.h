@@ -277,6 +277,10 @@ struct qseecom_ce_info_req {
 	struct qseecom_ce_pipe_entry ce_pipe_entry[MAX_CE_PIPE_PAIR_PER_UNIT];
 };
 
+struct qseecom_ice_data_t {
+	int flag;
+};
+
 #define SG_ENTRY_SZ		sizeof(struct qseecom_sg_entry)
 #define SG_ENTRY_SZ_64BIT	sizeof(struct qseecom_sg_entry_64bit)
 
@@ -385,5 +389,7 @@ struct file;
 #define QSEECOM_IOCTL_QUERY_CE_PIPE_INFO \
 	_IOWR(QSEECOM_IOC_MAGIC, 42, struct qseecom_ce_info_req)
 
+#define QSEECOM_IOCTL_SET_ICE_INFO \
+	_IOWR(QSEECOM_IOC_MAGIC, 43, struct qseecom_ice_data_t)
 
 #endif /* _UAPI_QSEECOM_H_ */

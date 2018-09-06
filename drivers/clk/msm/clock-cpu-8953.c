@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -466,18 +466,27 @@ static struct cpu_clk_8953 *cpuclk[] = { &a53_pwr_clk, &a53_perf_clk,
 
 static struct clk *logical_cpu_to_clk(int cpu)
 {
-	struct device_node *cpu_node = of_get_cpu_node(cpu, NULL);
-	u32 reg;
+	struct device_node *cpu_node;
+	const u32 *cell;
+	u64 hwid;
 
-	if (cpu_node && !of_property_read_u32(cpu_node, "reg", &reg)) {
-		if ((reg | a53_pwr_clk.cpu_reg_mask) ==
-						a53_pwr_clk.cpu_reg_mask)
-			return &a53_pwr_clk.c;
-		if ((reg | a53_perf_clk.cpu_reg_mask) ==
-						a53_perf_clk.cpu_reg_mask)
-			return &a53_perf_clk.c;
+	cpu_node = of_get_cpu_node(cpu, NULL);
+	if (!cpu_node)
+		goto fail;
+
+	cell = of_get_property(cpu_node, "reg", NULL);
+	if (!cell) {
+		pr_err("%s: missing reg property\n", cpu_node->full_name);
+		goto fail;
 	}
 
+	hwid = of_read_number(cell, of_n_addr_cells(cpu_node));
+	if ((hwid | a53_pwr_clk.cpu_reg_mask) == a53_pwr_clk.cpu_reg_mask)
+		return &a53_pwr_clk.c;
+	if ((hwid | a53_perf_clk.cpu_reg_mask) == a53_perf_clk.cpu_reg_mask)
+		return &a53_perf_clk.c;
+
+fail:
 	return NULL;
 }
 
@@ -489,6 +498,11 @@ static int add_opp(struct clk *c, struct device *dev, unsigned long max_rate)
 	long ret;
 	bool first = true;
 	int j = 1;
+
+	if (!dev) {
+		pr_warn("clock-cpu: NULL CPU device\n");
+		return -ENODEV;
+	}
 
 	while (1) {
 		rate = c->fmax[j++];
@@ -782,11 +796,13 @@ static struct notifier_block clock_panic_notifier = {
 	.priority = 1,
 };
 
+static unsigned long pwrcl_boot_rate = 883200000;
+
 static int clock_cpu_probe(struct platform_device *pdev)
 {
 	int speed_bin, version, rc, cpu, mux_id;
 	char prop_name[] = "qcom,speedX-bin-vX-XXX";
-	unsigned long ccirate, pwrcl_boot_rate = 883200000;
+	unsigned long ccirate;
 
 	get_speed_bin(pdev, &speed_bin, &version);
 
@@ -938,7 +954,7 @@ arch_initcall(clock_cpu_init);
 #define SRC_DIV				0x1
 
 /* Configure PLL at Low frequency */
-unsigned long pwrcl_early_boot_rate = 652800000;
+static unsigned long pwrcl_early_boot_rate = 652800000;
 
 static int __init cpu_clock_pwr_init(void)
 {
@@ -954,9 +970,20 @@ static int __init cpu_clock_pwr_init(void)
 	clk_ops_variable_rate = clk_ops_variable_rate_pll_hwfsm;
 	clk_ops_variable_rate.list_registers = variable_pll_list_registers;
 
-	__variable_rate_pll_init(&apcs_hf_pll.c);
-	apcs_hf_pll.c.ops->set_rate(&apcs_hf_pll.c, pwrcl_early_boot_rate);
-	clk_ops_variable_rate_pll.enable(&apcs_hf_pll.c);
+	/* Read back the L-val of PLL */
+	regval = readl_relaxed(virt_bases[APCS_C0_PLL_BASE] + APCS_PLL_L_VAL);
+	if (regval) {
+		pr_debug("PLL preconfigured for frequency %ld\n",
+					(19200000UL * regval));
+		pwrcl_boot_rate = (apcs_hf_pll.src_rate * regval);
+		apcs_hf_pll.c.ops->set_rate(&apcs_hf_pll.c, pwrcl_boot_rate);
+		clk_ops_variable_rate_pll_hwfsm.enable(&apcs_hf_pll.c);
+	} else {
+		__variable_rate_pll_init(&apcs_hf_pll.c);
+		apcs_hf_pll.c.ops->set_rate(&apcs_hf_pll.c,
+							pwrcl_early_boot_rate);
+		clk_ops_variable_rate_pll.enable(&apcs_hf_pll.c);
+	}
 
 	base = ioremap_nocache(APCS_ALIAS1_CMD_RCGR, SZ_8);
 	regval = readl_relaxed(base);

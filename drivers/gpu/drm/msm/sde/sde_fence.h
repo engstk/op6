@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,6 +45,18 @@ struct sde_fence_context {
 	u64 context;
 	struct list_head fence_list_head;
 	char name[SDE_FENCE_NAME_SIZE];
+};
+
+/**
+ * enum sde_fence_event - sde fence event as hint fence operation
+ * @SDE_FENCE_SIGNAL: Signal the fence cleanly with current timeline
+ * @SDE_FENCE_RESET_TIMELINE: Reset timeline of the fence context
+ * @SDE_FENCE_SIGNAL: Signal the fence but indicate error throughfence status
+ */
+enum sde_fence_event {
+	SDE_FENCE_SIGNAL,
+	SDE_FENCE_RESET_TIMELINE,
+	SDE_FENCE_SIGNAL_ERROR
 };
 
 #if IS_ENABLED(CONFIG_SYNC_FILE)
@@ -128,10 +140,10 @@ int sde_fence_create(struct sde_fence_context *fence, uint64_t *val,
  * sde_fence_signal - advance fence timeline to signal outstanding fences
  * @fence: Pointer fence container
  * @ts: fence timestamp
- * @reset_timeline: reset the fence timeline to done count equal to commit count
+ * @fence_event: fence event to indicate nature of fence signal.
  */
 void sde_fence_signal(struct sde_fence_context *fence, ktime_t ts,
-		bool reset_timeline);
+		enum sde_fence_event fence_event);
 
 /**
  * sde_fence_timeline_status - prints fence timeline status
@@ -140,6 +152,22 @@ void sde_fence_signal(struct sde_fence_context *fence, ktime_t ts,
  */
 void sde_fence_timeline_status(struct sde_fence_context *ctx,
 					struct drm_mode_object *drm_obj);
+
+/**
+ * sde_fence_timeline_dump - utility to dump fence list info in debugfs node
+ * @fence: Pointer fence container
+ * @drm_obj: Pointer to drm object associated with fence timeline
+ * @s: used to writing on debugfs node
+ */
+void sde_debugfs_timeline_dump(struct sde_fence_context *ctx,
+		struct drm_mode_object *drm_obj, struct seq_file **s);
+
+/**
+ * sde_fence_timeline_status - dumps fence timeline in debugfs node
+ * @fence: Pointer fence container
+ * @s: used to writing on debugfs node
+ */
+void sde_fence_list_dump(struct fence *fence, struct seq_file **s);
 
 #else
 static inline void *sde_sync_get(uint64_t fd)
@@ -200,6 +228,18 @@ static inline void sde_fence_timeline_status(struct sde_fence_context *ctx,
 {
 	/* do nothing */
 }
+
+void sde_debugfs_timeline_dump(struct sde_fence_context *ctx,
+		struct drm_mode_object *drm_obj, struct seq_file **s)
+{
+	/* do nothing */
+}
+
+void sde_fence_list_dump(struct fence *fence, struct seq_file **s)
+{
+	/* do nothing */
+}
+
 #endif /* IS_ENABLED(CONFIG_SW_SYNC) */
 
 #endif /* _SDE_FENCE_H_ */

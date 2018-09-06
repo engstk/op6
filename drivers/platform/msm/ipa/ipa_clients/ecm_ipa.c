@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -619,8 +619,10 @@ static netdev_tx_t ecm_ipa_start_xmit
 	}
 
 	if (ecm_ipa_ctx->is_vlan_mode)
-		if (unlikely(skb->protocol != ETH_P_8021Q))
-			ECM_IPA_DEBUG("ether_type != ETH_P_8021Q && vlan\n");
+		if (unlikely(skb->protocol != htons(ETH_P_8021Q)))
+			ECM_IPA_DEBUG(
+				"ether_type != ETH_P_8021Q && vlan, prot = 0x%X\n"
+				, skb->protocol);
 
 	ret = ipa_tx_dp(ecm_ipa_ctx->ipa_to_usb_client, skb, NULL);
 	if (ret) {
@@ -1443,6 +1445,10 @@ static int ecm_ipa_ep_registers_cfg(u32 usb_to_ipa_hdl, u32 ipa_to_usb_hdl,
 	usb_to_ipa_ep_cfg.route.rt_tbl_hdl = 0;
 	usb_to_ipa_ep_cfg.mode.dst = IPA_CLIENT_A5_LAN_WAN_CONS;
 	usb_to_ipa_ep_cfg.mode.mode = IPA_BASIC;
+
+	/* enable hdr_metadata_reg_valid */
+	usb_to_ipa_ep_cfg.hdr.hdr_metadata_reg_valid = true;
+
 	result = ipa_cfg_ep(usb_to_ipa_hdl, &usb_to_ipa_ep_cfg);
 	if (result) {
 		ECM_IPA_ERROR("failed to configure USB to IPA point\n");

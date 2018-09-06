@@ -151,7 +151,7 @@ static DECLARE_WAIT_QUEUE_HEAD(binder_user_error_wait);
 static int binder_stop_on_user_error;
 
 static int binder_set_stop_on_user_error(const char *val,
-					 struct kernel_param *kp)
+					 const struct kernel_param *kp)
 {
 	int ret;
 
@@ -512,8 +512,6 @@ struct binder_priority {
  *                        (protected by @inner_lock)
  * @todo:                 list of work for this process
  *                        (protected by @inner_lock)
- * @wait:                 wait queue head to wait for proc work
- *                        (invariant after initialized)
  * @stats:                per-process binder statistics
  *                        (atomics, no lock needed)
  * @delivered_death:      list of delivered death notification
@@ -554,7 +552,6 @@ struct binder_proc {
 	bool is_dead;
 
 	struct list_head todo;
-	wait_queue_head_t wait;
 	struct binder_stats stats;
 	struct list_head delivered_death;
 	int max_threads;
@@ -2150,8 +2147,14 @@ static void binder_send_failed_reply(struct binder_transaction *t,
 					&target_thread->reply_error.work);
 				wake_up_interruptible(&target_thread->wait);
 			} else {
-				WARN(1, "Unexpected reply error: %u\n",
-						target_thread->reply_error.cmd);
+				/*
+				 * Cannot get here for normal operation, but
+				 * we can if multiple synchronous transactions
+				 * are sent without blocking for responses.
+				 * Just ignore the 2nd error in this case.
+				 */
+				pr_warn("Unexpected reply error: %u\n",
+					target_thread->reply_error.cmd);
 			}
 			binder_inner_proc_unlock(target_thread->proc);
 			binder_thread_dec_tmpref(target_thread);
@@ -2998,6 +3001,14 @@ static void binder_transaction(struct binder_proc *proc,
 			else
 				return_error = BR_DEAD_REPLY;
 			mutex_unlock(&context->context_mgr_node_lock);
+			if (target_node && target_proc == proc) {
+				binder_user_error("%d:%d got transaction to context manager from process owning it\n",
+						  proc->pid, thread->pid);
+				return_error = BR_FAILED_REPLY;
+				return_error_param = -EINVAL;
+				return_error_line = __LINE__;
+				goto err_invalid_target_handle;
+			}
 		}
 		if (!target_node) {
 			/*
@@ -4538,7 +4549,28 @@ static int binder_thread_release(struct binder_proc *proc,
 		if (t)
 			spin_lock(&t->lock);
 	}
+
+	/*
+	 * If this thread used poll, make sure we remove the waitqueue
+	 * from any epoll data structures holding it with POLLFREE.
+	 * waitqueue_active() is safe to use here because we're holding
+	 * the inner lock.
+	 */
+	if ((thread->looper & BINDER_LOOPER_STATE_POLL) &&
+	    waitqueue_active(&thread->wait)) {
+		wake_up_poll(&thread->wait, POLLHUP | POLLFREE);
+	}
+
 	binder_inner_proc_unlock(thread->proc);
+
+	/*
+	 * This is needed to avoid races between wake_up_poll() above and
+	 * and ep_remove_waitqueue() called for other reasons (eg the epoll file
+	 * descriptor being closed); ep_remove_waitqueue() holds an RCU read
+	 * lock, so we can be sure it's done after calling synchronize_rcu().
+	 */
+	if (thread->looper & BINDER_LOOPER_STATE_POLL)
+		synchronize_rcu();
 
 	if (send_reply)
 		binder_send_failed_reply(send_reply, BR_DEAD_REPLY);
@@ -4555,6 +4587,8 @@ static unsigned int binder_poll(struct file *filp,
 	bool wait_for_proc_work;
 
 	thread = binder_get_thread(proc);
+	if (!thread)
+		return POLLERR;
 
 	binder_inner_proc_lock(thread->proc);
 	thread->looper |= BINDER_LOOPER_STATE_POLL;

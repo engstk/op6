@@ -35,6 +35,9 @@
 #define IPA_GENERIC_AGGR_TIME_LIMIT 1
 #define IPA_GENERIC_AGGR_PKT_LIMIT 0
 
+#define IPA_GSB_AGGR_BYTE_LIMIT 14
+#define IPA_GSB_RX_BUFF_BASE_SZ 16384
+
 #define IPA_GENERIC_RX_BUFF_BASE_SZ 8192
 #define IPA_REAL_GENERIC_RX_BUFF_SZ(X) (SKB_DATA_ALIGN(\
 		(X) + NET_SKB_PAD) +\
@@ -242,6 +245,8 @@ static void ipa3_send_nop_desc(struct work_struct *work)
 		return;
 	}
 	sys->len_pending_xfer = 0;
+	/* make sure TAG process is sent before clocks are gated */
+	ipa3_ctx->tag_process_before_gating = true;
 
 }
 
@@ -300,16 +305,17 @@ int ipa3_send(struct ipa3_sys_context *sys,
 		mem_flag);
 	if (!gsi_xfer_elem_array) {
 		IPAERR("Failed to alloc mem for gsi xfer array.\n");
-		return -EFAULT;
+		return -ENOMEM;
 	}
 
 	spin_lock_bh(&sys->spinlock);
 
 	for (i = 0; i < num_desc; i++) {
 		tx_pkt = kmem_cache_zalloc(ipa3_ctx->tx_pkt_wrapper_cache,
-					   mem_flag);
+					   GFP_ATOMIC);
 		if (!tx_pkt) {
 			IPAERR("failed to alloc tx wrapper\n");
+			result = -ENOMEM;
 			goto failure;
 		}
 
@@ -326,6 +332,7 @@ int ipa3_send(struct ipa3_sys_context *sys,
 			if (ipa_populate_tag_field(&desc[i], tx_pkt,
 				&tag_pyld_ret)) {
 				IPAERR("Failed to populate tag field\n");
+				result = -EFAULT;
 				goto failure_dma_map;
 			}
 		}
@@ -365,6 +372,7 @@ int ipa3_send(struct ipa3_sys_context *sys,
 		}
 		if (dma_mapping_error(ipa3_ctx->pdev, tx_pkt->mem.phys_base)) {
 			IPAERR("failed to do dma map.\n");
+			result = -EFAULT;
 			goto failure_dma_map;
 		}
 
@@ -411,6 +419,7 @@ int ipa3_send(struct ipa3_sys_context *sys,
 			gsi_xfer_elem_array, true);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("GSI xfer failed.\n");
+		result = -EFAULT;
 		goto failure;
 	}
 	kfree(gsi_xfer_elem_array);
@@ -429,6 +438,9 @@ int ipa3_send(struct ipa3_sys_context *sys,
 			sys->ep->gsi_chan_hdl);
 		hrtimer_start(&sys->db_timer, time, HRTIMER_MODE_REL);
 	}
+
+	/* make sure TAG process is sent before clocks are gated */
+	ipa3_ctx->tag_process_before_gating = true;
 
 	return 0;
 
@@ -461,7 +473,7 @@ failure:
 	kfree(gsi_xfer_elem_array);
 
 	spin_unlock_bh(&sys->spinlock);
-	return -EFAULT;
+	return result;
 }
 
 /**
@@ -637,7 +649,6 @@ int ipa3_send_cmd_timeout(u16 num_desc, struct ipa3_desc *descr, u32 timeout)
 	atomic_set(&comp->cnt, 2);
 
 	sys = ipa3_ctx->ep[ep_idx].sys;
-	IPA_ACTIVE_CLIENTS_INC_SIMPLE();
 
 	if (num_desc == 1) {
 		if (descr->callback || descr->user1)
@@ -676,7 +687,6 @@ int ipa3_send_cmd_timeout(u16 num_desc, struct ipa3_desc *descr, u32 timeout)
 		kfree(comp);
 
 bail:
-	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	return result;
 }
 
@@ -834,7 +844,7 @@ static void ipa_pm_sys_pipe_cb(void *p, enum ipa_pm_cb_event event)
 		 * pipe will be unsuspended as part of
 		 * enabling IPA clocks
 		 */
-		ipa_pm_activate_sync(sys->pm_hdl);
+		ipa_pm_activate(sys->pm_hdl);
 		ipa_pm_deferred_deactivate(sys->pm_hdl);
 		break;
 	default:
@@ -947,11 +957,13 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 				goto fail_pm;
 			}
 
-			result = ipa_pm_associate_ipa_cons_to_client(
-				ep->sys->pm_hdl, sys_in->client);
-			if (result) {
-				IPAERR("failed to associate IPA PM client\n");
-				goto fail_gen2;
+			if (IPA_CLIENT_IS_APPS_CONS(sys_in->client)) {
+				result = ipa_pm_associate_ipa_cons_to_client(
+					ep->sys->pm_hdl, sys_in->client);
+				if (result) {
+					IPAERR("failed to associate\n");
+					goto fail_gen2;
+				}
 			}
 
 			result = ipa_pm_set_perf_profile(ep->sys->pm_hdl,
@@ -1052,6 +1064,13 @@ int ipa3_setup_sys_pipe(struct ipa_sys_connect_params *sys_in, u32 *clnt_hdl)
 		goto fail_gen2;
 	}
 
+	result = gsi_start_channel(ep->gsi_chan_hdl);
+	if (result != GSI_STATUS_SUCCESS) {
+		IPAERR("gsi_start_channel failed res=%d ep=%d.\n", result,
+			ipa_ep_idx);
+		goto fail_gen2;
+	}
+
 	if (!ep->keep_ipa_awake)
 		IPA_ACTIVE_CLIENTS_DEC_EP(sys_in->client);
 
@@ -1101,11 +1120,6 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 		IPA_ACTIVE_CLIENTS_INC_EP(ipa3_get_client_mapping(clnt_hdl));
 
 	ipa3_disable_data_path(clnt_hdl);
-	if (ep->napi_enabled) {
-		do {
-			usleep_range(95, 105);
-		} while (atomic_read(&ep->sys->curr_polling_state));
-	}
 
 	if (IPA_CLIENT_IS_PROD(ep->client)) {
 		do {
@@ -1119,9 +1133,6 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 		} while (1);
 	}
 
-	if (IPA_CLIENT_IS_CONS(ep->client))
-		cancel_delayed_work_sync(&ep->sys->replenish_rx_work);
-	flush_workqueue(ep->sys->wq);
 	/* channel stop might fail on timeout if IPA is busy */
 	for (i = 0; i < IPA_GSI_CHANNEL_STOP_MAX_RETRY; i++) {
 		result = ipa3_stop_gsi_channel(clnt_hdl);
@@ -1129,7 +1140,7 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 			break;
 
 		if (result != -GSI_STATUS_AGAIN &&
-		    result != -GSI_STATUS_TIMED_OUT)
+			result != -GSI_STATUS_TIMED_OUT)
 			break;
 	}
 
@@ -1138,6 +1149,17 @@ int ipa3_teardown_sys_pipe(u32 clnt_hdl)
 		ipa_assert();
 		return result;
 	}
+
+	if (ep->napi_enabled) {
+		do {
+			usleep_range(95, 105);
+		} while (atomic_read(&ep->sys->curr_polling_state));
+	}
+
+	if (IPA_CLIENT_IS_CONS(ep->client))
+		cancel_delayed_work_sync(&ep->sys->replenish_rx_work);
+	flush_workqueue(ep->sys->wq);
+
 	result = ipa3_reset_gsi_channel(clnt_hdl);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("Failed to reset chan: %d.\n", result);
@@ -2581,10 +2603,12 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	struct ipa3_ep_context *ep;
 	unsigned int src_pipe;
 	u32 metadata;
+	u8 ucp;
 
 	ipahal_pkt_status_parse(rx_skb->data, &status);
 	src_pipe = status.endp_src_idx;
 	metadata = status.metadata;
+	ucp = status.ucp;
 	ep = &ipa3_ctx->ep[src_pipe];
 	if (unlikely(src_pipe >= ipa3_ctx->ipa_num_pipes ||
 		!ep->valid ||
@@ -2607,8 +2631,10 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	 *  ------------------------------------------
 	 */
 	*(u16 *)rx_skb->cb = ((metadata >> 16) & 0xFFFF);
+	*(u8 *)(rx_skb->cb + 4) = ucp;
 	IPADBG_LOW("meta_data: 0x%x cb: 0x%x\n",
 			metadata, *(u32 *)rx_skb->cb);
+	IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
 
 	ep->client_notify(ep->priv, IPA_RECEIVE, (unsigned long)(rx_skb));
 }
@@ -2920,7 +2946,6 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 			INIT_DELAYED_WORK(&sys->replenish_rx_work,
 				ipa3_replenish_rx_work_func);
 			atomic_set(&sys->curr_polling_state, 0);
-			sys->rx_buff_sz = IPA_ODU_RX_BUFF_SZ;
 			sys->rx_pool_sz = in->desc_fifo_sz /
 				IPA_FIFO_ELEMENT_SIZE - 1;
 			if (sys->rx_pool_sz > IPA_ODU_RX_POOL_SZ)
@@ -2928,8 +2953,23 @@ static int ipa3_assign_policy(struct ipa_sys_connect_params *in,
 			sys->pyld_hdlr = ipa3_odu_rx_pyld_hdlr;
 			sys->get_skb = ipa3_get_skb_ipa_rx;
 			sys->free_skb = ipa3_free_skb_rx;
-			sys->free_rx_wrapper = ipa3_free_rx_wrapper;
-			sys->repl_hdlr = ipa3_replenish_rx_cache;
+			/* recycle skb for GSB use case */
+			if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0) {
+				sys->free_rx_wrapper =
+					ipa3_free_rx_wrapper;
+				sys->repl_hdlr =
+					ipa3_replenish_rx_cache;
+				/* Overwrite buffer size & aggr limit for GSB */
+				sys->rx_buff_sz = IPA_GENERIC_RX_BUFF_SZ(
+					IPA_GSB_RX_BUFF_BASE_SZ);
+				in->ipa_ep_cfg.aggr.aggr_byte_limit =
+					IPA_GSB_AGGR_BYTE_LIMIT;
+			} else {
+				sys->free_rx_wrapper =
+					ipa3_free_rx_wrapper;
+				sys->repl_hdlr = ipa3_replenish_rx_cache;
+				sys->rx_buff_sz = IPA_ODU_RX_BUFF_SZ;
+			}
 		} else if (in->client ==
 				IPA_CLIENT_MEMCPY_DMA_ASYNC_CONS) {
 			IPADBG("assigning policy to client:%d",
@@ -3540,6 +3580,11 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 	dma_addr_t dma_addr;
 	dma_addr_t evt_dma_addr;
 	int result;
+	gfp_t mem_flag = GFP_KERNEL;
+
+	if (in->client == IPA_CLIENT_APPS_WAN_CONS ||
+		in->client == IPA_CLIENT_APPS_WAN_PROD)
+		mem_flag = GFP_ATOMIC;
 
 	if (!ep) {
 		IPAERR("EP context is empty\n");
@@ -3577,7 +3622,7 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 		gsi_evt_ring_props.ring_base_vaddr =
 			dma_alloc_coherent(ipa3_ctx->pdev,
 			gsi_evt_ring_props.ring_len,
-			&evt_dma_addr, GFP_KERNEL);
+			&evt_dma_addr, mem_flag);
 		if (!gsi_evt_ring_props.ring_base_vaddr) {
 			IPAERR("fail to dma alloc %u bytes\n",
 				gsi_evt_ring_props.ring_len);
@@ -3647,7 +3692,7 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 		gsi_channel_props.ring_len = 2 * in->desc_fifo_sz;
 	gsi_channel_props.ring_base_vaddr =
 		dma_alloc_coherent(ipa3_ctx->pdev, gsi_channel_props.ring_len,
-			&dma_addr, GFP_KERNEL);
+			&dma_addr, mem_flag);
 	if (!gsi_channel_props.ring_base_vaddr) {
 		IPAERR("fail to dma alloc %u bytes\n",
 			gsi_channel_props.ring_len);
@@ -3663,8 +3708,13 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 	ep->gsi_mem_info.chan_ring_base_vaddr =
 		gsi_channel_props.ring_base_vaddr;
 
-	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		gsi_channel_props.use_db_eng = GSI_CHAN_DIRECT_MODE;
+	else
+		gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
+	gsi_channel_props.prefetch_mode =
+		ipa_get_ep_prefetch_mode(ep->client);
 	if (ep->client == IPA_CLIENT_APPS_CMD_PROD)
 		gsi_channel_props.low_weight = IPA_GSI_MAX_CH_LOW_WEIGHT;
 	else
@@ -3686,21 +3736,23 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 	ch_scratch.gpi.max_outstanding_tre = gsi_ep_info->ipa_if_tlv *
 		GSI_CHAN_RE_SIZE_16B;
 	ch_scratch.gpi.outstanding_threshold = 2 * GSI_CHAN_RE_SIZE_16B;
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0) {
+		ch_scratch.gpi.max_outstanding_tre = 0;
+		ch_scratch.gpi.outstanding_threshold = 0;
+	}
+
 	result = gsi_write_channel_scratch(ep->gsi_chan_hdl, ch_scratch);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("failed to write scratch %d\n", result);
 		goto fail_write_channel_scratch;
 	}
 
-	result = gsi_start_channel(ep->gsi_chan_hdl);
-	if (result != GSI_STATUS_SUCCESS)
-		goto fail_start_channel;
 	if (ep->client == IPA_CLIENT_MEMCPY_DMA_SYNC_CONS)
 		gsi_config_channel_mode(ep->gsi_chan_hdl,
 				GSI_CHAN_MODE_POLL);
 	return 0;
 
-fail_start_channel:
 fail_write_channel_scratch:
 	if (gsi_dealloc_channel(ep->gsi_chan_hdl)
 		!= GSI_STATUS_SUCCESS) {
@@ -3897,7 +3949,12 @@ int ipa_gsi_ch20_wa(void)
 		dma_alloc_coherent(ipa3_ctx->pdev, gsi_channel_props.ring_len,
 		&dma_addr, 0);
 	gsi_channel_props.ring_base_addr = dma_addr;
-	gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
+
+	if (ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+		gsi_channel_props.use_db_eng = GSI_CHAN_DIRECT_MODE;
+	else
+		gsi_channel_props.use_db_eng = GSI_CHAN_DB_MODE;
+
 	gsi_channel_props.max_prefetch = GSI_ONE_PREFETCH_SEG;
 	gsi_channel_props.low_weight = 1;
 	gsi_channel_props.err_cb = ipa_gsi_chan_err_cb;

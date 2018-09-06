@@ -1565,6 +1565,8 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 	/*  Extended IOCTLs  */
 	case RMNET_IOCTL_EXTENDED:
+		if (!ns_capable(dev_net(dev)->user_ns, CAP_NET_ADMIN))
+			return -EPERM;
 		IPAWANDBG("get ioctl: RMNET_IOCTL_EXTENDED\n");
 		if (copy_from_user(&extend_ioctl_data,
 			(u8 *)ifr->ifr_ifru.ifru_data,
@@ -1740,6 +1742,7 @@ static int ipa3_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				IPAWANERR("Failed to allocate memory.\n");
 				return -ENOMEM;
 			}
+			extend_ioctl_data.u.if_name[IFNAMSIZ-1] = '\0';
 			len = sizeof(wan_msg->upstream_ifname) >
 			sizeof(extend_ioctl_data.u.if_name) ?
 				sizeof(extend_ioctl_data.u.if_name) :
@@ -2698,11 +2701,16 @@ static int ipa3_ssr_notifier_cb(struct notifier_block *this,
 		ipa_stop_polling_stats();
 		if (atomic_read(&rmnet_ipa3_ctx->is_initialized))
 			platform_driver_unregister(&rmnet_ipa_driver);
+
+		if (atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			ipa3_ctx->ipa_hw_type >= IPA_HW_v4_0)
+			ipa3_q6_post_shutdown_cleanup();
 		IPAWANINFO("IPA BEFORE_SHUTDOWN handling is complete\n");
 		break;
 	case SUBSYS_AFTER_SHUTDOWN:
 		IPAWANINFO("IPA Received MPSS AFTER_SHUTDOWN\n");
-		if (atomic_read(&rmnet_ipa3_ctx->is_ssr))
+		if (atomic_read(&rmnet_ipa3_ctx->is_ssr) &&
+			ipa3_ctx->ipa_hw_type < IPA_HW_v4_0)
 			ipa3_q6_post_shutdown_cleanup();
 		IPAWANINFO("IPA AFTER_SHUTDOWN handling is complete\n");
 		break;
@@ -2711,8 +2719,13 @@ static int ipa3_ssr_notifier_cb(struct notifier_block *this,
 		if (atomic_read(&rmnet_ipa3_ctx->is_ssr))
 			/* clean up cached QMI msg/handlers */
 			ipa3_qmi_service_exit();
-		/*hold a proxy vote for the modem*/
-		ipa3_proxy_clk_vote();
+		/*
+		 * hold a proxy vote for the modem.
+		 * for IPA 4.0 offline charge is not needed and proxy vote
+		 * is already held.
+		 */
+		if (ipa3_ctx->ipa_hw_type != IPA_HW_v4_0)
+			ipa3_proxy_clk_vote();
 		ipa3_reset_freeze_vote();
 		IPAWANINFO("IPA BEFORE_POWERUP handling is complete\n");
 		break;
@@ -3112,7 +3125,8 @@ static int rmnet_ipa3_query_tethering_stats_wifi(
 		IPAWANERR("can't get ipa3_get_wlan_stats\n");
 		kfree(sap_stats);
 		return rc;
-	} else if (reset) {
+	} else if (data == NULL) {
+		IPAWANDBG("only reset wlan stats\n");
 		kfree(sap_stats);
 		return 0;
 	}
@@ -3170,10 +3184,7 @@ static int rmnet_ipa3_query_tethering_stats_modem(
 	if (reset) {
 		req->reset_stats_valid = true;
 		req->reset_stats = true;
-		IPAWANERR("reset the pipe stats\n");
-	} else {
-		/* print tethered-client enum */
-		IPAWANDBG("Tethered-client enum(%d)\n", data->ipa_client);
+		IPAWANDBG("reset the pipe stats\n");
 	}
 
 	rc = ipa3_qmi_get_data_stats(req, resp);
@@ -3183,6 +3194,7 @@ static int rmnet_ipa3_query_tethering_stats_modem(
 		kfree(resp);
 		return rc;
 	} else if (data == NULL) {
+		IPAWANDBG("only reset modem stats\n");
 		kfree(req);
 		kfree(resp);
 		return 0;
@@ -3264,7 +3276,7 @@ static int rmnet_ipa3_query_tethering_stats_modem(
 				if (data->ipa_client == ipa_get_client(resp->
 				ul_src_pipe_stats_list[pipe_len].
 				pipe_index)) {
-					/* update the DL stats */
+					/* update the UL stats */
 					data->ipv4_tx_packets += resp->
 					ul_src_pipe_stats_list[pipe_len].
 					num_ipv4_packets;
@@ -3290,6 +3302,133 @@ static int rmnet_ipa3_query_tethering_stats_modem(
 	kfree(resp);
 	return 0;
 }
+
+static int rmnet_ipa3_query_tethering_stats_hw(
+	struct wan_ioctl_query_tether_stats *data, bool reset)
+{
+	int rc = 0;
+	struct ipa_quota_stats_all *con_stats;
+
+	if (reset) {
+		IPAWANERR("only reset the pipe stats without returning stats");
+		rc = ipa_get_teth_stats();
+		if (rc) {
+			IPAWANERR("ipa_get_teth_stats failed %d,\n", rc);
+			return rc;
+		}
+		return 0;
+	}
+	/* qet HW-stats */
+	rc = ipa_get_teth_stats();
+	if (rc) {
+		IPAWANDBG("ipa_get_teth_stats failed %d,\n", rc);
+		return rc;
+	}
+
+	/* query DL stats */
+	IPAWANDBG("reset the pipe stats? (%d)\n", reset);
+	con_stats = kzalloc(sizeof(*con_stats), GFP_KERNEL);
+	if (!con_stats) {
+		IPAWANERR("no memory\n");
+		return -ENOMEM;
+	}
+	rc = ipa_query_teth_stats(IPA_CLIENT_Q6_WAN_PROD, con_stats, reset);
+	if (rc) {
+		IPAERR("IPA_CLIENT_Q6_WAN_PROD query failed %d,\n", rc);
+		kfree(con_stats);
+		return rc;
+	}
+	IPAWANDBG("wlan: v4_rx_p(%d) b(%lld) v6_rx_p(%d) b(%lld)\n",
+	con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv4_pkts,
+	con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv4_bytes,
+	con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv6_pkts,
+	con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv6_bytes);
+
+	IPAWANDBG("usb: v4_rx_p(%d) b(%lld) v6_rx_p(%d) b(%lld)\n",
+	con_stats->client[IPA_CLIENT_USB_CONS].num_ipv4_pkts,
+	con_stats->client[IPA_CLIENT_USB_CONS].num_ipv4_bytes,
+	con_stats->client[IPA_CLIENT_USB_CONS].num_ipv6_pkts,
+	con_stats->client[IPA_CLIENT_USB_CONS].num_ipv6_bytes);
+
+	/* update the DL stats */
+	data->ipv4_rx_packets =
+		con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv4_pkts +
+			con_stats->client[IPA_CLIENT_USB_CONS].num_ipv4_pkts;
+	data->ipv6_rx_packets =
+		con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv6_pkts +
+			con_stats->client[IPA_CLIENT_USB_CONS].num_ipv6_pkts;
+	data->ipv4_rx_bytes =
+		con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv4_bytes +
+			con_stats->client[IPA_CLIENT_USB_CONS].num_ipv4_bytes;
+	data->ipv6_rx_bytes =
+		con_stats->client[IPA_CLIENT_WLAN1_CONS].num_ipv6_bytes +
+			con_stats->client[IPA_CLIENT_USB_CONS].num_ipv6_bytes;
+
+	IPAWANDBG("v4_rx_p(%lu) v6_rx_p(%lu) v4_rx_b(%lu) v6_rx_b(%lu)\n",
+		(unsigned long int) data->ipv4_rx_packets,
+		(unsigned long int) data->ipv6_rx_packets,
+		(unsigned long int) data->ipv4_rx_bytes,
+		(unsigned long int) data->ipv6_rx_bytes);
+
+	/* query USB UL stats */
+	memset(con_stats, 0, sizeof(struct ipa_quota_stats_all));
+	rc = ipa_query_teth_stats(IPA_CLIENT_USB_PROD, con_stats, reset);
+	if (rc) {
+		IPAERR("IPA_CLIENT_USB_PROD query failed %d\n", rc);
+		kfree(con_stats);
+		return rc;
+	}
+
+	IPAWANDBG("usb: v4_tx_p(%d) b(%lld) v6_tx_p(%d) b(%lld)\n",
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_pkts,
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_bytes,
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_pkts,
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_bytes);
+
+	/* update the USB UL stats */
+	data->ipv4_tx_packets =
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_pkts;
+	data->ipv6_tx_packets =
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_pkts;
+	data->ipv4_tx_bytes =
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_bytes;
+	data->ipv6_tx_bytes =
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_bytes;
+
+	/* query WLAN UL stats */
+	memset(con_stats, 0, sizeof(struct ipa_quota_stats_all));
+	rc = ipa_query_teth_stats(IPA_CLIENT_WLAN1_PROD, con_stats, reset);
+	if (rc) {
+		IPAERR("IPA_CLIENT_WLAN1_PROD query failed %d\n", rc);
+		kfree(con_stats);
+		return rc;
+	}
+
+	IPAWANDBG("wlan: v4_tx_p(%d) b(%lld) v6_tx_p(%d) b(%lld)\n",
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_pkts,
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_bytes,
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_pkts,
+	con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_bytes);
+
+	/* update the wlan UL stats */
+	data->ipv4_tx_packets +=
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_pkts;
+	data->ipv6_tx_packets +=
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_pkts;
+	data->ipv4_tx_bytes +=
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv4_bytes;
+	data->ipv6_tx_bytes +=
+		con_stats->client[IPA_CLIENT_Q6_WAN_CONS].num_ipv6_bytes;
+
+	IPAWANDBG("v4_tx_p(%lu) v6_tx_p(%lu) v4_tx_b(%lu) v6_tx_b(%lu)\n",
+		(unsigned long int) data->ipv4_tx_packets,
+		(unsigned long  int) data->ipv6_tx_packets,
+		(unsigned long int) data->ipv4_tx_bytes,
+		(unsigned long int) data->ipv6_tx_bytes);
+	kfree(con_stats);
+	return rc;
+}
+
 
 int rmnet_ipa3_query_tethering_stats(struct wan_ioctl_query_tether_stats *data,
 	bool reset)
@@ -3360,11 +3499,26 @@ int rmnet_ipa3_query_tethering_stats_all(
 	} else {
 		IPAWANDBG_LOW(" query modem-backhaul stats\n");
 		tether_stats.ipa_client = data->ipa_client;
-		rc = rmnet_ipa3_query_tethering_stats_modem(
-			&tether_stats, data->reset_stats);
-		if (rc) {
-			IPAWANERR("modem WAN_IOC_QUERY_TETHER_STATS failed\n");
-			return rc;
+		if (ipa3_ctx->ipa_hw_type < IPA_HW_v4_0 ||
+			!ipa3_ctx->hw_stats.enabled) {
+			IPAWANDBG("hw version %d,hw_stats.enabled %d\n",
+				ipa3_ctx->ipa_hw_type,
+				ipa3_ctx->hw_stats.enabled);
+			/* get modem stats from QMI */
+			rc = rmnet_ipa3_query_tethering_stats_modem(
+				&tether_stats, data->reset_stats);
+			if (rc) {
+				IPAWANERR("modem QUERY_TETHER_STATS failed\n");
+				return rc;
+			}
+		} else {
+			/* get modem stats from IPA-HW counters */
+			rc = rmnet_ipa3_query_tethering_stats_hw(
+				&tether_stats, data->reset_stats);
+			if (rc) {
+				IPAWANERR("modem QUERY_TETHER_STATS failed\n");
+				return rc;
+			}
 		}
 		data->tx_bytes = tether_stats.ipv4_tx_bytes
 			+ tether_stats.ipv6_tx_bytes;
@@ -3377,10 +3531,7 @@ int rmnet_ipa3_query_tethering_stats_all(
 int rmnet_ipa3_reset_tethering_stats(struct wan_ioctl_reset_tether_stats *data)
 {
 	enum ipa_upstream_type upstream_type;
-	struct wan_ioctl_query_tether_stats tether_stats;
 	int rc = 0;
-
-	memset(&tether_stats, 0, sizeof(struct wan_ioctl_query_tether_stats));
 
 	/* prevent string buffer overflows */
 	data->upstreamIface[IFNAMSIZ-1] = '\0';
@@ -3402,7 +3553,7 @@ int rmnet_ipa3_reset_tethering_stats(struct wan_ioctl_reset_tether_stats *data)
 	} else {
 		IPAWANERR(" reset modem-backhaul stats\n");
 		rc = rmnet_ipa3_query_tethering_stats_modem(
-			&tether_stats, true);
+			NULL, true);
 		if (rc) {
 			IPAWANERR("reset MODEM stats failed\n");
 			return rc;

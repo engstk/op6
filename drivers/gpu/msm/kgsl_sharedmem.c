@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -96,6 +96,73 @@ struct mem_entry_stats {
 }
 
 static void kgsl_cma_unlock_secure(struct kgsl_memdesc *memdesc);
+
+static ssize_t
+imported_mem_show(struct kgsl_process_private *priv,
+				int type, char *buf)
+{
+	struct kgsl_mem_entry *entry;
+	uint64_t imported_mem = 0;
+	int id = 0;
+
+	spin_lock(&priv->mem_lock);
+	for (entry = idr_get_next(&priv->mem_idr, &id); entry;
+		id++, entry = idr_get_next(&priv->mem_idr, &id)) {
+
+		int egl_surface_count = 0, egl_image_count = 0;
+		struct kgsl_memdesc *m = &entry->memdesc;
+
+		if ((kgsl_memdesc_usermem_type(m) != KGSL_MEM_ENTRY_ION) ||
+			entry->pending_free || (kgsl_mem_entry_get(entry) == 0))
+			continue;
+		spin_unlock(&priv->mem_lock);
+
+		kgsl_get_egl_counts(entry, &egl_surface_count,
+				&egl_image_count);
+
+		if (kgsl_memdesc_get_memtype(m) ==
+				KGSL_MEMTYPE_EGL_SURFACE)
+			imported_mem += m->size;
+		else if (egl_surface_count == 0) {
+			uint64_t size = m->size;
+
+			do_div(size, (egl_image_count ?
+					egl_image_count : 1));
+			imported_mem += size;
+		}
+
+		kgsl_mem_entry_put(entry);
+		spin_lock(&priv->mem_lock);
+	}
+	spin_unlock(&priv->mem_lock);
+
+	return scnprintf(buf, PAGE_SIZE, "%llu\n", imported_mem);
+}
+
+static ssize_t
+gpumem_mapped_show(struct kgsl_process_private *priv,
+				int type, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%llu\n",
+			priv->gpumem_mapped);
+}
+
+static ssize_t
+gpumem_unmapped_show(struct kgsl_process_private *priv, int type, char *buf)
+{
+	if (priv->gpumem_mapped > priv->stats[type].cur)
+		return -EIO;
+
+	return scnprintf(buf, PAGE_SIZE, "%llu\n",
+			priv->stats[type].cur - priv->gpumem_mapped);
+}
+
+static struct kgsl_mem_entry_attribute debug_memstats[] = {
+	__MEM_ENTRY_ATTR(0, imported_mem, imported_mem_show),
+	__MEM_ENTRY_ATTR(0, gpumem_mapped, gpumem_mapped_show),
+	__MEM_ENTRY_ATTR(KGSL_MEM_ENTRY_KERNEL, gpumem_unmapped,
+				gpumem_unmapped_show),
+};
 
 /**
  * Show the current amount of memory allocated for the given memtype
@@ -219,7 +286,13 @@ void kgsl_process_init_sysfs(struct kgsl_device *device,
 			&mem_stats[i].max_attr.attr))
 			WARN(1, "Couldn't create sysfs file '%s'\n",
 				mem_stats[i].max_attr.attr.name);
+	}
 
+	for (i = 0; i < ARRAY_SIZE(debug_memstats); i++) {
+		if (sysfs_create_file(&private->kobj,
+			&debug_memstats[i].attr))
+			WARN(1, "Couldn't create sysfs file '%s'\n",
+				debug_memstats[i].attr.name);
 	}
 }
 
@@ -340,7 +413,7 @@ int kgsl_allocate_user(struct kgsl_device *device,
 {
 	int ret;
 
-	memdesc->flags = flags;
+	kgsl_memdesc_init(device, memdesc, flags);
 
 	if (kgsl_mmu_get_mmutype(device) == KGSL_MMU_TYPE_NONE)
 		ret = kgsl_sharedmem_alloc_contig(device, memdesc, size);
@@ -696,6 +769,40 @@ int kgsl_cache_range_op(struct kgsl_memdesc *memdesc, uint64_t offset,
 }
 EXPORT_SYMBOL(kgsl_cache_range_op);
 
+void kgsl_memdesc_init(struct kgsl_device *device,
+			struct kgsl_memdesc *memdesc, uint64_t flags)
+{
+	struct kgsl_mmu *mmu = &device->mmu;
+	unsigned int align;
+
+	memset(memdesc, 0, sizeof(*memdesc));
+	/* Turn off SVM if the system doesn't support it */
+	if (!kgsl_mmu_use_cpu_map(mmu))
+		flags &= ~((uint64_t) KGSL_MEMFLAGS_USE_CPU_MAP);
+
+	/* Secure memory disables advanced addressing modes */
+	if (flags & KGSL_MEMFLAGS_SECURE)
+		flags &= ~((uint64_t) KGSL_MEMFLAGS_USE_CPU_MAP);
+
+	/* Disable IO coherence if it is not supported on the chip */
+	if (!MMU_FEATURE(mmu, KGSL_MMU_IO_COHERENT))
+		flags &= ~((uint64_t) KGSL_MEMFLAGS_IOCOHERENT);
+
+	if (MMU_FEATURE(mmu, KGSL_MMU_NEED_GUARD_PAGE))
+		memdesc->priv |= KGSL_MEMDESC_GUARD_PAGE;
+
+	if (flags & KGSL_MEMFLAGS_SECURE)
+		memdesc->priv |= KGSL_MEMDESC_SECURE;
+
+	memdesc->flags = flags;
+	memdesc->dev = device->dev->parent;
+
+	align = max_t(unsigned int,
+		(memdesc->flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT,
+		ilog2(PAGE_SIZE));
+	kgsl_memdesc_set_align(memdesc, align);
+}
+
 int
 kgsl_sharedmem_page_alloc_user(struct kgsl_memdesc *memdesc,
 			uint64_t size)
@@ -715,6 +822,18 @@ kgsl_sharedmem_page_alloc_user(struct kgsl_memdesc *memdesc,
 		return -EINVAL;
 
 	align = (memdesc->flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT;
+
+	/*
+	 * As 1MB is the max supported page size, use the alignment
+	 * corresponding to 1MB page to make sure higher order pages
+	 * are used if possible for a given memory size. Also, we
+	 * don't need to update alignment in memdesc flags in case
+	 * higher order page is used, as memdesc flags represent the
+	 * virtual alignment specified by the user which is anyways
+	 * getting satisfied.
+	 */
+	if (align < ilog2(SZ_1M))
+		align = ilog2(SZ_1M);
 
 	page_size = kgsl_get_page_size(size, align);
 
@@ -884,8 +1003,6 @@ void kgsl_sharedmem_free(struct kgsl_memdesc *memdesc)
 
 	if (memdesc->pages)
 		kgsl_free(memdesc->pages);
-
-	memset(memdesc, 0, sizeof(*memdesc));
 }
 EXPORT_SYMBOL(kgsl_sharedmem_free);
 

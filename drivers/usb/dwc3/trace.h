@@ -47,6 +47,11 @@ DEFINE_EVENT(dwc3_log_msg, dwc3_writel,
 	TP_ARGS(vaf)
 );
 
+DEFINE_EVENT(dwc3_log_msg, dwc3_masked_write_readback,
+	TP_PROTO(struct va_format *vaf),
+	TP_ARGS(vaf)
+);
+
 DEFINE_EVENT(dwc3_log_msg, dwc3_gadget,
 	TP_PROTO(struct va_format *vaf),
 	TP_ARGS(vaf)
@@ -132,7 +137,7 @@ DECLARE_EVENT_CLASS(dwc3_log_request,
 		__entry->short_not_ok = req->request.short_not_ok;
 		__entry->no_interrupt = req->request.no_interrupt;
 	),
-	TP_printk("%s: req %p length %u/%u %s%s%s ==> %d",
+	TP_printk("%s: req %pK length %u/%u %s%s%s ==> %d",
 		__get_str(name), __entry->req, __entry->actual, __entry->length,
 		__entry->zero ? "Z" : "z",
 		__entry->short_not_ok ? "S" : "s",
@@ -248,7 +253,7 @@ DECLARE_EVENT_CLASS(dwc3_log_trb,
 		__entry->size = trb->size;
 		__entry->ctrl = trb->ctrl;
 	),
-	TP_printk("%s: %d/%d trb %p buf %08x%08x size %d ctrl %08x (%c%c%c%c:%c%c:%s)",
+	TP_printk("%s: %d/%d trb %pK buf %08x%08x size %d ctrl %08x (%c%c%c%c:%c%c:%s)",
 		__get_str(name), __entry->queued, __entry->allocated,
 		__entry->trb, __entry->bph, __entry->bpl,
 		__entry->size, __entry->ctrl,

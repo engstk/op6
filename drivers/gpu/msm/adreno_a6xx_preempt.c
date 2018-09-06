@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -49,8 +49,13 @@ static void _update_wptr(struct adreno_device *adreno_dev, bool reset_timer)
 				OOB_PREEMPTION_SET_MASK,
 				OOB_PREEMPTION_CHECK_MASK,
 				OOB_PREEMPTION_CLEAR_MASK);
-			if (status)
+			if (status) {
+				adreno_set_gpu_fault(adreno_dev,
+					ADRENO_GMU_FAULT);
+				adreno_dispatcher_schedule(
+					KGSL_DEVICE(adreno_dev));
 				return;
+			}
 		}
 	}
 
@@ -370,14 +375,6 @@ void a6xx_preemption_trigger(struct adreno_device *adreno_dev)
 	/* Trigger the preemption */
 	adreno_gmu_fenced_write(adreno_dev, ADRENO_REG_CP_PREEMPT, cntl,
 		FENCE_STATUS_WRITEDROPPED1_MASK);
-
-	/*
-	 * Once preemption has been requested with the final register write,
-	 * the preemption process starts and the GPU is considered busy.
-	 * We can now safely clear the preemption keepalive bit, allowing
-	 * power collapse to resume its regular activity.
-	 */
-	kgsl_gmu_regrmw(device, A6XX_GMU_AO_SPARE_CNTL, 0x2, 0x0);
 }
 
 void a6xx_preemption_callback(struct adreno_device *adreno_dev, int bit)
@@ -404,6 +401,13 @@ void a6xx_preemption_callback(struct adreno_device *adreno_dev, int bit)
 		adreno_dispatcher_schedule(KGSL_DEVICE(adreno_dev));
 		return;
 	}
+
+	/*
+	 * We can now safely clear the preemption keepalive bit, allowing
+	 * power collapse to resume its regular activity.
+	 */
+	kgsl_gmu_regrmw(KGSL_DEVICE(adreno_dev), A6XX_GMU_AO_SPARE_CNTL, 0x2,
+			0x0);
 
 	del_timer(&adreno_dev->preempt.timer);
 
@@ -749,6 +753,9 @@ int a6xx_preemption_context_init(struct kgsl_context *context)
 
 	if (context->flags & KGSL_CONTEXT_SECURE)
 		flags |= KGSL_MEMFLAGS_SECURE;
+
+	if (kgsl_is_compat_task())
+		flags |= KGSL_MEMFLAGS_FORCE_32BIT;
 
 	/*
 	 * gpumem_alloc_entry takes an extra refcount. Put it only when

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -156,6 +156,7 @@ enum ipa_pm_state {
  * @activate_work: work for activate (blocking case)
  * @deactivate work: delayed work for deferred_deactivate function
  * @complete: generic wait-for-completion handler
+ * @wlock: wake source to prevent AP suspend
  */
 struct ipa_pm_client {
 	char name[IPA_PM_MAX_EX_CL];
@@ -170,6 +171,7 @@ struct ipa_pm_client {
 	struct work_struct activate_work;
 	struct delayed_work deactivate_work;
 	struct completion complete;
+	struct wakeup_source wlock;
 };
 
 /*
@@ -240,7 +242,7 @@ static int calculate_throughput(void)
 	struct ipa_pm_client *client;
 
 	/* Create a basic array to hold throughputs*/
-	for (i = 0, n = 0; i < IPA_PM_MAX_CLIENTS; i++) {
+	for (i = 1, n = 0; i < IPA_PM_MAX_CLIENTS; i++) {
 		client = ipa_pm_ctx->clients[i];
 		if (client != NULL && IPA_PM_STATE_ACTIVE(client->state)) {
 			/* default case */
@@ -395,8 +397,11 @@ static void activate_work_func(struct work_struct *work)
 	unsigned long flags;
 
 	client = container_of(work, struct ipa_pm_client, activate_work);
-	if (!client->skip_clk_vote)
+	if (!client->skip_clk_vote) {
 		IPA_ACTIVE_CLIENTS_INC_SPECIAL(client->name);
+		if (client->group == IPA_PM_GROUP_APPS)
+			__pm_stay_awake(&client->wlock);
+	}
 
 	spin_lock_irqsave(&client->state_lock, flags);
 	IPA_PM_DBG_STATE(client->hdl, client->name, client->state);
@@ -414,9 +419,11 @@ static void activate_work_func(struct work_struct *work)
 	complete_all(&client->complete);
 
 	if (dec_clk) {
-		ipa_set_tag_process_before_gating(true);
-		if (!client->skip_clk_vote)
+		if (!client->skip_clk_vote) {
 			IPA_ACTIVE_CLIENTS_DEC_SPECIAL(client->name);
+			if (client->group == IPA_PM_GROUP_APPS)
+				__pm_relax(&client->wlock);
+		}
 
 		IPA_PM_DBG_STATE(client->hdl, client->name, client->state);
 		return;
@@ -465,9 +472,11 @@ static void delayed_deferred_deactivate_work_func(struct work_struct *work)
 		client->state = IPA_PM_DEACTIVATED;
 		IPA_PM_DBG_STATE(client->hdl, client->name, client->state);
 		spin_unlock_irqrestore(&client->state_lock, flags);
-		ipa_set_tag_process_before_gating(true);
-		if (!client->skip_clk_vote)
+		if (!client->skip_clk_vote) {
 			IPA_ACTIVE_CLIENTS_DEC_SPECIAL(client->name);
+			if (client->group == IPA_PM_GROUP_APPS)
+				__pm_relax(&client->wlock);
+		}
 
 		deactivate_client(client->hdl);
 		do_clk_scaling();
@@ -489,7 +498,8 @@ static int find_next_open_array_element(const char *name)
 
 	n = -ENOBUFS;
 
-	for (i = IPA_PM_MAX_CLIENTS - 1; i >= 0; i--) {
+	/* 0 is not a valid handle */
+	for (i = IPA_PM_MAX_CLIENTS - 1; i >= 1; i--) {
 		if (ipa_pm_ctx->clients[i] == NULL) {
 			n = i;
 			continue;
@@ -670,7 +680,7 @@ int ipa_pm_destroy(void)
 }
 
 /**
- * ipa_rm_delete_register() - register an IPA PM client with the PM
+ * ipa_pm_register() - register an IPA PM client with the PM
  * @register_params: params for a client like throughput, callback, etc.
  * @hdl: int pointer that will be used as an index to access the client
  *
@@ -682,6 +692,7 @@ int ipa_pm_destroy(void)
 int ipa_pm_register(struct ipa_pm_register_params *params, u32 *hdl)
 {
 	struct ipa_pm_client *client;
+	struct wakeup_source *wlock;
 
 	if (ipa_pm_ctx == NULL) {
 		IPA_PM_ERR("PM_ctx is null\n");
@@ -730,6 +741,8 @@ int ipa_pm_register(struct ipa_pm_register_params *params, u32 *hdl)
 	client->group = params->group;
 	client->hdl = *hdl;
 	client->skip_clk_vote = params->skip_clk_vote;
+	wlock = &client->wlock;
+	wakeup_source_init(wlock, client->name);
 
 	/* add client to exception list */
 	if (add_client_to_exception_list(*hdl)) {
@@ -793,6 +806,7 @@ int ipa_pm_deregister(u32 hdl)
 		if (ipa_pm_ctx->clients_by_pipe[i] == ipa_pm_ctx->clients[hdl])
 			ipa_pm_ctx->clients_by_pipe[i] = NULL;
 	}
+	wakeup_source_trash(&client->wlock);
 	kfree(client);
 	ipa_pm_ctx->clients[hdl] = NULL;
 
@@ -910,6 +924,8 @@ static int ipa_pm_activate_helper(struct ipa_pm_client *client, bool sync)
 	/* we got the clocks */
 	if (result == 0) {
 		client->state = IPA_PM_ACTIVATED;
+		if (client->group == IPA_PM_GROUP_APPS)
+			__pm_stay_awake(&client->wlock);
 		spin_unlock_irqrestore(&client->state_lock, flags);
 		activate_client(client->hdl);
 		if (sync)
@@ -1043,7 +1059,7 @@ int ipa_pm_deactivate_all_deferred(void)
 		return -EINVAL;
 	}
 
-	for (i = 0; i < IPA_PM_MAX_CLIENTS; i++) {
+	for (i = 1; i < IPA_PM_MAX_CLIENTS; i++) {
 		client = ipa_pm_ctx->clients[i];
 
 		if (client == NULL)
@@ -1073,9 +1089,11 @@ int ipa_pm_deactivate_all_deferred(void)
 			IPA_PM_DBG_STATE(client->hdl, client->name,
 				client->state);
 			spin_unlock_irqrestore(&client->state_lock, flags);
-			ipa_set_tag_process_before_gating(true);
-			if (!client->skip_clk_vote)
+			if (!client->skip_clk_vote) {
 				IPA_ACTIVE_CLIENTS_DEC_SPECIAL(client->name);
+				if (client->group == IPA_PM_GROUP_APPS)
+					__pm_relax(&client->wlock);
+			}
 			deactivate_client(client->hdl);
 		} else /* if activated or deactivated, we do nothing */
 			spin_unlock_irqrestore(&client->state_lock, flags);
@@ -1126,9 +1144,11 @@ int ipa_pm_deactivate_sync(u32 hdl)
 	spin_unlock_irqrestore(&client->state_lock, flags);
 
 	/* else case (Deactivates all Activated cases)*/
-	ipa_set_tag_process_before_gating(true);
-	if (!client->skip_clk_vote)
+	if (!client->skip_clk_vote) {
 		IPA_ACTIVE_CLIENTS_DEC_SPECIAL(client->name);
+		if (client->group == IPA_PM_GROUP_APPS)
+			__pm_relax(&client->wlock);
+	}
 
 	spin_lock_irqsave(&client->state_lock, flags);
 	client->state = IPA_PM_DEACTIVATED;
@@ -1280,7 +1300,7 @@ int ipa_pm_stat(char *buf, int size)
 	cnt += result;
 
 
-	for (i = 0; i < IPA_PM_MAX_CLIENTS; i++) {
+	for (i = 1; i < IPA_PM_MAX_CLIENTS; i++) {
 		client = ipa_pm_ctx->clients[i];
 
 		if (client == NULL)

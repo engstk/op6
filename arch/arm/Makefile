@@ -13,6 +13,10 @@
 # Ensure linker flags are correct
 LDFLAGS		:=
 
+ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
+export DTC_FLAGS := -@
+endif
+
 LDFLAGS_vmlinux	:=-p --no-undefined -X --pic-veneer
 ifeq ($(CONFIG_CPU_ENDIAN_BE8),y)
 LDFLAGS_vmlinux	+= --be8
@@ -131,7 +135,7 @@ endif
 KBUILD_CFLAGS	+=$(CFLAGS_ABI) $(CFLAGS_ISA) $(arch-y) $(tune-y) $(call cc-option,-mshort-load-bytes,$(call cc-option,-malignment-traps,)) -msoft-float -Uarm
 KBUILD_AFLAGS	+=$(CFLAGS_ABI) $(AFLAGS_ISA) $(arch-y) $(tune-y) -include asm/unified.h -msoft-float
 
-CHECKFLAGS	+= -D__arm__
+CHECKFLAGS	+= -D__arm__ -m32
 
 #Default value
 head-y		:= arch/arm/kernel/head$(MMUEXT).o
@@ -299,7 +303,7 @@ libs-y				:= arch/arm/lib/ $(libs-y)
 ifeq ($(CONFIG_XIP_KERNEL),y)
 KBUILD_IMAGE := xipImage
 else ifeq ($(CONFIG_BUILD_ARM_APPENDED_DTB_IMAGE),y)
-KBUILD_IMAGE := zImage-dtb
+KBUILD_IMAGE := $(subst $\",,$(CONFIG_BUILD_ARM_APPENDED_KERNEL_IMAGE_NAME))
 else
 KBUILD_IMAGE := zImage
 endif
@@ -351,6 +355,10 @@ endif
 
 zImage-dtb: vmlinux scripts dtbs
 	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) DTSSUBDIR=$(DTSSUBDIR) $(boot)/$@
+
+Image-dtb: vmlinux scripts dtbs
+	$(Q)$(MAKE) $(build)=$(boot) MACHINE=$(MACHINE) DTSSUBDIR=$(DTSSUBDIR) $(boot)/$@
+
 
 # We use MRPROPER_FILES and CLEAN_FILES now
 archclean:

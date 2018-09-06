@@ -116,6 +116,14 @@
 		} \
 	} while (0)
 
+/* round addresses for closes page per SMMU requirements */
+#define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
+	do { \
+		(iova_p) = rounddown((iova), PAGE_SIZE); \
+		(pa_p) = rounddown((pa), PAGE_SIZE); \
+		(size_p) = roundup((size) + (pa) - (pa_p), PAGE_SIZE); \
+	} while (0)
+
 #define WLAN_AMPDU_TX_EP 15
 #define WLAN_PROD_TX_EP  19
 #define WLAN1_CONS_RX_EP  14
@@ -185,6 +193,198 @@
 #define IPA3_ACTIVE_CLIENTS_LOG_HASHTABLE_SIZE 50
 #define IPA3_ACTIVE_CLIENTS_LOG_NAME_LEN 40
 
+#define IPA_WDI_RX_RING_RES			0
+#define IPA_WDI_RX_RING_RP_RES		1
+#define IPA_WDI_RX_COMP_RING_RES	2
+#define IPA_WDI_RX_COMP_RING_WP_RES	3
+#define IPA_WDI_TX_RING_RES			4
+#define IPA_WDI_CE_RING_RES			5
+#define IPA_WDI_CE_DB_RES			6
+#define IPA_WDI_TX_DB_RES			7
+#define IPA_WDI_MAX_RES				8
+
+#ifdef CONFIG_ARM64
+/* Outer caches unsupported on ARM64 platforms */
+# define outer_flush_range(x, y)
+# define __cpuc_flush_dcache_area __flush_dcache_area
+#endif
+
+#define IPA_GPIO_IN_QUERY_CLK_IDX 0
+#define IPA_GPIO_OUT_CLK_RSP_CMPLT_IDX 0
+#define IPA_GPIO_OUT_CLK_VOTE_IDX 1
+
+#define IPA_SUMMING_THRESHOLD (0x10)
+#define IPA_PIPE_MEM_START_OFST (0x0)
+#define IPA_PIPE_MEM_SIZE (0x0)
+#define IPA_MOBILE_AP_MODE(x) (x == IPA_MODE_MOBILE_AP_ETH || \
+			       x == IPA_MODE_MOBILE_AP_WAN || \
+			       x == IPA_MODE_MOBILE_AP_WLAN)
+#define IPA_CNOC_CLK_RATE (75 * 1000 * 1000UL)
+#define IPA_A5_MUX_HEADER_LENGTH (8)
+
+#define IPA_AGGR_MAX_STR_LENGTH (10)
+
+#define CLEANUP_TAG_PROCESS_TIMEOUT 500
+
+#define IPA_AGGR_STR_IN_BYTES(str) \
+	(strnlen((str), IPA_AGGR_MAX_STR_LENGTH - 1) + 1)
+
+#define IPA_TRANSPORT_PROD_TIMEOUT_MSEC 100
+
+#define IPA3_ACTIVE_CLIENTS_TABLE_BUF_SIZE 2048
+
+#define IPA3_ACTIVE_CLIENT_LOG_TYPE_EP 0
+#define IPA3_ACTIVE_CLIENT_LOG_TYPE_SIMPLE 1
+#define IPA3_ACTIVE_CLIENT_LOG_TYPE_RESOURCE 2
+#define IPA3_ACTIVE_CLIENT_LOG_TYPE_SPECIAL 3
+
+#define IPA_MHI_GSI_EVENT_RING_ID_START 10
+#define IPA_MHI_GSI_EVENT_RING_ID_END 12
+
+#define IPA_SMEM_SIZE (8 * 1024)
+
+#define IPA_GSI_CHANNEL_HALT_MIN_SLEEP 5000
+#define IPA_GSI_CHANNEL_HALT_MAX_SLEEP 10000
+#define IPA_GSI_CHANNEL_HALT_MAX_TRY 10
+
+/* round addresses for closes page per SMMU requirements */
+#define IPA_SMMU_ROUND_TO_PAGE(iova, pa, size, iova_p, pa_p, size_p) \
+	do { \
+		(iova_p) = rounddown((iova), PAGE_SIZE); \
+		(pa_p) = rounddown((pa), PAGE_SIZE); \
+		(size_p) = roundup((size) + (pa) - (pa_p), PAGE_SIZE); \
+	} while (0)
+
+
+/* The relative location in /lib/firmware where the FWs will reside */
+#define IPA_FWS_PATH         "ipa/ipa_fws.elf"
+/*
+ * The following paths below are used when building the system for the
+ * emulation environment or when IPA_EMULATION_COMPILE == 1.
+ *
+ * As new hardware platforms are added into the emulation environment,
+ * please add the appropriate paths here for their firmwares.
+ */
+#define IPA_FWS_PATH_4_0     "ipa/4.0/ipa_fws.elf"
+#define IPA_FWS_PATH_3_5_1   "ipa/3.5.1/ipa_fws.elf"
+
+#ifdef CONFIG_COMPAT
+#define IPA_IOC_ADD_HDR32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_ADD_HDR, \
+					compat_uptr_t)
+#define IPA_IOC_DEL_HDR32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_DEL_HDR, \
+					compat_uptr_t)
+#define IPA_IOC_ADD_RT_RULE32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_ADD_RT_RULE, \
+					compat_uptr_t)
+#define IPA_IOC_DEL_RT_RULE32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_DEL_RT_RULE, \
+					compat_uptr_t)
+#define IPA_IOC_ADD_FLT_RULE32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_ADD_FLT_RULE, \
+					compat_uptr_t)
+#define IPA_IOC_DEL_FLT_RULE32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_DEL_FLT_RULE, \
+					compat_uptr_t)
+#define IPA_IOC_GET_RT_TBL32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GET_RT_TBL, \
+				compat_uptr_t)
+#define IPA_IOC_COPY_HDR32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_COPY_HDR, \
+				compat_uptr_t)
+#define IPA_IOC_QUERY_INTF32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_QUERY_INTF, \
+				compat_uptr_t)
+#define IPA_IOC_QUERY_INTF_TX_PROPS32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_QUERY_INTF_TX_PROPS, \
+				compat_uptr_t)
+#define IPA_IOC_QUERY_INTF_RX_PROPS32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_QUERY_INTF_RX_PROPS, \
+					compat_uptr_t)
+#define IPA_IOC_QUERY_INTF_EXT_PROPS32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_QUERY_INTF_EXT_PROPS, \
+					compat_uptr_t)
+#define IPA_IOC_GET_HDR32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GET_HDR, \
+				compat_uptr_t)
+#define IPA_IOC_ALLOC_NAT_MEM32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ALLOC_NAT_MEM, \
+				compat_uptr_t)
+#define IPA_IOC_ALLOC_NAT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ALLOC_NAT_TABLE, \
+				compat_uptr_t)
+#define IPA_IOC_ALLOC_IPV6CT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ALLOC_IPV6CT_TABLE, \
+				compat_uptr_t)
+#define IPA_IOC_V4_INIT_NAT32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_V4_INIT_NAT, \
+				compat_uptr_t)
+#define IPA_IOC_INIT_IPV6CT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_INIT_IPV6CT_TABLE, \
+				compat_uptr_t)
+#define IPA_IOC_TABLE_DMA_CMD32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_TABLE_DMA_CMD, \
+				compat_uptr_t)
+#define IPA_IOC_V4_DEL_NAT32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_V4_DEL_NAT, \
+				compat_uptr_t)
+#define IPA_IOC_DEL_NAT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_DEL_NAT_TABLE, \
+				compat_uptr_t)
+#define IPA_IOC_DEL_IPV6CT_TABLE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_DEL_IPV6CT_TABLE, \
+				compat_uptr_t)
+#define IPA_IOC_NAT_MODIFY_PDN32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_NAT_MODIFY_PDN, \
+				compat_uptr_t)
+#define IPA_IOC_GET_NAT_OFFSET32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GET_NAT_OFFSET, \
+				compat_uptr_t)
+#define IPA_IOC_PULL_MSG32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_PULL_MSG, \
+				compat_uptr_t)
+#define IPA_IOC_RM_ADD_DEPENDENCY32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_RM_ADD_DEPENDENCY, \
+				compat_uptr_t)
+#define IPA_IOC_RM_DEL_DEPENDENCY32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_RM_DEL_DEPENDENCY, \
+				compat_uptr_t)
+#define IPA_IOC_GENERATE_FLT_EQ32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GENERATE_FLT_EQ, \
+				compat_uptr_t)
+#define IPA_IOC_QUERY_RT_TBL_INDEX32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_QUERY_RT_TBL_INDEX, \
+				compat_uptr_t)
+#define IPA_IOC_WRITE_QMAPID32  _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_WRITE_QMAPID, \
+				compat_uptr_t)
+#define IPA_IOC_MDFY_FLT_RULE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_MDFY_FLT_RULE, \
+				compat_uptr_t)
+#define IPA_IOC_NOTIFY_WAN_UPSTREAM_ROUTE_ADD32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_NOTIFY_WAN_UPSTREAM_ROUTE_ADD, \
+				compat_uptr_t)
+#define IPA_IOC_NOTIFY_WAN_UPSTREAM_ROUTE_DEL32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_NOTIFY_WAN_UPSTREAM_ROUTE_DEL, \
+				compat_uptr_t)
+#define IPA_IOC_NOTIFY_WAN_EMBMS_CONNECTED32 _IOWR(IPA_IOC_MAGIC, \
+					IPA_IOCTL_NOTIFY_WAN_EMBMS_CONNECTED, \
+					compat_uptr_t)
+#define IPA_IOC_ADD_HDR_PROC_CTX32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_ADD_HDR_PROC_CTX, \
+				compat_uptr_t)
+#define IPA_IOC_DEL_HDR_PROC_CTX32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_DEL_HDR_PROC_CTX, \
+				compat_uptr_t)
+#define IPA_IOC_MDFY_RT_RULE32 _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_MDFY_RT_RULE, \
+				compat_uptr_t)
+#endif /* #ifdef CONFIG_COMPAT */
+
+#define IPA_TZ_UNLOCK_ATTRIBUTE 0x0C0311
+#define TZ_MEM_PROTECT_REGION_ID 0x10
+
 struct ipa3_active_client_htable_entry {
 	struct hlist_node list;
 	char id_string[IPA3_ACTIVE_CLIENTS_LOG_NAME_LEN];
@@ -229,6 +429,7 @@ struct ipa_smmu_cb_ctx {
  * @prio: rule 10bit priority which defines the order of the rule
  *  among other rules at the same integrated table
  * @rule_id: rule 10bit ID to be returned in packet status
+ * @ipacm_installed: indicate if installed by ipacm
  */
 struct ipa3_flt_entry {
 	struct list_head link;
@@ -240,6 +441,7 @@ struct ipa3_flt_entry {
 	int id;
 	u16 prio;
 	u16 rule_id;
+	bool ipacm_installed;
 };
 
 /**
@@ -296,6 +498,7 @@ struct ipa3_rt_tbl {
  * @is_eth2_ofst_valid: is eth2_ofst field valid?
  * @eth2_ofst: offset to start of Ethernet-II/802.3 header
  * @user_deleted: is the header deleted by the user?
+ * @ipacm_installed: indicate if installed by ipacm
  */
 struct ipa3_hdr_entry {
 	struct list_head link;
@@ -314,6 +517,7 @@ struct ipa3_hdr_entry {
 	u8 is_eth2_ofst_valid;
 	u16 eth2_ofst;
 	bool user_deleted;
+	bool ipacm_installed;
 };
 
 /**
@@ -337,11 +541,13 @@ struct ipa3_hdr_tbl {
  * @link: entry's link in global processing context header offset entries list
  * @offset: the offset
  * @bin: bin
+ * @ipacm_installed: indicate if installed by ipacm
  */
 struct ipa3_hdr_proc_ctx_offset_entry {
 	struct list_head link;
 	u32 offset;
 	u32 bin;
+	bool ipacm_installed;
 };
 
 /**
@@ -355,6 +561,7 @@ struct ipa3_hdr_proc_ctx_offset_entry {
  * @ref_cnt: reference counter of routing table
  * @id: processing context header entry id
  * @user_deleted: is the hdr processing context deleted by the user?
+ * @ipacm_installed: indicate if installed by ipacm
  */
 struct ipa3_hdr_proc_ctx_entry {
 	struct list_head link;
@@ -366,6 +573,7 @@ struct ipa3_hdr_proc_ctx_entry {
 	u32 ref_cnt;
 	int id;
 	bool user_deleted;
+	bool ipacm_installed;
 };
 
 /**
@@ -421,6 +629,8 @@ struct ipa3_flt_tbl {
  * @prio: rule 10bit priority which defines the order of the rule
  *  among other rules at the integrated same table
  * @rule_id: rule 10bit ID to be returned in packet status
+ * @rule_id_valid: indicate if rule_id_valid valid or not?
+ * @ipacm_installed: indicate if installed by ipacm
  */
 struct ipa3_rt_entry {
 	struct list_head link;
@@ -434,6 +644,7 @@ struct ipa3_rt_entry {
 	u16 prio;
 	u16 rule_id;
 	u16 rule_id_valid;
+	bool ipacm_installed;
 };
 
 /**
@@ -529,6 +740,8 @@ struct ipa3_status_stats {
  * @qmi_request_sent: Indicates whether QMI request to enable clear data path
  *					request is sent or not.
  * @napi_enabled: when true, IPA call client callback to start polling
+ * @client_lock_unlock: callback function to take mutex lock/unlock for USB
+ *				clients
  */
 struct ipa3_ep_context {
 	int valid;
@@ -560,6 +773,8 @@ struct ipa3_ep_context {
 	bool napi_enabled;
 	u32 eot_in_poll_err;
 	bool ep_delay_set;
+
+	int (*client_lock_unlock)(bool is_lock);
 
 	/* sys MUST be the last element of this struct */
 	struct ipa3_sys_context *sys;
@@ -772,12 +987,12 @@ struct ipa3_rx_pkt_wrapper {
 };
 
 /**
-* struct ipa_pdn_entry - IPA PDN config table entry
-* @public_ip: the PDN's public ip
-* @src_metadata: the PDN's metadata to be replaced for source NAT
-* @dst_metadata: the PDN's metadata to be replaced for destination NAT
-* @resrvd: reserved field
-*/
+ * struct ipa_pdn_entry - IPA PDN config table entry
+ * @public_ip: the PDN's public ip
+ * @src_metadata: the PDN's metadata to be replaced for source NAT
+ * @dst_metadata: the PDN's metadata to be replaced for destination NAT
+ * @resrvd: reserved field
+ */
 struct ipa_pdn_entry {
 	u32 public_ip;
 	u32 src_metadata;
@@ -871,9 +1086,9 @@ struct ipa3_nat_mem {
 };
 
 /**
-* struct ipa3_ipv6ct_mem - IPA IPv6 connection tracking memory description
-* @dev: the memory device structure
-*/
+ * struct ipa3_ipv6ct_mem - IPA IPv6 connection tracking memory description
+ * @dev: the memory device structure
+ */
 struct ipa3_ipv6ct_mem {
 	struct ipa3_nat_ipv6ct_common_mem dev;
 };
@@ -883,11 +1098,13 @@ struct ipa3_ipv6ct_mem {
  * @IPA_HW_Normal: Regular IPA hardware
  * @IPA_HW_Virtual: IPA hardware supporting virtual memory allocation
  * @IPA_HW_PCIE: IPA hardware supporting memory allocation over PCIE Bridge
+ * @IPA_HW_Emulation: IPA emulation hardware
  */
 enum ipa3_hw_mode {
-	IPA_HW_MODE_NORMAL  = 0,
-	IPA_HW_MODE_VIRTUAL = 1,
-	IPA_HW_MODE_PCIE    = 2
+	IPA_HW_MODE_NORMAL    = 0,
+	IPA_HW_MODE_VIRTUAL   = 1,
+	IPA_HW_MODE_PCIE      = 2,
+	IPA_HW_MODE_EMULATION = 3,
 };
 
 enum ipa3_config_this_ep {
@@ -1114,6 +1331,7 @@ struct ipa_hw_stats_quota {
 
 struct ipa_hw_stats_teth {
 	struct ipahal_stats_init_tethering init;
+	struct ipa_quota_stats_all prod_stats_sum[IPA_CLIENT_MAX];
 	struct ipa_quota_stats_all prod_stats[IPA_CLIENT_MAX];
 };
 
@@ -1150,11 +1368,22 @@ enum ipa_smmu_cb_type {
 };
 
 /**
- * struct ipa3_context - IPA context
+ * struct ipa3_char_device_context - IPA character device
  * @class: pointer to the struct class
  * @dev_num: device number
  * @dev: the dev_t of the device
  * @cdev: cdev of the device
+ */
+struct ipa3_char_device_context {
+	struct class *class;
+	dev_t dev_num;
+	struct device *dev;
+	struct cdev cdev;
+};
+
+/**
+ * struct ipa3_context - IPA context
+ * @cdev: cdev context
  * @ep: list of all end points
  * @skip_ep_cfg_shadow: state to update filter table correctly across
   power-save
@@ -1166,6 +1395,7 @@ enum ipa_smmu_cb_type {
  * @mode: IPA operating mode
  * @mmio: iomem
  * @ipa_wrapper_base: IPA wrapper base address
+ * @ipa_wrapper_size: size of the memory pointed to by ipa_wrapper_base
  * @hdr_tbl: IPA header table
  * @hdr_proc_ctx_tbl: IPA processing context table
  * @rt_tbl_set: list of routing tables each of which is a list of rules
@@ -1240,10 +1470,7 @@ enum ipa_smmu_cb_type {
  * IPA context - holds all relevant info about IPA driver and its state
  */
 struct ipa3_context {
-	struct class *class;
-	dev_t dev_num;
-	struct device *dev;
-	struct cdev cdev;
+	struct ipa3_char_device_context cdev;
 	struct ipa3_ep_context ep[IPA3_MAX_NUM_PIPES];
 	bool skip_ep_cfg_shadow[IPA3_MAX_NUM_PIPES];
 	u32 ep_flt_bitmap;
@@ -1309,6 +1536,8 @@ struct ipa3_context {
 	struct list_head msg_list;
 	struct list_head pull_msg_list;
 	struct mutex msg_lock;
+	struct list_head msg_wlan_client_list;
+	struct mutex msg_wlan_client_lock;
 	wait_queue_head_t msg_waitq;
 	enum ipa_hw_type ipa_hw_type;
 	enum ipa3_hw_mode ipa3_hw_mode;
@@ -1325,6 +1554,7 @@ struct ipa3_context {
 	u32 ipa_bus_hdl;
 	struct ipa3_controller *ctrl;
 	struct idr ipa_idr;
+	struct platform_device *master_pdev;
 	struct device *pdev;
 	struct device *uc_pdev;
 	spinlock_t idr_lock;
@@ -1350,7 +1580,6 @@ struct ipa3_context {
 	u32 ee;
 	bool apply_rg10_wa;
 	bool gsi_ch20_wa;
-	bool smmu_present;
 	bool s1_bypass_arr[IPA_SMMU_CB_MAX];
 	u32 wdi_map_cnt;
 	struct wakeup_source w_lock;
@@ -1375,6 +1604,7 @@ struct ipa3_context {
 	struct mutex ipa_cne_evt_lock;
 	bool use_ipa_pm;
 	bool vlan_mode_iface[IPA_VLAN_IF_MAX];
+	bool wdi_over_pcie;
 };
 
 struct ipa3_plat_drv_res {
@@ -1383,6 +1613,9 @@ struct ipa3_plat_drv_res {
 	u32 ipa_mem_size;
 	u32 transport_mem_base;
 	u32 transport_mem_size;
+	u32 emulator_intcntrlr_mem_base;
+	u32 emulator_intcntrlr_mem_size;
+	u32 emulator_irq;
 	u32 ipa_irq;
 	u32 transport_irq;
 	u32 ipa_pipe_mem_start_ofst;
@@ -1401,10 +1634,12 @@ struct ipa3_plat_drv_res {
 	bool gsi_ch20_wa;
 	bool tethered_flow_control;
 	u32 mhi_evid_limits[2]; /* start and end values */
+	bool ipa_mhi_dynamic_config;
 	u32 ipa_tz_unlock_reg_num;
 	struct ipa_tz_unlock_reg_info *ipa_tz_unlock_reg;
 	bool use_ipa_pm;
 	struct ipa_pm_init_params pm_init;
+	bool wdi_over_pcie;
 };
 
 /**
@@ -1685,6 +1920,9 @@ int ipa3_xdci_connect(u32 clnt_hdl);
 int ipa3_xdci_disconnect(u32 clnt_hdl, bool should_force_clear, u32 qmi_req_id);
 
 void ipa3_xdci_ep_delay_rm(u32 clnt_hdl);
+void ipa3_register_lock_unlock_callback(int (*client_cb)(bool), u32 ipa_ep_idx);
+void ipa3_deregister_lock_unlock_callback(u32 ipa_ep_idx);
+void ipa3_set_usb_prod_pipe_delay(void);
 
 int ipa3_xdci_suspend(u32 ul_clnt_hdl, u32 dl_clnt_hdl,
 	bool should_force_clear, u32 qmi_req_id, bool is_dpl);
@@ -1737,13 +1975,15 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl);
  */
 int ipa3_add_hdr(struct ipa_ioc_add_hdr *hdrs);
 
+int ipa3_add_hdr_usr(struct ipa_ioc_add_hdr *hdrs, bool by_user);
+
 int ipa3_del_hdr(struct ipa_ioc_del_hdr *hdls);
 
 int ipa3_del_hdr_by_user(struct ipa_ioc_del_hdr *hdls, bool by_user);
 
 int ipa3_commit_hdr(void);
 
-int ipa3_reset_hdr(void);
+int ipa3_reset_hdr(bool user_only);
 
 int ipa3_get_hdr(struct ipa_ioc_get_hdr *lookup);
 
@@ -1754,7 +1994,8 @@ int ipa3_copy_hdr(struct ipa_ioc_copy_hdr *copy);
 /*
  * Header Processing Context
  */
-int ipa3_add_hdr_proc_ctx(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs);
+int ipa3_add_hdr_proc_ctx(struct ipa_ioc_add_hdr_proc_ctx *proc_ctxs,
+							bool user_only);
 
 int ipa3_del_hdr_proc_ctx(struct ipa_ioc_del_hdr_proc_ctx *hdls);
 
@@ -1766,6 +2007,9 @@ int ipa3_del_hdr_proc_ctx_by_user(struct ipa_ioc_del_hdr_proc_ctx *hdls,
  */
 int ipa3_add_rt_rule(struct ipa_ioc_add_rt_rule *rules);
 
+int ipa3_add_rt_rule_usr(struct ipa_ioc_add_rt_rule *rules,
+	bool user_only);
+
 int ipa3_add_rt_rule_ext(struct ipa_ioc_add_rt_rule_ext *rules);
 
 int ipa3_add_rt_rule_after(struct ipa_ioc_add_rt_rule_after *rules);
@@ -1774,7 +2018,7 @@ int ipa3_del_rt_rule(struct ipa_ioc_del_rt_rule *hdls);
 
 int ipa3_commit_rt(enum ipa_ip_type ip);
 
-int ipa3_reset_rt(enum ipa_ip_type ip);
+int ipa3_reset_rt(enum ipa_ip_type ip, bool user_only);
 
 int ipa3_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup);
 
@@ -1789,6 +2033,9 @@ int ipa3_mdfy_rt_rule(struct ipa_ioc_mdfy_rt_rule *rules);
  */
 int ipa3_add_flt_rule(struct ipa_ioc_add_flt_rule *rules);
 
+int ipa3_add_flt_rule_usr(struct ipa_ioc_add_flt_rule *rules,
+	bool user_only);
+
 int ipa3_add_flt_rule_after(struct ipa_ioc_add_flt_rule_after *rules);
 
 int ipa3_del_flt_rule(struct ipa_ioc_del_flt_rule *hdls);
@@ -1797,7 +2044,7 @@ int ipa3_mdfy_flt_rule(struct ipa_ioc_mdfy_flt_rule *rules);
 
 int ipa3_commit_flt(enum ipa_ip_type ip);
 
-int ipa3_reset_flt(enum ipa_ip_type ip);
+int ipa3_reset_flt(enum ipa_ip_type ip, bool user_only);
 
 /*
  * NAT
@@ -1828,6 +2075,7 @@ int ipa3_nat_mdfy_pdn(struct ipa_ioc_nat_pdn_entry *mdfy_pdn);
  */
 int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 		  ipa_msg_free_fn callback);
+int ipa3_resend_wlan_msg(void);
 int ipa3_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback);
 int ipa3_deregister_pull_msg(struct ipa_msg_meta *meta);
 
@@ -1860,7 +2108,7 @@ int ipa3_tx_dp(enum ipa_client_type dst, struct sk_buff *skb,
  * To transfer multiple data packets
  * While passing the data descriptor list, the anchor node
  * should be of type struct ipa_tx_data_desc not list_head
-*/
+ */
 int ipa3_tx_dp_mul(enum ipa_client_type dst,
 			struct ipa_tx_data_desc *data_desc);
 
@@ -1895,11 +2143,13 @@ int ipa3_broadcast_wdi_quota_reach_ind(uint32_t fid, uint64_t num_bytes);
 int ipa3_setup_uc_ntn_pipes(struct ipa_ntn_conn_in_params *in,
 		ipa_notify_cb notify, void *priv, u8 hdr_len,
 		struct ipa_ntn_conn_out_params *outp);
-int ipa3_tear_down_uc_offload_pipes(int ipa_ep_idx_ul, int ipa_ep_idx_dl);
+int ipa3_tear_down_uc_offload_pipes(int ipa_ep_idx_ul, int ipa_ep_idx_dl,
+	struct ipa_ntn_conn_in_params *params);
 int ipa3_ntn_uc_reg_rdyCB(void (*ipauc_ready_cb)(void *), void *priv);
 void ipa3_ntn_uc_dereg_rdyCB(void);
-int ipa3_conn_wdi3_pipes(struct ipa_wdi3_conn_in_params *in,
-	struct ipa_wdi3_conn_out_params *out);
+int ipa3_conn_wdi3_pipes(struct ipa_wdi_conn_in_params *in,
+	struct ipa_wdi_conn_out_params *out,
+	ipa_wdi_meter_notifier_cb wdi_notify);
 int ipa3_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
 int ipa3_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
 int ipa3_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
@@ -1920,6 +2170,10 @@ int ipa3_uc_reg_rdyCB(struct ipa_wdi_uc_ready_params *param);
  * To de-register uC ready callback
  */
 int ipa3_uc_dereg_rdyCB(void);
+
+int ipa_create_uc_smmu_mapping(int res_idx, bool wlan_smmu_en,
+		phys_addr_t pa, struct sg_table *sgt, size_t len, bool device,
+		unsigned long *iova);
 
 /*
  * Tethering bridge (Rmnet / MBIM)
@@ -2005,6 +2259,8 @@ int ipa3_remove_interrupt_handler(enum ipa_irq_type interrupt);
  * Miscellaneous
  */
 int ipa3_get_ep_mapping(enum ipa_client_type client);
+
+enum gsi_prefetch_mode ipa_get_ep_prefetch_mode(enum ipa_client_type client);
 
 bool ipa3_is_ready(void);
 
@@ -2092,6 +2348,7 @@ int __ipa3_release_hdr(u32 hdr_hdl);
 int __ipa3_release_hdr_proc_ctx(u32 proc_ctx_hdl);
 int _ipa_read_ep_reg_v3_0(char *buf, int max_len, int pipe);
 int _ipa_read_ep_reg_v4_0(char *buf, int max_len, int pipe);
+int _ipa_read_ipahal_regs(void);
 void _ipa_enable_clks_v3_0(void);
 void _ipa_disable_clks_v3_0(void);
 struct device *ipa3_get_dma_dev(void);
@@ -2236,8 +2493,10 @@ int ipa_reset_all_drop_stats(void);
 
 int ipa_init_teth_stats(struct ipa_teth_stats_endpoints *in);
 
-int ipa_get_teth_stats(enum ipa_client_type prod,
-	struct ipa_quota_stats_all *out);
+int ipa_get_teth_stats(void);
+
+int ipa_query_teth_stats(enum ipa_client_type prod,
+	struct ipa_quota_stats_all *out, bool reset);
 
 int ipa_reset_teth_stats(enum ipa_client_type prod, enum ipa_client_type cons);
 
@@ -2260,12 +2519,12 @@ int ipa_reset_flt_rt_stats(enum ipa_ip_type ip, bool filtering, u16 rule_id);
 int ipa_reset_all_flt_rt_stats(enum ipa_ip_type ip, bool filtering);
 
 u32 ipa3_get_num_pipes(void);
-struct ipa_smmu_cb_ctx *ipa3_get_smmu_ctx(void);
-struct ipa_smmu_cb_ctx *ipa3_get_wlan_smmu_ctx(void);
-struct ipa_smmu_cb_ctx *ipa3_get_uc_smmu_ctx(void);
+struct ipa_smmu_cb_ctx *ipa3_get_smmu_ctx(enum ipa_smmu_cb_type);
 struct iommu_domain *ipa3_get_smmu_domain(void);
 struct iommu_domain *ipa3_get_uc_smmu_domain(void);
 struct iommu_domain *ipa3_get_wlan_smmu_domain(void);
+struct iommu_domain *ipa3_get_smmu_domain_by_type
+	(enum ipa_smmu_cb_type cb_type);
 int ipa3_iommu_map(struct iommu_domain *domain, unsigned long iova,
 	phys_addr_t paddr, size_t size, int prot);
 int ipa3_ap_suspend(struct device *dev);
@@ -2295,14 +2554,19 @@ int ipa3_uc_panic_notifier(struct notifier_block *this,
 void ipa3_inc_acquire_wakelock(void);
 void ipa3_dec_release_wakelock(void);
 int ipa3_load_fws(const struct firmware *firmware, phys_addr_t gsi_mem_base);
+int emulator_load_fws(
+	const struct firmware *firmware,
+	u32 transport_mem_base,
+	u32 transport_mem_size);
 int ipa3_register_ipa_ready_cb(void (*ipa_ready_cb)(void *), void *user_data);
 const char *ipa_hw_error_str(enum ipa3_hw_errors err_type);
 int ipa_gsi_ch20_wa(void);
 int ipa3_rx_poll(u32 clnt_hdl, int budget);
 void ipa3_recycle_wan_skb(struct sk_buff *skb);
-int ipa3_smmu_map_peer_reg(phys_addr_t phys_addr, bool map);
-int ipa3_smmu_map_peer_buff(u64 iova, phys_addr_t phys_addr,
-	u32 size, bool map);
+int ipa3_smmu_map_peer_reg(phys_addr_t phys_addr, bool map,
+	enum ipa_smmu_cb_type cb_type);
+int ipa3_smmu_map_peer_buff(u64 iova, u32 size, bool map, struct sg_table *sgt,
+	enum ipa_smmu_cb_type cb_type);
 void ipa3_reset_freeze_vote(void);
 int ipa3_ntn_init(void);
 int ipa3_get_ntn_stats(struct Ipa3HwStatsNTNInfoData_t *stats);
@@ -2319,4 +2583,10 @@ void __ipa_gsi_irq_rx_scedule_poll(struct ipa3_sys_context *sys);
 int ipa3_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs);
 void ipa3_init_imm_cmd_desc(struct ipa3_desc *desc,
 	struct ipahal_imm_cmd_pyld *cmd_pyld);
+int ipa3_is_vlan_mode(enum ipa_vlan_ifaces iface, bool *res);
+uint ipa3_get_emulation_type(void);
+int ipa3_get_transport_info(
+	phys_addr_t *phys_addr_ptr,
+	unsigned long *size_ptr);
+irq_handler_t ipa3_get_isr(void);
 #endif /* _IPA3_I_H_ */

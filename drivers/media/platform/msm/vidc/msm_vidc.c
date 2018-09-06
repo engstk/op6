@@ -495,6 +495,7 @@ int msm_vidc_qbuf(void *instance, struct v4l2_buffer *b)
 	struct msm_vidc_inst *inst = instance;
 	int rc = 0, i = 0;
 	struct buf_queue *q = NULL;
+	struct vidc_tag_data tag_data;
 	u32 cr = 0;
 
 	if (!inst || !inst->core || !b || !valid_v4l2_buffer(b, inst)) {
@@ -523,6 +524,12 @@ int msm_vidc_qbuf(void *instance, struct v4l2_buffer *b)
 			b->m.planes[0].reserved[3], b->m.planes[0].reserved[4]);
 	}
 
+	tag_data.index = b->index;
+	tag_data.type = b->type;
+	tag_data.input_tag = b->m.planes[0].reserved[5];
+	tag_data.output_tag = b->m.planes[0].reserved[6];
+	msm_comm_store_tags(inst, &tag_data);
+
 	q = msm_comm_get_vb2q(inst, b->type);
 	if (!q) {
 		dprintk(VIDC_ERR,
@@ -545,6 +552,7 @@ int msm_vidc_dqbuf(void *instance, struct v4l2_buffer *b)
 	struct msm_vidc_inst *inst = instance;
 	int rc = 0, i = 0;
 	struct buf_queue *q = NULL;
+	struct vidc_tag_data tag_data;
 
 	if (!inst || !b || !valid_v4l2_buffer(b, inst)) {
 		dprintk(VIDC_ERR, "%s: invalid params, inst %pK\n",
@@ -581,6 +589,13 @@ int msm_vidc_dqbuf(void *instance, struct v4l2_buffer *b)
 			&b->m.planes[0].reserved[3],
 			&b->m.planes[0].reserved[4]);
 	}
+
+	tag_data.index = b->index;
+	tag_data.type = b->type;
+
+	msm_comm_fetch_tags(inst, &tag_data);
+	b->m.planes[0].reserved[5] = tag_data.input_tag;
+	b->m.planes[0].reserved[6] = tag_data.output_tag;
 
 	return rc;
 }
@@ -886,6 +901,51 @@ static inline int msm_vidc_verify_buffer_counts(struct msm_vidc_inst *inst)
 	return rc;
 }
 
+static int msm_vidc_create_tile_info_table(struct msm_vidc_inst *inst)
+{
+	int i = 0, j = 0;
+	u32 width = 0, height = 0;
+	u32 trows = 0, tcols = 0;
+
+	/* Don't create table for non-HEIC formats*/
+	if (inst->img_grid_dimension <= 0 ||
+		inst->fmts[CAPTURE_PORT].fourcc != V4L2_PIX_FMT_HEVC)
+		return 0;
+
+	width = inst->prop.width[OUTPUT_PORT];
+	height = inst->prop.height[OUTPUT_PORT];
+	tcols = (width + inst->img_grid_dimension - 1) /
+		inst->img_grid_dimension;
+	trows = (height + inst->img_grid_dimension - 1) /
+		inst->img_grid_dimension;
+	inst->tinfo.count = trows * tcols;
+	if (inst->tinfo.count > MAX_HEIC_TILES_COUNT) {
+		dprintk(VIDC_ERR,
+			"Tiles count (%d) exceeds maximum\n",
+			inst->tinfo.count);
+		return -ENOTSUPP;
+	}
+
+	dprintk(VIDC_DBG,
+		"Grid dimension %d width %d height %d row %d col %d\n",
+		inst->img_grid_dimension, width, height,
+		trows, tcols);
+
+	for (j = 0; j < trows; ++j) {
+		for (i = 0; i < tcols; ++i) {
+			inst->tinfo.tile_rects[j*tcols+i].left =
+				(i * inst->img_grid_dimension);
+			inst->tinfo.tile_rects[j*tcols+i].top =
+				(j * inst->img_grid_dimension);
+			inst->tinfo.tile_rects[j*tcols+i].width =
+				inst->img_grid_dimension;
+			inst->tinfo.tile_rects[j*tcols+i].height =
+				inst->img_grid_dimension;
+		}
+	}
+	return 0;
+}
+
 static inline int start_streaming(struct msm_vidc_inst *inst)
 {
 	int rc = 0;
@@ -893,6 +953,13 @@ static inline int start_streaming(struct msm_vidc_inst *inst)
 	struct hal_buffer_size_minimum b;
 
 	hdev = inst->core->device;
+
+	/* Create tile info table */
+	rc = msm_vidc_create_tile_info_table(inst);
+	if (rc) {
+		dprintk(VIDC_ERR, "Tile info table was not generated\n");
+		goto fail_start;
+	}
 
 	/* Check if current session is under HW capability */
 	rc = msm_vidc_check_session_supported(inst);
@@ -1465,7 +1532,9 @@ static int try_get_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 			V4L2_CID_MPEG_VIDC_VIDEO_HEVC_PROFILE,
 			inst->profile);
 		break;
-
+	case V4L2_CID_MPEG_VIDC_IMG_GRID_DIMENSION:
+		ctrl->val = inst->img_grid_dimension;
+		break;
 	case V4L2_CID_MPEG_VIDEO_H264_LEVEL:
 		ctrl->val = msm_comm_hal_to_v4l2(
 			V4L2_CID_MPEG_VIDEO_H264_LEVEL,
@@ -1522,6 +1591,11 @@ static int try_get_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_TME_PAYLOAD_VERSION:
 		ctrl->val = inst->capability.tme_version;
+		break;
+	case V4L2_CID_MPEG_VIDC_VIDEO_STREAM_FORMAT:
+		ctrl->val =
+			inst->capability.nal_stream_format.
+				nal_stream_format_supported;
 		break;
 	default:
 		/*
@@ -1618,6 +1692,7 @@ void *msm_vidc_open(int core_id, int session_type)
 	INIT_MSM_VIDC_LIST(&inst->scratchbufs);
 	INIT_MSM_VIDC_LIST(&inst->freqs);
 	INIT_MSM_VIDC_LIST(&inst->input_crs);
+	INIT_MSM_VIDC_LIST(&inst->buffer_tags);
 	INIT_MSM_VIDC_LIST(&inst->persistbufs);
 	INIT_MSM_VIDC_LIST(&inst->pending_getpropq);
 	INIT_MSM_VIDC_LIST(&inst->outputbufs);
@@ -1734,6 +1809,7 @@ fail_mem_client:
 	DEINIT_MSM_VIDC_LIST(&inst->eosbufs);
 	DEINIT_MSM_VIDC_LIST(&inst->freqs);
 	DEINIT_MSM_VIDC_LIST(&inst->input_crs);
+	DEINIT_MSM_VIDC_LIST(&inst->buffer_tags);
 	DEINIT_MSM_VIDC_LIST(&inst->etb_data);
 	DEINIT_MSM_VIDC_LIST(&inst->fbd_data);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -107,7 +107,8 @@ static int dsi_phy_regmap_init(struct platform_device *pdev,
 
 	phy->hw.base = ptr;
 
-	pr_debug("[%s] map dsi_phy registers to %p\n", phy->name, phy->hw.base);
+	pr_debug("[%s] map dsi_phy registers to %pK\n",
+		phy->name, phy->hw.base);
 
 	return rc;
 }
@@ -564,6 +565,8 @@ int dsi_phy_drv_init(struct msm_dsi_phy *dsi_phy)
 	snprintf(dbg_name, DSI_DEBUG_NAME_LEN, "dsi%d_phy", dsi_phy->index);
 	sde_dbg_reg_register_base(dbg_name, dsi_phy->hw.base,
 				msm_iomap_size(dsi_phy->pdev, "dsi_phy"));
+	sde_dbg_reg_register_dump_range(dbg_name, dbg_name, 0,
+				msm_iomap_size(dsi_phy->pdev, "dsi_phy"), 0);
 	return 0;
 }
 
@@ -694,8 +697,7 @@ static int dsi_phy_enable_ulps(struct msm_dsi_phy *phy,
 	u32 lanes = 0;
 	u32 ulps_lanes;
 
-	if (config->panel_mode == DSI_OP_CMD_MODE)
-		lanes = config->common_config.data_lanes;
+	lanes = config->common_config.data_lanes;
 	lanes |= DSI_CLOCK_LANE;
 
 	/*
@@ -730,8 +732,7 @@ static int dsi_phy_disable_ulps(struct msm_dsi_phy *phy,
 {
 	u32 ulps_lanes, lanes = 0;
 
-	if (config->panel_mode == DSI_OP_CMD_MODE)
-		lanes = config->common_config.data_lanes;
+	lanes = config->common_config.data_lanes;
 	lanes |= DSI_CLOCK_LANE;
 
 	ulps_lanes = phy->hw.ops.ulps_ops.get_lanes_in_ulps(&phy->hw);
@@ -754,6 +755,16 @@ static int dsi_phy_disable_ulps(struct msm_dsi_phy *phy,
 	return 0;
 }
 
+void dsi_phy_toggle_resync_fifo(struct msm_dsi_phy *phy)
+{
+	if (!phy)
+		return;
+
+	if (!phy->hw.ops.toggle_resync_fifo)
+		return;
+
+	phy->hw.ops.toggle_resync_fifo(&phy->hw);
+}
 
 int dsi_phy_set_ulps(struct msm_dsi_phy *phy, struct dsi_host_config *config,
 		bool enable, bool clamp_enabled)
@@ -891,6 +902,26 @@ int dsi_phy_disable(struct msm_dsi_phy *phy)
 	mutex_unlock(&phy->phy_lock);
 
 	return rc;
+}
+
+/**
+ * dsi_phy_set_clamp_state() - configure clamps for DSI lanes
+ * @phy:        DSI PHY handle.
+ * @enable:     boolean to specify clamp enable/disable.
+ *
+ * Return: error code.
+ */
+int dsi_phy_set_clamp_state(struct msm_dsi_phy *phy, bool enable)
+{
+	if (!phy)
+		return -EINVAL;
+
+	pr_debug("[%s] enable=%d\n", phy->name, enable);
+
+	if (phy->hw.ops.clamp_ctrl)
+		phy->hw.ops.clamp_ctrl(&phy->hw, enable);
+
+	return 0;
 }
 
 /**

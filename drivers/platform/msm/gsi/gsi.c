@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +20,7 @@
 #include <linux/delay.h>
 #include "gsi.h"
 #include "gsi_reg.h"
+#include "gsi_emulation.h"
 
 #define GSI_CMD_TIMEOUT (5*HZ)
 #define GSI_STOP_CMD_TIMEOUT_MS 20
@@ -27,10 +28,13 @@
 
 #define GSI_RESET_WA_MIN_SLEEP 1000
 #define GSI_RESET_WA_MAX_SLEEP 2000
+#define GSI_CHNL_STATE_MAX_RETRYCNT 10
 static const struct of_device_id msm_gsi_match[] = {
 	{ .compatible = "qcom,msm_gsi", },
 	{ },
 };
+
+static bool running_emulation = IPA_EMULATION_COMPILE;
 
 struct gsi_ctx *gsi_ctx;
 
@@ -576,7 +580,7 @@ static void gsi_handle_irq(void)
 		if (!type)
 			break;
 
-		GSIDBG_LOW("type %x\n", type);
+		GSIDBG_LOW("type 0x%x\n", type);
 
 		if (type & GSI_EE_n_CNTXT_TYPE_IRQ_CH_CTRL_BMSK)
 			gsi_handle_ch_ctrl(ee);
@@ -776,17 +780,57 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 			GSIERR("bad irq specified %u\n", props->irq);
 			return -GSI_STATUS_INVALID_PARAMS;
 		}
-
-		res = devm_request_irq(gsi_ctx->dev, props->irq,
+		/*
+		 * On a real UE, there are two separate interrupt
+		 * vectors that get directed toward the GSI/IPA
+		 * drivers.  They are handled by gsi_isr() and
+		 * (ipa_isr() or ipa3_isr()) respectively.  In the
+		 * emulation environment, this is not the case;
+		 * instead, interrupt vectors are routed to the
+		 * emualation hardware's interrupt controller, who in
+		 * turn, forwards a single interrupt to the GSI/IPA
+		 * driver.  When the new interrupt vector is received,
+		 * the driver needs to probe the interrupt
+		 * controller's registers so see if one, the other, or
+		 * both interrupts have occurred.  Given the above, we
+		 * now need to handle both situations, namely: the
+		 * emulator's and the real UE.
+		 */
+		if (running_emulation) {
+			/*
+			 * New scheme involving the emulator's
+			 * interrupt controller.
+			 */
+			res = devm_request_threaded_irq(
+				gsi_ctx->dev,
+				props->irq,
+				/* top half handler to follow */
+				emulator_hard_irq_isr,
+				/* threaded bottom half handler to follow */
+				emulator_soft_irq_isr,
+				IRQF_SHARED,
+				"emulator_intcntrlr",
+				gsi_ctx);
+		} else {
+			/*
+			 * Traditional scheme used on the real UE.
+			 */
+			res = devm_request_irq(gsi_ctx->dev, props->irq,
 				(irq_handler_t) gsi_isr,
 				props->req_clk_cb ? IRQF_TRIGGER_RISING :
 					IRQF_TRIGGER_HIGH,
 				"gsi",
 				gsi_ctx);
+		}
 		if (res) {
-			GSIERR("failed to register isr for %u\n", props->irq);
+			GSIERR(
+			 "failed to register isr for %u\n",
+			 props->irq);
 			return -GSI_STATUS_ERROR;
 		}
+		GSIDBG(
+			"succeeded to register isr for %u\n",
+			props->irq);
 
 		res = enable_irq_wake(props->irq);
 		if (res)
@@ -807,6 +851,41 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 		return -GSI_STATUS_RES_ALLOC_FAILURE;
 	}
 
+	GSIDBG("GSI base(%pa) mapped to (%pK) with len (0x%lx)\n",
+	       &(props->phys_addr),
+	       gsi_ctx->base,
+	       props->size);
+
+	if (running_emulation) {
+		GSIDBG("GSI SW ver register value 0x%x\n",
+		       gsi_readl(gsi_ctx->base +
+		       GSI_EE_n_GSI_SW_VERSION_OFFS(0)));
+		gsi_ctx->intcntrlr_mem_size =
+		    props->emulator_intcntrlr_size;
+		gsi_ctx->intcntrlr_base =
+		    devm_ioremap_nocache(
+			gsi_ctx->dev,
+			props->emulator_intcntrlr_addr,
+			props->emulator_intcntrlr_size);
+		if (!gsi_ctx->intcntrlr_base) {
+			GSIERR(
+			  "failed to remap emulator's interrupt controller HW\n");
+			devm_iounmap(gsi_ctx->dev, gsi_ctx->base);
+			devm_free_irq(gsi_ctx->dev, props->irq, gsi_ctx);
+			return -GSI_STATUS_RES_ALLOC_FAILURE;
+		}
+
+		GSIDBG(
+		    "Emulator's interrupt controller base(%pa) mapped to (%pK) with len (0x%lx)\n",
+		    &(props->emulator_intcntrlr_addr),
+		    gsi_ctx->intcntrlr_base,
+		    props->emulator_intcntrlr_size);
+
+		gsi_ctx->intcntrlr_gsi_isr = gsi_isr;
+		gsi_ctx->intcntrlr_client_isr =
+		    props->emulator_intcntrlr_client_isr;
+	}
+
 	gsi_ctx->per = *props;
 	gsi_ctx->per_registered = true;
 	mutex_init(&gsi_ctx->mlock);
@@ -815,6 +894,9 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	gsi_ctx->max_ch = gsi_get_max_channels(gsi_ctx->per.ver);
 	if (gsi_ctx->max_ch == 0) {
 		devm_iounmap(gsi_ctx->dev, gsi_ctx->base);
+		if (running_emulation)
+			devm_iounmap(gsi_ctx->dev, gsi_ctx->intcntrlr_base);
+		gsi_ctx->base = gsi_ctx->intcntrlr_base = NULL;
 		devm_free_irq(gsi_ctx->dev, props->irq, gsi_ctx);
 		GSIERR("failed to get max channels\n");
 		return -GSI_STATUS_ERROR;
@@ -822,6 +904,9 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	gsi_ctx->max_ev = gsi_get_max_event_rings(gsi_ctx->per.ver);
 	if (gsi_ctx->max_ev == 0) {
 		devm_iounmap(gsi_ctx->dev, gsi_ctx->base);
+		if (running_emulation)
+			devm_iounmap(gsi_ctx->dev, gsi_ctx->intcntrlr_base);
+		gsi_ctx->base = gsi_ctx->intcntrlr_base = NULL;
 		devm_free_irq(gsi_ctx->dev, props->irq, gsi_ctx);
 		GSIERR("failed to get max event rings\n");
 		return -GSI_STATUS_ERROR;
@@ -830,7 +915,9 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	if (props->mhi_er_id_limits_valid &&
 	    props->mhi_er_id_limits[0] > (gsi_ctx->max_ev - 1)) {
 		devm_iounmap(gsi_ctx->dev, gsi_ctx->base);
-		gsi_ctx->base = NULL;
+		if (running_emulation)
+			devm_iounmap(gsi_ctx->dev, gsi_ctx->intcntrlr_base);
+		gsi_ctx->base = gsi_ctx->intcntrlr_base = NULL;
 		devm_free_irq(gsi_ctx->dev, props->irq, gsi_ctx);
 		GSIERR("MHI event ring start id %u is beyond max %u\n",
 			props->mhi_er_id_limits[0], gsi_ctx->max_ev);
@@ -870,6 +957,22 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	if (gsi_ctx->per.ver >= GSI_VER_1_2)
 		gsi_writel(0, gsi_ctx->base +
 			GSI_EE_n_ERROR_LOG_OFFS(gsi_ctx->per.ee));
+
+	if (running_emulation) {
+		/*
+		 * Set up the emulator's interrupt controller...
+		 */
+		res = setup_emulator_cntrlr(
+		    gsi_ctx->intcntrlr_base, gsi_ctx->intcntrlr_mem_size);
+		if (res != 0) {
+			devm_iounmap(gsi_ctx->dev, gsi_ctx->base);
+			devm_iounmap(gsi_ctx->dev, gsi_ctx->intcntrlr_base);
+			gsi_ctx->base = gsi_ctx->intcntrlr_base = NULL;
+			devm_free_irq(gsi_ctx->dev, props->irq, gsi_ctx);
+			GSIERR("setup_emulator_cntrlr() failed\n");
+			return res;
+		}
+	}
 
 	*dev_hdl = (uintptr_t)gsi_ctx;
 
@@ -1189,6 +1292,7 @@ int gsi_alloc_evt_ring(struct gsi_evt_ring_props *props, unsigned long dev_hdl,
 		if (!props->evchid_valid)
 			clear_bit(evt_id, &gsi_ctx->evt_bmap);
 		mutex_unlock(&gsi_ctx->mlock);
+		BUG();
 		return -GSI_STATUS_RES_ALLOC_FAILURE;
 	}
 
@@ -1571,6 +1675,10 @@ static void gsi_program_chan_ctx(struct gsi_chan_props *props, unsigned int ee,
 			 GSI_EE_n_GSI_CH_k_QOS_MAX_PREFETCH_BMSK) |
 		((props->use_db_eng << GSI_EE_n_GSI_CH_k_QOS_USE_DB_ENG_SHFT) &
 			 GSI_EE_n_GSI_CH_k_QOS_USE_DB_ENG_BMSK));
+	if (gsi_ctx->per.ver >= GSI_VER_2_0)
+		val |= ((props->prefetch_mode <<
+			GSI_EE_n_GSI_CH_k_QOS_USE_ESCAPE_BUF_ONLY_SHFT)
+			& GSI_EE_n_GSI_CH_k_QOS_USE_ESCAPE_BUF_ONLY_BMSK);
 	gsi_writel(val, gsi_ctx->base +
 			GSI_EE_n_GSI_CH_k_QOS_OFFS(props->ch_id, ee));
 }
@@ -1769,6 +1877,32 @@ int gsi_alloc_channel(struct gsi_chan_props *props, unsigned long dev_hdl,
 }
 EXPORT_SYMBOL(gsi_alloc_channel);
 
+static void __gsi_read_channel_scratch(unsigned long chan_hdl,
+		union __packed gsi_channel_scratch * val)
+{
+	uint32_t reg;
+
+	reg = gsi_readl(gsi_ctx->base +
+		GSI_EE_n_GSI_CH_k_SCRATCH_0_OFFS(chan_hdl,
+			gsi_ctx->per.ee));
+	val->data.word1 = reg;
+
+	reg = gsi_readl(gsi_ctx->base +
+		GSI_EE_n_GSI_CH_k_SCRATCH_1_OFFS(chan_hdl,
+			gsi_ctx->per.ee));
+	val->data.word2 = reg;
+
+	reg = gsi_readl(gsi_ctx->base +
+		GSI_EE_n_GSI_CH_k_SCRATCH_2_OFFS(chan_hdl,
+			gsi_ctx->per.ee));
+	val->data.word3 = reg;
+
+	reg = gsi_readl(gsi_ctx->base +
+		GSI_EE_n_GSI_CH_k_SCRATCH_3_OFFS(chan_hdl,
+			gsi_ctx->per.ee));
+	val->data.word4 = reg;
+}
+
 static void __gsi_write_channel_scratch(unsigned long chan_hdl,
 		union __packed gsi_channel_scratch val)
 {
@@ -1828,6 +1962,40 @@ int gsi_write_channel_scratch(unsigned long chan_hdl,
 	return GSI_STATUS_SUCCESS;
 }
 EXPORT_SYMBOL(gsi_write_channel_scratch);
+
+int gsi_read_channel_scratch(unsigned long chan_hdl,
+	union __packed gsi_channel_scratch * ch_scratch)
+{
+	struct gsi_chan_ctx *ctx;
+
+	if (!gsi_ctx) {
+		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
+		return -GSI_STATUS_NODEV;
+	}
+
+	if (chan_hdl >= gsi_ctx->max_ch) {
+		GSIERR("bad params chan_hdl=%lu\n", chan_hdl);
+		return -GSI_STATUS_INVALID_PARAMS;
+	}
+
+	if (gsi_ctx->chan[chan_hdl].state != GSI_CHAN_STATE_ALLOCATED &&
+		gsi_ctx->chan[chan_hdl].state != GSI_CHAN_STATE_STARTED &&
+		gsi_ctx->chan[chan_hdl].state != GSI_CHAN_STATE_STOPPED) {
+		GSIERR("bad state %d\n",
+				gsi_ctx->chan[chan_hdl].state);
+		return -GSI_STATUS_UNSUPPORTED_OP;
+	}
+
+	ctx = &gsi_ctx->chan[chan_hdl];
+
+	mutex_lock(&ctx->mlock);
+	__gsi_read_channel_scratch(chan_hdl, ch_scratch);
+	ctx->restore_scratch = *ch_scratch;
+	mutex_unlock(&ctx->mlock);
+
+	return GSI_STATUS_SUCCESS;
+}
+EXPORT_SYMBOL(gsi_read_channel_scratch);
 
 int gsi_query_channel_db_addr(unsigned long chan_hdl,
 		uint32_t *db_addr_wp_lsb, uint32_t *db_addr_wp_msb)
@@ -2076,6 +2244,7 @@ int gsi_reset_channel(unsigned long chan_hdl)
 	uint32_t val;
 	struct gsi_chan_ctx *ctx;
 	bool reset_done = false;
+	uint32_t retry_cnt = 0;
 
 	if (!gsi_ctx) {
 		pr_err("%s:%d gsi context not allocated\n", __func__, __LINE__);
@@ -2112,11 +2281,25 @@ reset:
 		return -GSI_STATUS_TIMED_OUT;
 	}
 
+revrfy_chnlstate:
 	if (ctx->state != GSI_CHAN_STATE_ALLOCATED) {
 		GSIERR("chan_hdl=%lu unexpected state=%u\n", chan_hdl,
 				ctx->state);
+		/* GSI register update state not sync with gsi channel
+		 * context state not sync, need to wait for 1ms to sync.
+		 */
+		retry_cnt++;
+		if (retry_cnt <= GSI_CHNL_STATE_MAX_RETRYCNT) {
+			usleep_range(GSI_RESET_WA_MIN_SLEEP,
+				GSI_RESET_WA_MAX_SLEEP);
+			goto revrfy_chnlstate;
+		}
 		BUG();
 	}
+
+	/* Hardware issue fixed from GSI 2.0 and no need for the WA */
+	if (gsi_ctx->per.ver >= GSI_VER_2_0)
+		reset_done = true;
 
 	/* workaround: reset GSI producers again */
 	if (ctx->props.dir == GSI_CHAN_DIR_FROM_GSI && !reset_done) {
@@ -2496,7 +2679,7 @@ int gsi_start_xfer(unsigned long chan_hdl)
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
 
-	if (ctx->state != GSI_CHAN_STATE_STARTED) {
+	if (ctx->state == GSI_CHAN_STATE_NOT_ALLOCATED) {
 		GSIERR("bad state %d\n", ctx->state);
 		return -GSI_STATUS_UNSUPPORTED_OP;
 	}
@@ -2714,24 +2897,47 @@ static void gsi_configure_ieps(void *base)
 {
 	void __iomem *gsi_base = (void __iomem *)base;
 
-	gsi_writel(1, gsi_base + GSI_GSI_IRAM_PTR_CH_CMD_OFFS);
-	gsi_writel(2, gsi_base + GSI_GSI_IRAM_PTR_CH_DB_OFFS);
-	gsi_writel(3, gsi_base + GSI_GSI_IRAM_PTR_CH_DIS_COMP_OFFS);
-	gsi_writel(4, gsi_base + GSI_GSI_IRAM_PTR_CH_EMPTY_OFFS);
-	gsi_writel(5, gsi_base + GSI_GSI_IRAM_PTR_EE_GENERIC_CMD_OFFS);
-	gsi_writel(6, gsi_base + GSI_GSI_IRAM_PTR_EVENT_GEN_COMP_OFFS);
-	gsi_writel(7, gsi_base + GSI_GSI_IRAM_PTR_INT_MOD_STOPED_OFFS);
-	gsi_writel(8, gsi_base + GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_0_OFFS);
-	gsi_writel(9, gsi_base + GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_2_OFFS);
-	gsi_writel(10, gsi_base + GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_1_OFFS);
-	gsi_writel(11, gsi_base + GSI_GSI_IRAM_PTR_NEW_RE_OFFS);
-	gsi_writel(12, gsi_base + GSI_GSI_IRAM_PTR_READ_ENG_COMP_OFFS);
-	gsi_writel(13, gsi_base + GSI_GSI_IRAM_PTR_TIMER_EXPIRED_OFFS);
+	gsi_writel(1,
+		   gsi_base + GSI_GSI_IRAM_PTR_CH_CMD_OFFS);
+	gsi_writel(2,
+		   gsi_base + GSI_GSI_IRAM_PTR_CH_DB_OFFS);
+	gsi_writel(3,
+		   gsi_base + GSI_GSI_IRAM_PTR_CH_DIS_COMP_OFFS);
+	gsi_writel(4,
+		   gsi_base + GSI_GSI_IRAM_PTR_CH_EMPTY_OFFS);
+	gsi_writel(5,
+		   gsi_base + GSI_GSI_IRAM_PTR_EE_GENERIC_CMD_OFFS);
+	gsi_writel(6,
+		   gsi_base + GSI_GSI_IRAM_PTR_EVENT_GEN_COMP_OFFS);
+	gsi_writel(7,
+		   gsi_base + GSI_GSI_IRAM_PTR_INT_MOD_STOPED_OFFS);
+	gsi_writel(8,
+		   gsi_base + GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_0_OFFS);
+	gsi_writel(9,
+		   gsi_base + GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_2_OFFS);
+	gsi_writel(10,
+		   gsi_base + GSI_GSI_IRAM_PTR_PERIPH_IF_TLV_IN_1_OFFS);
+	gsi_writel(11,
+		   gsi_base + GSI_GSI_IRAM_PTR_NEW_RE_OFFS);
+	gsi_writel(12,
+		   gsi_base + GSI_GSI_IRAM_PTR_READ_ENG_COMP_OFFS);
+	gsi_writel(13,
+		   gsi_base + GSI_GSI_IRAM_PTR_TIMER_EXPIRED_OFFS);
+
+	if (running_emulation) {
+		gsi_writel(14,
+			   gsi_base + GSI_GSI_IRAM_PTR_EV_DB_OFFS);
+		gsi_writel(15,
+			   gsi_base + GSI_GSI_IRAM_PTR_UC_GP_INT_OFFS);
+		gsi_writel(16,
+			   gsi_base + GSI_GSI_IRAM_PTR_WRITE_ENG_COMP_OFFS);
+	}
 }
 
 static void gsi_configure_bck_prs_matrix(void *base)
 {
 	void __iomem *gsi_base = (void __iomem *)base;
+
 	/*
 	 * For now, these are default values. In the future, GSI FW image will
 	 * produce optimized back-pressure values based on the FW image.
@@ -2954,15 +3160,45 @@ static struct platform_driver msm_gsi_driver = {
 	},
 };
 
+static struct platform_device *pdev;
+
 /**
  * Module Init.
  */
 static int __init gsi_init(void)
 {
+	int ret;
+
 	pr_debug("gsi_init\n");
-	return platform_driver_register(&msm_gsi_driver);
+
+	ret = platform_driver_register(&msm_gsi_driver);
+	if (ret < 0)
+		goto out;
+
+	if (running_emulation) {
+		pdev = platform_device_register_simple("gsi", -1, NULL, 0);
+		if (IS_ERR(pdev)) {
+			ret = PTR_ERR(pdev);
+			platform_driver_unregister(&msm_gsi_driver);
+			goto out;
+		}
+	}
+
+out:
+	return ret;
 }
 
+/*
+ * Module exit.
+ */
+static void __exit gsi_exit(void)
+{
+	if (running_emulation && pdev)
+		platform_device_unregister(pdev);
+	platform_driver_unregister(&msm_gsi_driver);
+}
+
+module_exit(gsi_exit);
 arch_initcall(gsi_init);
 
 MODULE_LICENSE("GPL v2");

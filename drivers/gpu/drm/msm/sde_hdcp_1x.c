@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <linux/stat.h>
 #include <linux/iopoll.h>
+#include <linux/msm_hdcp.h>
 #include <linux/hdcp_qseecom.h>
 #include <drm/drm_dp_helper.h>
 #include "sde_hdcp.h"
@@ -213,8 +214,7 @@ struct sde_hdcp_1x {
 	bool sink_r0_ready;
 	bool reauth;
 	bool ksv_ready;
-	enum sde_hdcp_states hdcp_state;
-	struct HDCP_V2V1_MSG_TOPOLOGY cached_tp;
+	enum sde_hdcp_state hdcp_state;
 	struct HDCP_V2V1_MSG_TOPOLOGY current_tp;
 	struct delayed_work hdcp_auth_work;
 	struct completion r0_checked;
@@ -226,17 +226,6 @@ struct sde_hdcp_1x {
 	struct sde_hdcp_sink_addr_map sink_addr;
 	struct workqueue_struct *workq;
 };
-
-const char *sde_hdcp_state_name(enum sde_hdcp_states hdcp_state)
-{
-	switch (hdcp_state) {
-	case HDCP_STATE_INACTIVE:	return "HDCP_STATE_INACTIVE";
-	case HDCP_STATE_AUTHENTICATING:	return "HDCP_STATE_AUTHENTICATING";
-	case HDCP_STATE_AUTHENTICATED:	return "HDCP_STATE_AUTHENTICATED";
-	case HDCP_STATE_AUTH_FAIL:	return "HDCP_STATE_AUTH_FAIL";
-	default:			return "???";
-	}
-}
 
 static int sde_hdcp_1x_count_one(u8 *array, u8 len)
 {
@@ -251,21 +240,17 @@ static int sde_hdcp_1x_count_one(u8 *array, u8 len)
 static int sde_hdcp_1x_load_keys(void *input)
 {
 	int rc = 0;
-	bool use_sw_keys = false;
-	u32 reg_val;
-	u32 ksv_lsb_addr, ksv_msb_addr;
 	u32 aksv_lsb, aksv_msb;
 	u8 aksv[5];
 	struct dss_io_data *dp_ahb;
 	struct dss_io_data *dp_aux;
 	struct dss_io_data *dp_link;
-	struct dss_io_data *qfprom_io;
 	struct sde_hdcp_1x *hdcp = input;
 	struct sde_hdcp_reg_set *reg_set;
 
 	if (!hdcp || !hdcp->init_data.dp_ahb ||
 		!hdcp->init_data.dp_aux ||
-		!hdcp->init_data.qfprom_io) {
+		!hdcp->init_data.dp_link) {
 		pr_err("invalid input\n");
 		rc = -EINVAL;
 		goto end;
@@ -282,38 +267,12 @@ static int sde_hdcp_1x_load_keys(void *input)
 	dp_ahb = hdcp->init_data.dp_ahb;
 	dp_aux = hdcp->init_data.dp_aux;
 	dp_link = hdcp->init_data.dp_link;
-	qfprom_io = hdcp->init_data.qfprom_io;
 	reg_set = &hdcp->reg_set;
 
-	/* On compatible hardware, use SW keys */
-	reg_val = DSS_REG_R(qfprom_io, SEC_CTRL_HW_VERSION);
-	if (reg_val >= HDCP_SEL_MIN_SEC_VERSION) {
-		reg_val = DSS_REG_R(qfprom_io,
-			QFPROM_RAW_FEAT_CONFIG_ROW0_MSB +
-			QFPROM_RAW_VERSION_4);
-
-		if (!(reg_val & BIT(23)))
-			use_sw_keys = true;
-	}
-
-	if (use_sw_keys) {
-		if (hdcp1_set_keys(&aksv_msb, &aksv_lsb)) {
-			pr_err("setting hdcp SW keys failed\n");
-			rc = -EINVAL;
-			goto end;
-		}
-	} else {
-		/* Fetch aksv from QFPROM, this info should be public. */
-		ksv_lsb_addr = HDCP_KSV_LSB;
-		ksv_msb_addr = HDCP_KSV_MSB;
-
-		if (hdcp->init_data.sec_access) {
-			ksv_lsb_addr += HDCP_KSV_VERSION_4_OFFSET;
-			ksv_msb_addr += HDCP_KSV_VERSION_4_OFFSET;
-		}
-
-		aksv_lsb = DSS_REG_R(qfprom_io, ksv_lsb_addr);
-		aksv_msb = DSS_REG_R(qfprom_io, ksv_msb_addr);
+	if (hdcp1_set_keys(&aksv_msb, &aksv_lsb)) {
+		pr_err("setting hdcp SW keys failed\n");
+		rc = -EINVAL;
+		goto end;
 	}
 
 	pr_debug("%s: AKSV=%02x%08x\n", SDE_HDCP_STATE_NAME,
@@ -1092,30 +1051,12 @@ error:
 	return rc;
 }
 
-static void sde_hdcp_1x_cache_topology(struct sde_hdcp_1x *hdcp)
-{
-	if (!hdcp || !hdcp->init_data.dp_ahb || !hdcp->init_data.dp_aux ||
-		!hdcp->init_data.dp_link || !hdcp->init_data.dp_p0) {
-		pr_err("invalid input\n");
-		return;
-	}
-
-	memcpy((void *)&hdcp->cached_tp,
-		(void *) &hdcp->current_tp,
-		sizeof(hdcp->cached_tp));
-	hdcp1_cache_repeater_topology((void *)&hdcp->cached_tp);
-}
-
-static void sde_hdcp_1x_notify_topology(void)
-{
-	hdcp1_notify_topology();
-}
-
 static void sde_hdcp_1x_update_auth_status(struct sde_hdcp_1x *hdcp)
 {
 	if (sde_hdcp_1x_state(HDCP_STATE_AUTHENTICATED)) {
-		sde_hdcp_1x_cache_topology(hdcp);
-		sde_hdcp_1x_notify_topology();
+		msm_hdcp_cache_repeater_topology(hdcp->init_data.msm_hdcp_dev,
+						&hdcp->current_tp);
+		msm_hdcp_notify_topology(hdcp->init_data.msm_hdcp_dev);
 	}
 
 	if (hdcp->init_data.notify_status &&
@@ -1292,11 +1233,9 @@ static void sde_hdcp_1x_off(void *input)
 	 * Also, need to set the state to inactive here so that any ongoing
 	 * reauth works will know that the HDCP session has been turned off.
 	 */
-	mutex_lock(hdcp->init_data.mutex);
 	DSS_REG_W(io, isr->int_reg,
 		DSS_REG_R(io, isr->int_reg) & ~HDCP_INT_EN);
 	hdcp->hdcp_state = HDCP_STATE_INACTIVE;
-	mutex_unlock(hdcp->init_data.mutex);
 
 	/* complete any wait pending */
 	complete_all(&hdcp->sink_r0_available);
@@ -1540,7 +1479,7 @@ void *sde_hdcp_1x_init(struct sde_hdcp_init_data *init_data)
 		.off = sde_hdcp_1x_off
 	};
 
-	if (!init_data || !init_data->mutex || !init_data->notify_status ||
+	if (!init_data || !init_data->notify_status ||
 		!init_data->workq || !init_data->cb_data) {
 		pr_err("invalid input\n");
 		goto error;

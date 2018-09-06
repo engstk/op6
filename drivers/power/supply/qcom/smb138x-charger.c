@@ -117,6 +117,11 @@ module_param_named(
 	try_sink_enabled, __try_sink_enabled, int, 0600
 );
 
+static int __audio_headset_drp_wait_ms = 100;
+	module_param_named(
+	audio_headset_drp_wait_ms, __audio_headset_drp_wait_ms, int, 0600
+);
+
 static irqreturn_t smb138x_handle_slave_chg_state_change(int irq, void *data)
 {
 	struct smb_irq_data *irq_data = data;
@@ -1371,10 +1376,12 @@ static struct smb_irq_info smb138x_irqs[] = {
 	[USBIN_PLUGIN_IRQ] = {
 		.name		= "usbin-plugin",
 		.handler	= smblib_handle_usb_plugin,
+		.wake		= true,
 	},
 	[USBIN_SRC_CHANGE_IRQ] = {
 		.name		= "usbin-src-change",
 		.handler	= smblib_handle_usb_source_change,
+		.wake		= true,
 	},
 	[USBIN_ICL_CHANGE_IRQ] = {
 		.name		= "usbin-icl-change",
@@ -1383,6 +1390,7 @@ static struct smb_irq_info smb138x_irqs[] = {
 	[TYPE_C_CHANGE_IRQ] = {
 		.name		= "type-c-change",
 		.handler	= smblib_handle_usb_typec_change,
+		.wake		= true,
 	},
 /* DC INPUT IRQs */
 	[DCIN_COLLAPSE_IRQ] = {
@@ -1783,6 +1791,7 @@ static int smb138x_probe(struct platform_device *pdev)
 	chip->chg.try_sink_enabled = &__try_sink_enabled;
 	chip->chg.irq_info = smb138x_irqs;
 	chip->chg.name = "SMB";
+	chip->chg.audio_headset_drp_wait_ms = &__audio_headset_drp_wait_ms;
 
 	chip->chg.regmap = dev_get_regmap(chip->chg.dev->parent, NULL);
 	if (!chip->chg.regmap) {
@@ -1824,6 +1833,8 @@ static int smb138x_probe(struct platform_device *pdev)
 			pr_err("Couldn't probe SMB138X rc=%d\n", rc);
 		goto cleanup;
 	}
+
+	device_init_wakeup(chip->chg.dev, true);
 
 	pr_info("SMB138X probed successfully mode=%d\n", chip->chg.mode);
 	return rc;
