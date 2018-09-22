@@ -181,7 +181,6 @@ struct dsi_display {
 	int disp_te_gpio;
 	bool is_te_irq_enabled;
 	struct completion esd_te_gate;
-
 	u32 ctrl_count;
 	struct dsi_display_ctrl ctrl[MAX_DSI_CTRLS_PER_DISPLAY];
 
@@ -408,6 +407,8 @@ int dsi_display_validate_mode_vrr(struct dsi_display *display,
 			struct dsi_display_mode *cur_dsi_mode,
 			struct dsi_display_mode *mode);
 
+extern int connector_state_crtc_index;
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 /**
  * dsi_display_set_mode() - Set mode on the display.
  * @display:           Handle to display.
@@ -664,5 +665,7 @@ int dsi_display_cont_splash_config(void *display);
  */
 int dsi_display_get_panel_vfp(void *display,
 	int h_active, int v_active);
+
+struct dsi_display *get_main_display(void);
 
 #endif /* _DSI_DISPLAY_H_ */

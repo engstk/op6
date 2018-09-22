@@ -22,6 +22,25 @@
 #include <drm/drmP.h>
 #include "drm_internal.h"
 
+
+
+
+
+#include <linux/list.h>
+#include <linux/of.h>
+#include <linux/kobject.h>
+#include <linux/string.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <drm/drm_mipi_dsi.h>
+
+
+
+
+
+
+
+
 #define to_drm_minor(d) dev_get_drvdata(d)
 #define to_drm_connector(d) dev_get_drvdata(d)
 
@@ -214,17 +233,452 @@ static ssize_t modes_show(struct device *device,
 
 	return written;
 }
+static ssize_t acl_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int acl_mode = 0;
+
+	acl_mode = dsi_display_get_acl_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "acl mode = %d\n"
+											"0--acl mode(off)\n"
+											"1--acl mode(5)\n"
+											"2--acl mode(10)\n"
+											"3--acl mode(15)\n",
+											acl_mode);
+	return ret;
+}
+
+static ssize_t acl_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int acl_mode = 0;
+
+	ret = kstrtoint(buf, 10, &acl_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_acl_mode(connector, acl_mode);
+	if (ret)
+		pr_err("set acl mode(%d) fail\n", acl_mode);
+
+	return count;
+}
+
+static ssize_t hbm_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int hbm_mode = 0;
+
+	hbm_mode = dsi_display_get_hbm_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "hbm mode = %d\n"
+											"0--hbm mode(off)\n"
+											"1--hbm mode(464)\n"
+											"2--hbm mode(498)\n"
+											"3--hbm mode(532)\n"
+											"4--hbm mode(566)\n"
+											"5--hbm mode(600)\n"
+											"7--hbm max mode(600)\n"
+											"8--hbm max off \n",
+											hbm_mode);
+	return ret;
+}
+
+static ssize_t hbm_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int hbm_mode = 0;
+
+	ret = kstrtoint(buf, 10, &hbm_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_hbm_mode(connector, hbm_mode);
+	if (ret)
+		pr_err("set hbm mode(%d) fail\n", hbm_mode);
+
+	return count;
+}
+
+static ssize_t aod_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int aod_mode = 0;
+
+	aod_mode = dsi_display_get_aod_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", aod_mode);
+	return ret;
+}
+
+static ssize_t aod_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	//struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int aod_mode = 0;
+
+	ret = kstrtoint(buf, 10, &aod_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	//ret = dsi_display_set_aod_mode(connector, aod_mode);
+	//if (ret)
+	//	pr_err("set AOD mode(%d) fail\n", aod_mode);
+
+	return count;
+}
+
+static ssize_t aod_disable_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int aod_disable = 0;
+
+	aod_disable = dsi_display_get_aod_disable(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "AOD disable = %d\n"
+											"0--AOD enable\n"
+											"1--AOD disable\n",
+											aod_disable);
+	return ret;
+}
+
+static ssize_t aod_disable_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int aod_disable = 0;
+
+	ret = kstrtoint(buf, 10, &aod_disable);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_aod_disable(connector, aod_disable);
+	if (ret)
+		pr_err("set AOD disable(%d) fail\n", aod_disable);
+
+	return count;
+}
+
+static ssize_t SRGB_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int srgb_mode = 0;
+
+	srgb_mode = dsi_display_get_srgb_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "sRGB mode = %d\n"
+											"0--sRGB mode Off\n"
+											"1--sRGB mode On\n",
+											srgb_mode);
+	return ret;
+}
+
+static ssize_t SRGB_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int srgb_mode = 0;
+
+	ret = kstrtoint(buf, 10, &srgb_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_srgb_mode(connector, srgb_mode);
+	if (ret) {
+		pr_err("set sRGB mode(%d) fail\n", srgb_mode);
+	}
+	return count;
+}
+
+static ssize_t DCI_P3_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int dci_p3_mode = 0;
+
+	dci_p3_mode = dsi_display_get_dci_p3_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "dci-p3 mode = %d\n"
+											"0--dci-p3 mode Off\n"
+											"1--dci-p3 mode On\n",
+											dci_p3_mode);
+	return ret;
+}
+
+static ssize_t DCI_P3_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int dci_p3_mode = 0;
+
+	ret = kstrtoint(buf, 10, &dci_p3_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_dci_p3_mode(connector, dci_p3_mode);
+	if (ret) {
+		pr_err("set dci-p3 mode(%d) fail\n", dci_p3_mode);
+	}
+	return count;
+}
+
+static ssize_t night_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int night_mode = 0;
+
+	night_mode = dsi_display_get_night_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "night mode = %d\n"
+											"0--night mode Off\n"
+											"1--night mode On\n",
+											night_mode);
+	return ret;
+}
+
+static ssize_t night_mode_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int night_mode = 0;
+
+	ret = kstrtoint(buf, 10, &night_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_night_mode(connector, night_mode);
+	if (ret) {
+		pr_err("set night mode(%d) fail\n", night_mode);
+	}
+	return count;
+}
+
+static ssize_t oneplus_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int oneplus_mode = 0;
+
+	oneplus_mode = dsi_display_get_oneplus_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "oneplus mode = %d\n"
+											"0--oneplus mode Off\n"
+											"1--oneplus mode On\n",
+											oneplus_mode);
+	return ret;
+}
+
+static ssize_t oneplus_mode_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int oneplus_mode = 0;
+
+	ret = kstrtoint(buf, 10, &oneplus_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_oneplus_mode(connector, oneplus_mode);
+	if (ret) {
+		pr_err("set oneplus mode(%d) fail\n", oneplus_mode);
+	}
+	return count;
+}
+
+static ssize_t adaption_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int adaption_mode = 0;
+
+	adaption_mode = dsi_display_get_adaption_mode(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "adaption mode = %d\n"
+											"0--adaption mode Off\n"
+											"1--adaption mode On\n",
+											adaption_mode);
+	return ret;
+}
+
+static ssize_t adaption_mode_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int adaption_mode = 0;
+
+	ret = kstrtoint(buf, 10, &adaption_mode);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+	ret = dsi_display_set_adaption_mode(connector, adaption_mode);
+	if (ret) {
+		pr_err("set adaption mode(%d) fail\n", adaption_mode);
+	}
+	return count;
+}
+
+static ssize_t panel_serial_number_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int panel_year = 0;
+	int panel_mon = 0;
+	int panel_day = 0;
+	int panel_hour = 0;
+	int panel_min = 0;
+	int ret = 0;
+
+	dsi_display_get_serial_number(connector);
+
+	panel_year = dsi_display_get_serial_number_year(connector);
+	panel_mon = dsi_display_get_serial_number_mon(connector);
+	panel_day = dsi_display_get_serial_number_day(connector);
+	panel_hour = dsi_display_get_serial_number_hour(connector);
+	panel_min = dsi_display_get_serial_number_min(connector);
+
+	ret = scnprintf(buf, PAGE_SIZE, "%04d/%02d/%02d %02d:%02d\n",
+	                                                    panel_year,
+	                                                    panel_mon,
+	                                                    panel_day,
+	                                                    panel_hour,
+                                                        panel_min);
+
+    pr_err("panel year = %d, mon = %d, day = %d, hour = %d, min = %d\n",
+           panel_year, panel_mon, panel_day, panel_hour, panel_min);
+
+	return ret;
+}
+
+int current_freq = 0;
+static ssize_t dynamic_dsitiming_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int ret = 0;
+
+	ret = scnprintf(buf, PAGE_SIZE, "current_freq = %d\n",
+											current_freq);
+	return ret;
+}
+
+static ssize_t dynamic_dsitiming_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int ret = 0;
+	int freq_value = 0;
+
+	ret = kstrtoint(buf, 10, &freq_value);
+	if (ret) {
+		pr_err("kstrtoint failed. ret=%d\n", ret);
+		return ret;
+	}
+
+    current_freq = freq_value;
+
+    pr_err("freq setting=%d\n", current_freq);
+
+	if (ret) {
+		pr_err("set dsi freq (%d) fail\n", current_freq);
+	}
+	return count;
+}
+
+static ssize_t panel_mismatch_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct drm_connector *connector = to_drm_connector(dev);
+	int ret = 0;
+	int wrong_panel = 0;
+
+	dsi_display_panel_mismatch_check(connector);
+
+	wrong_panel = dsi_display_panel_mismatch(connector);
+	ret = scnprintf(buf, PAGE_SIZE, "panel mismatch = %d\n"
+										    "0--(panel match)\n"
+											"1--(panel mismatch)\n",
+											wrong_panel);
+	return ret;
+}
+
 
 static DEVICE_ATTR_RW(status);
 static DEVICE_ATTR_RO(enabled);
 static DEVICE_ATTR_RO(dpms);
 static DEVICE_ATTR_RO(modes);
+static DEVICE_ATTR_RW(acl);
+static DEVICE_ATTR_RW(hbm);
+static DEVICE_ATTR_RW(aod);
+static DEVICE_ATTR_RW(aod_disable);
+static DEVICE_ATTR_RW(SRGB);
+static DEVICE_ATTR_RW(DCI_P3);
+static DEVICE_ATTR_RW(night_mode);
+static DEVICE_ATTR_RW(oneplus_mode);
+static DEVICE_ATTR_RW(adaption_mode);
+static DEVICE_ATTR_RO(panel_serial_number);
+static DEVICE_ATTR_RW(dynamic_dsitiming);
+static DEVICE_ATTR_RO(panel_mismatch);
 
 static struct attribute *connector_dev_attrs[] = {
 	&dev_attr_status.attr,
 	&dev_attr_enabled.attr,
 	&dev_attr_dpms.attr,
 	&dev_attr_modes.attr,
+	&dev_attr_acl.attr,
+	&dev_attr_hbm.attr,
+	&dev_attr_aod.attr,
+	&dev_attr_aod_disable.attr,
+	&dev_attr_SRGB.attr,
+	&dev_attr_DCI_P3.attr,
+	&dev_attr_night_mode.attr,
+	&dev_attr_oneplus_mode.attr,
+	&dev_attr_adaption_mode.attr,
+	&dev_attr_panel_serial_number.attr,
+	&dev_attr_dynamic_dsitiming.attr,
+	&dev_attr_panel_mismatch.attr,
 	NULL
 };
 

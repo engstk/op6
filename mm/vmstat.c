@@ -945,6 +945,7 @@ const char * const vmstat_text[] = {
 	"numa_local",
 	"numa_other",
 #endif
+	"nr_uid_lru",
 	"nr_free_cma",
 
 	/* Node-based counters */
@@ -1089,8 +1090,13 @@ const char * const vmstat_text[] = {
 	"vmacache_full_flushes",
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
-	"speculative_pgfault"
+	"speculative_pgfault",
 #endif
+	TEXTS_FOR_ZONES("allocstall_pri1")
+	TEXTS_FOR_ZONES("allocstall_pri2")
+	TEXTS_FOR_ZONES("allocstall_pri3")
+	TEXTS_FOR_ZONES("allocstall_pri4")
+
 #endif /* CONFIG_VM_EVENT_COUNTERS */
 };
 #endif /* CONFIG_PROC_FS || CONFIG_SYSFS || CONFIG_NUMA */
@@ -1467,6 +1473,74 @@ static const struct file_operations proc_zoneinfo_file_operations = {
 	.release	= seq_release,
 };
 
+static void uid_lru_info_show_print(struct seq_file *m, pg_data_t *pgdat)
+{
+	int i;
+	struct lruvec *lruvec = &pgdat->lruvec;
+	struct uid_node **table;
+	struct list_head *pos;
+	unsigned long nr_pages;
+
+	seq_printf(m, "Node %d\n", pgdat->node_id);
+	seq_puts(m, "uid_lru_list priority:\n");
+	print_prio_chain(m);
+	seq_puts(m, "uid\thot_count\tpages\n");
+
+	table = lruvec->uid_hash;
+
+	if (!table)
+		return;
+
+	for (i = 0; i < (1 << 5); i++) {
+
+		struct uid_node *node = rcu_dereference(table[i]);
+
+		if (!node)
+			continue;
+		do {
+			nr_pages = 0;
+			list_for_each(pos, &node->page_cache_list)
+				nr_pages++;
+			seq_printf(m, "%d\t%d\t%lu\n",
+				node->uid,
+				node->hot_count,
+				nr_pages);
+		} while ((node = rcu_dereference(node->next)) != NULL);
+	}
+	seq_putc(m, '\n');
+}
+
+/*
+ * Output information about zones in @pgdat.
+ */
+static int uid_lru_info_show(struct seq_file *m, void *arg)
+{
+	pg_data_t *pgdat = (pg_data_t *)arg;
+
+	uid_lru_info_show_print(m, pgdat);
+
+	return 0;
+}
+
+static const struct seq_operations uid_lru_info_op = {
+	.start	= frag_start,
+	.next	= frag_next,
+	.stop	= frag_stop,
+	.show	= uid_lru_info_show,
+};
+
+static int uid_lru_info_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &uid_lru_info_op);
+}
+
+static const struct file_operations proc_uid_lru_info_file_operations = {
+	.open		= uid_lru_info_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
 enum writeback_stat_item {
 	NR_DIRTY_THRESHOLD,
 	NR_DIRTY_BG_THRESHOLD,
@@ -1794,6 +1868,8 @@ static int __init setup_vmstat(void)
 	proc_create("pagetypeinfo", S_IRUGO, NULL, &pagetypeinfo_file_ops);
 	proc_create("vmstat", S_IRUGO, NULL, &proc_vmstat_file_operations);
 	proc_create("zoneinfo", S_IRUGO, NULL, &proc_zoneinfo_file_operations);
+	proc_create("uid_lru_info", 0444, NULL,
+				&proc_uid_lru_info_file_operations);
 #endif
 	return 0;
 }

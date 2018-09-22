@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,7 +32,8 @@ static int32_t cam_flash_driver_cmd(struct cam_flash_ctrl *fctrl,
 	if (cmd->handle_type != CAM_HANDLE_USER_POINTER) {
 		CAM_ERR(CAM_FLASH, "Invalid handle type: %d",
 			cmd->handle_type);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto release_mutex;
 	}
 
 	mutex_lock(&(fctrl->flash_mutex));

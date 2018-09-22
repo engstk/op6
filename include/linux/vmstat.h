@@ -7,6 +7,7 @@
 #include <linux/mmzone.h>
 #include <linux/vm_event_item.h>
 #include <linux/atomic.h>
+#include <linux/hotcount.h>
 
 extern int sysctl_stat_interval;
 

@@ -21,6 +21,7 @@
 #include "sdcardfs.h"
 #include <linux/fs_struct.h>
 #include <linux/ratelimit.h>
+atomic64_t unexist_tag = ATOMIC64_INIT(0);
 
 /* Do not directly use this function. Use OVERRIDE_CRED() instead. */
 const struct cred *override_fsids(struct sdcardfs_sb_info *sbi,
@@ -60,6 +61,17 @@ void revert_fsids(const struct cred *old_cred)
 	put_cred(cur_cred);
 }
 
+/*Curtis, 2018/04/25 reset non-exist dcache*/
+static void sdcardfs_settag(void)
+{
+	atomic64_inc(&unexist_tag);
+}
+
+static long long sdcardfs_gettag(void)
+{
+	return atomic64_read(&unexist_tag);
+}
+
 static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 			 umode_t mode, bool want_excl)
 {
@@ -80,6 +92,7 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred, SDCARDFS_I(dir));
 
+	sdcardfs_settag();
 	sdcardfs_get_lower_path(dentry, &lower_path);
 	lower_dentry = lower_path.dentry;
 	lower_dentry_mnt = lower_path.mnt;
@@ -288,6 +301,7 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(dir->i_sb), saved_cred, SDCARDFS_I(dir));
 
+	sdcardfs_settag();
 	/* check disk space */
 	if (!check_min_free_space(dentry, 0, 1)) {
 		pr_err("sdcardfs: No minimum free space.\n");
@@ -491,6 +505,7 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	/* save current_cred and override it */
 	OVERRIDE_CRED(SDCARDFS_SB(old_dir->i_sb), saved_cred, SDCARDFS_I(new_dir));
 
+	sdcardfs_settag();
 	sdcardfs_get_real_lower(old_dentry, &lower_old_path);
 	sdcardfs_get_lower_path(new_dentry, &lower_new_path);
 	lower_old_dentry = lower_old_path.dentry;
@@ -901,6 +916,8 @@ const struct inode_operations sdcardfs_dir_iops = {
 	.setattr	= sdcardfs_setattr_wrn,
 	.setattr2	= sdcardfs_setattr,
 	.getattr	= sdcardfs_getattr,
+	.settag		= sdcardfs_settag,
+	.gettag		= sdcardfs_gettag,
 	/* XXX Following operations are implemented,
 	 *     but FUSE(sdcard) or FAT does not support them
 	 *     These methods are *NOT* perfectly tested.

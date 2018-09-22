@@ -243,6 +243,7 @@ static int sdcardfs_open(struct inode *inode, struct file *file)
 	/* save current_cred and override it */
 	OVERRIDE_CRED(sbi, saved_cred, SDCARDFS_I(inode));
 
+	file->f_mode |= FMODE_NONMAPPABLE;
 	file->private_data =
 		kzalloc(sizeof(struct sdcardfs_file_info), GFP_KERNEL);
 	if (!SDCARDFS_F(file)) {
@@ -336,6 +337,11 @@ static int sdcardfs_fasync(int fd, struct file *file, int flag)
 		err = lower_file->f_op->fasync(fd, lower_file, flag);
 
 	return err;
+}
+
+static struct file *sdcardfs_get_lower_file(struct file *f)
+{
+	return sdcardfs_lower_file(f);
 }
 
 /*
@@ -434,6 +440,7 @@ const struct file_operations sdcardfs_main_fops = {
 	.release	= sdcardfs_file_release,
 	.fsync		= sdcardfs_fsync,
 	.fasync		= sdcardfs_fasync,
+	.get_lower_file = sdcardfs_get_lower_file,
 	.read_iter	= sdcardfs_read_iter,
 	.write_iter	= sdcardfs_write_iter,
 };
@@ -452,4 +459,5 @@ const struct file_operations sdcardfs_dir_fops = {
 	.flush		= sdcardfs_flush,
 	.fsync		= sdcardfs_fsync,
 	.fasync		= sdcardfs_fasync,
+	.get_lower_file = sdcardfs_get_lower_file,
 };

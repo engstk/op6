@@ -41,6 +41,10 @@
 
 #include "internal.h"
 #include "mount.h"
+#include <uapi/linux/limits.h>
+static bool n_toggle = true;
+#define MISS_NUM 32
+#define ND_INODE(nd) nd->path.dentry->d_inode
 
 /* [Feb-1997 T. Schoebel-Theuer]
  * Fundamental changes in the pathname lookup mechanisms (namei)
@@ -540,6 +544,8 @@ struct nameidata {
 	struct inode	*link_inode;
 	unsigned	root_seq;
 	int		dfd;
+	/*Curtis, 2018/04/25 non-exist dcache lookup*/
+	bool	need_nedf;
 };
 
 static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
@@ -551,6 +557,7 @@ static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
 	p->total_link_count = old ? old->total_link_count : 0;
 	p->saved = old;
 	current->nameidata = p;
+	p->need_nedf = true;
 }
 
 static void restore_nameidata(void)
@@ -1760,12 +1767,28 @@ static inline int should_follow_link(struct nameidata *nd, struct path *link,
 
 enum {WALK_GET = 1, WALK_PUT = 2};
 
+static inline int lookup_nedf(
+	struct nedf_node *nn,
+	const char *name, size_t len)
+{
+	int i;
+
+	for (i = 0; i < nn->nf_cnt; i++)
+		if (len == nn->nf[i].len &&
+		    !strncmp(nn->nf[i].pathname, name, len))
+			return -ENCACHE;
+	return 0;
+}
+
 static int walk_component(struct nameidata *nd, int flags)
 {
 	struct path path;
 	struct inode *inode;
 	unsigned seq;
 	int err;
+	size_t len;
+	static int miss_cnt = 0;
+	struct nedf_node *nn;
 	/*
 	 * "." and ".." are special - ".." especially so because it has
 	 * to be able to know about the current root directory and
@@ -1781,6 +1804,36 @@ static int walk_component(struct nameidata *nd, int flags)
 	if (unlikely(err <= 0)) {
 		if (err < 0)
 			return err;
+		/*Curtis, 2018/04/25 non-exist dcache lookup*/
+		if (n_toggle && nd->need_nedf &&
+		    ND_INODE(nd)->i_op->gettag) {
+			len = strlen(nd->name->name);
+			rcu_read_lock();
+			nn = current->group_leader->nn;
+			if (likely(nn) && likely(nn->is_valid) && nn->nf_cnt &&
+			    len <= NEDF_PATH_MAX) {
+				if (ND_INODE(nd)->i_op->gettag() !=
+				    nn->nf_tag) {
+					nn->nf_cnt = 0;
+					nn->nf_index = 0;
+					miss_cnt = 0;
+				} else {
+					err =
+					lookup_nedf(nn, nd->name->name, len);
+					if (err < 0) {
+						rcu_read_unlock();
+						return err;
+					}
+					miss_cnt++;
+					nd->need_nedf = false;
+					if (miss_cnt == MISS_NUM) {
+						n_toggle = false;
+						miss_cnt = 0;
+					}
+				}
+			}
+			rcu_read_unlock();
+		}
 		path.dentry = lookup_slow(&nd->last, nd->path.dentry,
 					  nd->flags);
 		if (IS_ERR(path.dentry))
@@ -2050,6 +2103,8 @@ static inline u64 hash_name(const void *salt, const char *name)
 static int link_path_walk(const char *name, struct nameidata *nd)
 {
 	int err;
+	uint16_t nf_index;
+	struct nedf_node *nn;
 
 	while (*name=='/')
 		name++;
@@ -2119,8 +2174,41 @@ OK:
 		} else {
 			err = walk_component(nd, WALK_GET);
 		}
-		if (err < 0)
+
+		/*Curtis, 2018/04/25 create/insert non-exist dcache*/
+		if (err < 0) {
+			if (err == -ENOENT && ND_INODE(nd) &&
+			    ND_INODE(nd)->i_op->gettag) {
+				rcu_read_lock();
+				nn = current->group_leader->nn;
+				if (likely(nn) && likely(nn->is_valid)) {
+					if (nn->nf_tag !=
+					    ND_INODE(nd)->i_op->gettag()) {
+						nn->nf_tag =
+						ND_INODE(nd)->i_op->gettag();
+						nf_index = 0;
+						nn->nf_index = 1;
+						nn->nf_cnt = 0;
+					} else {
+						nf_index = nn->nf_index;
+						nn->nf_index = (nf_index + 1) & FILE_MAP_MAX_INDEX;
+					}
+					nn->nf[nf_index].len = strlcpy(nn->nf[nf_index].pathname, nd->name->name, NEDF_PATH_MAX);
+					if (unlikely(nn->nf[nf_index].len > NEDF_PATH_MAX))
+						nn->nf_index = nf_index;
+					else if (nn->nf_cnt < FILE_MAP_NUM)
+						nn->nf_cnt = min(nn->nf_cnt + 1, FILE_MAP_NUM);
+
+					if (!n_toggle)
+						n_toggle = true;
+				}
+				rcu_read_unlock();
+			}
+
+			if (err == -ENCACHE)
+				return -ENOENT;
 			return err;
+		}
 
 		if (err) {
 			const char *s = get_link(nd);

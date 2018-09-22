@@ -12,4 +12,6 @@ int snd_usb_init_pitch(struct snd_usb_audio *chip, int iface,
 int snd_usb_enable_audio_stream(struct snd_usb_substream *subs,
 	bool enable);
 
+extern void kick_usbpd_vbus_sm(void);
+
 #endif /* __USBAUDIO_PCM_H */

@@ -208,6 +208,12 @@ source "drivers/fpga/Kconfig"
 
 source "drivers/sensors/Kconfig"
 
+source "drivers/oem_debug/Kconfig"
+source "drivers/oneplus/Kconfig"
+source "drivers/param_read_write/Kconfig"
+
+source "drivers/oneplus/Kconfig"
+
 source "drivers/tee/Kconfig"
 
 endmenu

@@ -48,9 +48,7 @@
 		label = "gpio-keys";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&key_vol_up_default
-			     &key_cam_snapshot_default
-			     &key_cam_focus_default>;
+		pinctrl-0 = <&key_vol_up_default>;
 
 		vol_up {
 			label = "volume_up";
@@ -61,7 +59,7 @@
 			debounce-interval = <15>;
 			linux,can-disable;
 		};
-
+        /*
 		cam_snapshot {
 			label = "cam_snapshot";
 			gpios = <&pm8998_gpios 7 GPIO_ACTIVE_LOW>;
@@ -81,6 +79,7 @@
 			debounce-interval = <15>;
 			linux,can-disable;
 		};
+        */
 	};
 };
 

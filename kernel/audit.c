@@ -816,6 +816,10 @@ static int audit_replace(pid_t pid)
 
 	if (!skb)
 		return -ENOMEM;
+	if (!audit_sock) {
+		pr_err("audit_sock is null pointer\n");
+		return -ECONNREFUSED;
+	}
 	return netlink_unicast(audit_sock, skb, audit_nlk_portid, 0);
 }
 

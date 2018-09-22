@@ -178,4 +178,8 @@ obj-$(CONFIG_NVMEM)		+= nvmem/
 obj-$(CONFIG_ESOC)              += esoc/
 obj-$(CONFIG_FPGA)		+= fpga/
 obj-$(CONFIG_SENSORS_SSC)		+= sensors/
+obj-y 	+= oem_debug/
+#porting for support oem trace
+obj-$(CONFIG_OEM_DEBUG_SUPPORT)  += oneplus/
+obj-y  += param_read_write/
 obj-$(CONFIG_TEE)		+= tee/

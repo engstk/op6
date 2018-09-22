@@ -1,0 +1,144 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+/*don't suggest add to this file, this file is only for different hw*/
+&vendor {
+
+};
+
+&soc {
+
+};
+
+
+&tlmm {
+	   oem_rf_cable_mux {
+		oem_rf_cable_active: oem_rf_cable_active {
+			mux {
+				pins = "gpio32","gpio86";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio32","gpio86";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+		oem_rf_cable_suspend: oem_rf_cable_suspend {
+				mux {
+					pins = "gpio32","gpio86";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio32","gpio86";
+					drive-strength = <2>;
+					bias-disable;
+				};
+		};
+	};
+};
+
+&soc {
+	oem_rf_cable {
+		compatible = "oem,rf_cable";
+		interrupt-parent = <&tlmm>;
+		rf,cable-gpio-0 = <&tlmm 32 0>;
+		rf,cable-gpio-1 = <&tlmm 86 0>;
+		pinctrl-names = "oem_rf_cable_active", "oem_rf_cable_suspend";
+		pinctrl-0 = <&oem_rf_cable_active >;
+		pinctrl-1 = <&oem_rf_cable_suspend >;
+		};
+};
+
+
+&qupv3_se3_i2c {
+	status = "ok";
+	nq@28 {
+		qcom,nq-firm = <&tlmm 62 0x00>;
+	};
+};
+
+&tlmm {
+	cam_sensor_rear_0_vaf_active: cam_sensor_rear_0_vaf_active {
+		/* ACTUATOR POWER */
+		mux {
+			pins = "gpio31";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio31";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_rear_0_vaf_suspend: cam_sensor_rear_0_vaf_suspend {
+		/* ACTUATOR POWER */
+		mux {
+			pins = "gpio31";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio31";
+			bias-pull-down; /* PULL DOWN */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+};
+
+&soc{
+	rear_0_actuator_regulator: gpio-regulator@0 {
+		compatible = "regulator-fixed";
+		reg = <0x00 0x00>;
+		regulator-name = "actuator_regulator";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-enable-ramp-delay = <100>;
+		enable-active-high;
+		gpio = <&tlmm 31 0>;
+		vin-supply = <&pmi8998_bob>;
+	};
+};
+
+&actuator_rear_0{
+	cell-index = <0>;
+	reg = <0x0>;
+	compatible = "qcom,actuator";
+	cci-master = <0>;
+	cam_vaf-supply = <&rear_0_actuator_regulator>;
+	regulator-names = "cam_vaf";
+	rgltr-cntrl-support;
+	rgltr-min-voltage = <2800000>;
+	rgltr-max-voltage = <2800000>;
+	rgltr-load-current = <0>;
+};
+
+&ois_rear_0{
+	cell-index = <0>;
+	reg = <0x0>;
+	compatible = "qcom,ois";
+	cam_vaf-supply = <&pm8998_l21>;
+	regulator-names = "cam_vaf";
+	rgltr-cntrl-support;
+	rgltr-min-voltage = <2850000>;
+	rgltr-max-voltage = <2850000>;
+	rgltr-load-current = <500000>;
+	gpio-no-mux = <0>;
+	gpios = <&tlmm 40 0>;
+	gpio-vaf = <0>;
+	gpio-req-tbl-num = <0>;
+	gpio-req-tbl-flags = <0>;
+	gpio-req-tbl-label = "CAM_OIS_PWD_0";
+	cci-master = <0>;
+	status = "ok";
+};

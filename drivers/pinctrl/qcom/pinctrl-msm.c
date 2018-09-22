@@ -494,7 +494,9 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 	drive = (ctl_reg >> g->drv_bit) & 7;
 	pull = (ctl_reg >> g->pull_bit) & 3;
 
-	seq_printf(s, " %-8s: %-3s %d", g->name, is_out ? "out" : "in", func);
+	seq_printf(s, " %-8s: %-3s fun%d", g->name, is_out ? "out" : "in", func);
+	if (gpio <= 149)//the ship real gpio
+		seq_printf(s, " %s", chip->get(chip, offset) ? "hi":"lo");
 	seq_printf(s, " %dmA", msm_regval_to_drive(drive));
 	seq_printf(s, " %s", pulls[pull]);
 }
@@ -505,6 +507,8 @@ static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	unsigned i;
 
 	for (i = 0; i < chip->ngpio; i++, gpio++) {
+		if (gpio == 81 || gpio == 82 || gpio == 83 || gpio == 84)
+		continue;
 		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
 		seq_puts(s, "\n");
 	}
@@ -634,6 +638,10 @@ static void msm_gpio_irq_unmask(struct irq_data *d)
 	g = &pctrl->soc->groups[d->hwirq];
 
 	spin_lock_irqsave(&pctrl->lock, flags);
+
+	val = readl(pctrl->regs + g->intr_status_reg);
+	val &= ~BIT(g->intr_status_bit);
+	writel(val, pctrl->regs + g->intr_status_reg);
 
 	val = readl(pctrl->regs + g->intr_cfg_reg);
 	val |= BIT(g->intr_enable_bit);

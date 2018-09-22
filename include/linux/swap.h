@@ -343,6 +343,9 @@ extern int sysctl_swap_ratio_enable;
 extern int remove_mapping(struct address_space *mapping, struct page *page);
 extern unsigned long vm_total_pages;
 
+extern unsigned int vm_breath_period;
+extern int vm_breath_priority;
+
 #ifdef CONFIG_NUMA
 extern int node_reclaim_mode;
 extern int sysctl_min_unmapped_ratio;
@@ -421,6 +424,20 @@ static inline long get_nr_swap_pages(void)
 	return atomic_long_read(&nr_swap_pages);
 }
 
+extern int sysctl_page_cache_reside_switch;
+extern unsigned long uid_lru_size(struct lruvec *lruvec);
+extern void uid_lru_cache_add(struct page *page);
+extern void _uid_lru_add_fn(struct page *page, struct lruvec *lruvec);
+extern struct uid_node *find_uid_node(uid_t uid, struct lruvec *lruvec);
+extern struct uid_node *insert_uid_node(struct uid_node **hash_table,
+							uid_t uid);
+extern struct uid_node **alloc_uid_hash_table(void);
+extern unsigned long killed_num;
+extern unsigned long inactive_nr;
+extern unsigned long active_nr;
+extern unsigned long vmpress[];
+extern unsigned long priority_nr[];
+extern unsigned long alloc_slow_nr;
 extern void si_swapinfo(struct sysinfo *);
 extern swp_entry_t get_swap_page(void);
 extern swp_entry_t get_swap_page_of_type(int);

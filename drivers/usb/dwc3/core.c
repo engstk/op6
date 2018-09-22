@@ -1279,7 +1279,9 @@ static int dwc3_probe(struct platform_device *pdev)
 	dwc->disable_clk_gating = device_property_read_bool(dev,
 				"snps,disable-clk-gating");
 	dwc->enable_bus_suspend = device_property_read_bool(dev,
-					"snps,bus-suspend-enable");
+				"snps,bus-suspend-enable");
+	dwc->enable_super_speed = device_property_read_bool(dev,
+					"op,enable_super_speed");
 	dwc->usb3_u1u2_disable = device_property_read_bool(dev,
 					"snps,usb3-u1u2-disable");
 	dwc->usb2_l1_disable = device_property_read_bool(dev,
@@ -1289,6 +1291,11 @@ static int dwc3_probe(struct platform_device *pdev)
 		pm_runtime_use_autosuspend(dev);
 	}
 
+	if (!dwc->enable_super_speed) {
+		pr_info("Force USB running as High speed");
+		dwc->max_hw_supp_speed = USB_SPEED_HIGH;
+		dwc->maximum_speed = USB_SPEED_HIGH;
+	}
 	dwc->lpm_nyet_threshold = lpm_nyet_threshold;
 	dwc->tx_de_emphasis = tx_de_emphasis;
 

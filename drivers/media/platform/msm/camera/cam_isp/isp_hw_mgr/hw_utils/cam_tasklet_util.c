@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -81,14 +81,15 @@ struct cam_tasklet_info {
  * @return:             0: Success
  *                      Negative: Failure
  */
-static int cam_tasklet_get_cmd(
-	struct cam_tasklet_info        *tasklet,
-	struct cam_tasklet_queue_cmd  **tasklet_cmd)
+int cam_tasklet_get_cmd(
+        void                         *bottom_half,
+        void                        **bh_cmd)
 {
 	int           rc = 0;
 	unsigned long flags;
 
-	*tasklet_cmd = NULL;
+    struct cam_tasklet_info        *tasklet = bottom_half;
+    struct cam_tasklet_queue_cmd   *tasklet_cmd = NULL;
 
 	if (!atomic_read(&tasklet->tasklet_active)) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP, "Tasklet is not active!\n");
@@ -102,9 +103,10 @@ static int cam_tasklet_get_cmd(
 		rc = -ENODEV;
 		goto spin_unlock;
 	} else {
-		*tasklet_cmd = list_first_entry(&tasklet->free_cmd_list,
+        tasklet_cmd = list_first_entry(&tasklet->free_cmd_list,
 			struct cam_tasklet_queue_cmd, list);
-		list_del_init(&(*tasklet_cmd)->list);
+        list_del_init(&(tasklet_cmd)->list);
+        *bh_cmd = tasklet_cmd;
 	}
 
 spin_unlock:
@@ -122,16 +124,20 @@ spin_unlock:
  *
  * @return:             Void
  */
-static void cam_tasklet_put_cmd(
-	struct cam_tasklet_info        *tasklet,
-	struct cam_tasklet_queue_cmd  **tasklet_cmd)
+int cam_tasklet_put_cmd(
+    void                         *bottom_half,
+    void                        **bh_cmd)
 {
 	unsigned long flags;
+    struct cam_tasklet_info        *tasklet = bottom_half;
+    struct cam_tasklet_queue_cmd   *tasklet_cmd = *bh_cmd;
 
 	spin_lock_irqsave(&tasklet->tasklet_lock, flags);
-	list_add_tail(&(*tasklet_cmd)->list,
+    list_add_tail(&(tasklet_cmd)->list,
 		&tasklet->free_cmd_list);
 	spin_unlock_irqrestore(&tasklet->tasklet_lock, flags);
+
+    return 0;
 }
 
 /**
@@ -157,12 +163,6 @@ static int cam_tasklet_dequeue_cmd(
 
 	*tasklet_cmd = NULL;
 
-	if (!atomic_read(&tasklet->tasklet_active)) {
-		CAM_ERR(CAM_ISP, "Tasklet is not active!");
-		rc = -EPIPE;
-		return rc;
-	}
-
 	CAM_DBG(CAM_ISP, "Dequeue before lock.");
 	spin_lock_irqsave(&tasklet->tasklet_lock, flags);
 	if (list_empty(&tasklet->used_cmd_list)) {
@@ -183,34 +183,33 @@ spin_unlock:
 
 int cam_tasklet_enqueue_cmd(
 	void                              *bottom_half,
-	void                              *handler_priv,
+    void                              *bh_cmd,
 	void                              *evt_payload_priv,
 	CAM_IRQ_HANDLER_BOTTOM_HALF        bottom_half_handler)
 {
-	struct cam_tasklet_info       *tasklet = bottom_half;
-	struct cam_tasklet_queue_cmd  *tasklet_cmd = NULL;
 	unsigned long                  flags;
-	int                            rc;
+	int                            rc = 0;
+	struct cam_tasklet_queue_cmd  *tasklet_cmd = bh_cmd;
+	struct cam_tasklet_info       *tasklet = bottom_half;
 
 	if (!bottom_half) {
-		CAM_ERR(CAM_ISP, "NULL bottom half");
+		CAM_ERR_RATE_LIMIT(CAM_ISP, "NULL bottom half");
 		return -EINVAL;
 	}
 
-	rc = cam_tasklet_get_cmd(tasklet, &tasklet_cmd);
-
-	if (tasklet_cmd) {
-		CAM_DBG(CAM_ISP, "Enqueue tasklet cmd");
-		tasklet_cmd->bottom_half_handler = bottom_half_handler;
-		tasklet_cmd->payload = evt_payload_priv;
-		spin_lock_irqsave(&tasklet->tasklet_lock, flags);
-		list_add_tail(&tasklet_cmd->list,
-			&tasklet->used_cmd_list);
-		spin_unlock_irqrestore(&tasklet->tasklet_lock, flags);
-		tasklet_schedule(&tasklet->tasklet);
-	} else {
-		CAM_ERR(CAM_ISP, "tasklet cmd is NULL!");
+	if (!bh_cmd) {
+		CAM_ERR_RATE_LIMIT(CAM_ISP, "NULL bh cmd");
+		return -EINVAL;
 	}
+
+	CAM_DBG(CAM_ISP, "Enqueue tasklet cmd");
+	tasklet_cmd->bottom_half_handler = bottom_half_handler;
+	tasklet_cmd->payload = evt_payload_priv;
+	spin_lock_irqsave(&tasklet->tasklet_lock, flags);
+	list_add_tail(&tasklet_cmd->list,
+		&tasklet->used_cmd_list);
+	spin_unlock_irqrestore(&tasklet->tasklet_lock, flags);
+	tasklet_schedule(&tasklet->tasklet);
 
 	return rc;
 }
@@ -244,7 +243,7 @@ int cam_tasklet_init(
 	}
 	tasklet_init(&tasklet->tasklet, cam_tasklet_action,
 		(unsigned long)tasklet);
-	cam_tasklet_stop(tasklet);
+	tasklet_disable(&tasklet->tasklet);
 
 	*tasklet_info = tasklet;
 
@@ -255,19 +254,18 @@ void cam_tasklet_deinit(void    **tasklet_info)
 {
 	struct cam_tasklet_info *tasklet = *tasklet_info;
 
-	atomic_set(&tasklet->tasklet_active, 0);
-	tasklet_kill(&tasklet->tasklet);
+	if (atomic_read(&tasklet->tasklet_active)) {
+		atomic_set(&tasklet->tasklet_active, 0);
+		tasklet_kill(&tasklet->tasklet);
+		tasklet_disable(&tasklet->tasklet);
+	}
 	kfree(tasklet);
 	*tasklet_info = NULL;
 }
 
-static void cam_tasklet_flush(void  *tasklet_info)
+static inline void cam_tasklet_flush(struct cam_tasklet_info *tasklet_info)
 {
-	unsigned long data;
-	struct cam_tasklet_info *tasklet = tasklet_info;
-
-	data = (unsigned long)tasklet;
-	cam_tasklet_action(data);
+	cam_tasklet_action((unsigned long) tasklet_info);
 }
 
 int cam_tasklet_start(void  *tasklet_info)
@@ -280,7 +278,6 @@ int cam_tasklet_start(void  *tasklet_info)
 			tasklet->index);
 		return -EBUSY;
 	}
-	atomic_set(&tasklet->tasklet_active, 1);
 
 	/* clean up the command queue first */
 	for (i = 0; i < CAM_TASKLETQ_SIZE; i++) {
@@ -288,6 +285,8 @@ int cam_tasklet_start(void  *tasklet_info)
 		list_add_tail(&tasklet->cmd_queue[i].list,
 			&tasklet->free_cmd_list);
 	}
+
+	atomic_set(&tasklet->tasklet_active, 1);
 
 	tasklet_enable(&tasklet->tasklet);
 
@@ -298,9 +297,10 @@ void cam_tasklet_stop(void  *tasklet_info)
 {
 	struct cam_tasklet_info  *tasklet = tasklet_info;
 
-	cam_tasklet_flush(tasklet);
 	atomic_set(&tasklet->tasklet_active, 0);
+	tasklet_kill(&tasklet->tasklet);
 	tasklet_disable(&tasklet->tasklet);
+	cam_tasklet_flush(tasklet);
 }
 
 /*
@@ -323,7 +323,7 @@ static void cam_tasklet_action(unsigned long data)
 	while (!cam_tasklet_dequeue_cmd(tasklet_info, &tasklet_cmd)) {
 		tasklet_cmd->bottom_half_handler(tasklet_info->ctx_priv,
 			tasklet_cmd->payload);
-		cam_tasklet_put_cmd(tasklet_info, &tasklet_cmd);
+		cam_tasklet_put_cmd(tasklet_info, (void**)(&tasklet_cmd));
 	}
 }
 

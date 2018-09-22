@@ -78,6 +78,7 @@
 #else
 #define IF_HAVE_PG_IDLE(flag,string)
 #endif
+#define IF_HAVE_PG_UIDRU(flag,string) ,{1UL << flag, string}
 
 #define __def_pageflag_names						\
 	{1UL << PG_locked,		"locked"	},		\
@@ -104,7 +105,9 @@ IF_HAVE_PG_MLOCK(PG_mlocked,		"mlocked"	)		\
 IF_HAVE_PG_UNCACHED(PG_uncached,	"uncached"	)		\
 IF_HAVE_PG_HWPOISON(PG_hwpoison,	"hwpoison"	)		\
 IF_HAVE_PG_IDLE(PG_young,		"young"		)		\
-IF_HAVE_PG_IDLE(PG_idle,		"idle"		)
+IF_HAVE_PG_IDLE(PG_idle,		"idle"		)			\
+IF_HAVE_PG_UIDRU(PG_uidlru,	"uidlru")
+
 
 #define show_page_flags(flags)						\
 	(flags) ? __print_flags(flags, "|",				\

@@ -88,8 +88,12 @@ void cam_tasklet_stop(void    *tasklet);
  */
 int cam_tasklet_enqueue_cmd(
 	void                              *bottom_half,
-	void                              *handler_priv,
+	void                              *bh_cmd,
 	void                              *evt_payload_priv,
 	CAM_IRQ_HANDLER_BOTTOM_HALF        bottom_half_handler);
+
+int cam_tasklet_get_cmd(void *bottom_half,void **bh_cmd);
+
+int cam_tasklet_put_cmd(void *bottom_half,void **bh_cmd);
 
 #endif /* _CAM_TASKLET_UTIL_H_ */

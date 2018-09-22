@@ -12,6 +12,8 @@
 #include <trace/events/sched.h>
 
 #include "walt.h"
+/* Curtis, 20180109, ux realm */
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
 
 int sched_rr_timeslice = RR_TIMESLICE;
 
@@ -1753,6 +1755,8 @@ static int find_lowest_rq(struct task_struct *task)
 	int start_cpu = walt_start_cpu(prev_cpu);
 	bool do_rotate = false;
 	bool avoid_prev_cpu = false;
+	/* Curtis, 20180109, ux realm */
+	bool best_cpu_is_claimed = false;
 
 	/* Make sure the mask is initialized first */
 	if (unlikely(!lowest_mask))
@@ -1845,6 +1849,16 @@ retry:
 			if (sched_cpu_high_irqload(cpu))
 				continue;
 
+			/* Curtis, 20180109, ux realm */
+			if (best_cpu_is_claimed) {
+				best_cpu_idle_idx = cpu_idle_idx;
+				best_cpu_util_cum = util_cum;
+				best_cpu_util = util;
+				best_cpu = cpu;
+				best_cpu_is_claimed = false;
+				continue;
+			}
+
 			/* Find the least loaded CPU */
 			if (util > best_cpu_util)
 				continue;
@@ -1876,6 +1890,13 @@ retry:
 					continue;
 			}
 
+			/* Curtis, 20180109, ux realm */
+			if (opc_get_claim_on_cpu(cpu)) {
+				if (best_cpu != -1)
+					continue;
+				else
+					best_cpu_is_claimed = true;
+			}
 			best_cpu_idle_idx = cpu_idle_idx;
 			best_cpu_util_cum = util_cum;
 			best_cpu_util = util;

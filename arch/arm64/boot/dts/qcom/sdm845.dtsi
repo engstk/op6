@@ -530,7 +530,7 @@
 
 		removed_region: removed_region@85fc0000 {
 			no-map;
-			reg = <0 0x85fc0000 0 0x2f40000>;
+			reg = <0 0x85fc0000 0 0x4b40000>; /* enlarge TA memory size from 34M to 62M on 2018/09/03 */
 		};
 
 		qseecom_mem: qseecom_region@0x8ab00000 {
@@ -776,7 +776,6 @@
 		      <0x17a60000 0x100000>;    /* GICR * 8 */
 		interrupts = <1 9 4>;
 		interrupt-parent = <&intc>;
-		ignored-save-restore-irqs = <38>;
 	};
 
 	pdc: interrupt-controller@b220000{
@@ -1732,7 +1731,7 @@
 		clock-names = "xo";
 		qcom,proxy-clock-names = "xo";
 		qcom,pil-generic-irq-handler;
-		status = "ok";
+		status = "disabled";
 
 		qcom,pas-id = <14>;
 		qcom,proxy-timeout-ms = <10000>;
@@ -2498,7 +2497,7 @@
 
 	qcom_seecom: qseecom@86d00000 {
 		compatible = "qcom,qseecom";
-		reg = <0x86d00000 0x2200000>;
+		reg = <0x86d00000 0x03E00000>;  /* enlarge TA memory size from 34M to 62M on 2018/09/03 */
 		reg-names = "secapp-region";
 		qcom,hlos-num-ce-hw-instances = <1>;
 		qcom,hlos-ce-hw-instance = <0>;
@@ -3469,8 +3468,9 @@
 
 		gpu-virt-max-step {
 			polling-delay-passive = <10>;
-			polling-delay = <100>;
+			polling-delay = <0>;
 			thermal-governor = "step_wise";
+			disable-thermal-zone;
 			trips {
 				gpu_trip0: gpu-trip0 {
 					temperature = <95000>;

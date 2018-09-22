@@ -17,5 +17,5 @@
 / {
 	model = "Qualcomm Technologies, Inc. SDM845 v2 SoC";
 	compatible = "qcom,sdm845";
-	qcom,board-id = <0 0>;
+	qcom,board-id = <0 0 0 0>;
 };

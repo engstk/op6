@@ -38,6 +38,33 @@
 #include "sde_power_handle.h"
 #include "sde_core_perf.h"
 #include "sde_trace.h"
+#include <linux/msm_drm_notify.h>
+#include <linux/notifier.h>
+#include <linux/err.h>
+#include <linux/list.h>
+#include <linux/of.h>
+#include <linux/err.h>
+#include "msm_drv.h"
+#include "sde_connector.h"
+#include "msm_mmu.h"
+#include "dsi_display.h"
+#include "dsi_panel.h"
+#include "dsi_ctrl.h"
+#include "dsi_ctrl_hw.h"
+#include "dsi_drm.h"
+#include "dsi_clk.h"
+#include "dsi_pwr.h"
+#include "sde_dbg.h"
+#include <linux/kobject.h>
+#include <linux/string.h>
+#include <linux/sysfs.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <drm/drm_mipi_dsi.h>
+
+
+
+extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
@@ -4559,7 +4586,6 @@ static int _sde_crtc_check_secure_state(struct drm_crtc *crtc,
 
 	return 0;
 }
-
 static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 		struct drm_crtc_state *state)
 {
@@ -4709,8 +4735,6 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 			sde_plane_clear_multirect(pipe_staged[i]);
 		}
 	}
-
-	/* assign mixer stages based on sorted zpos property */
 	sort(pstates, cnt, sizeof(pstates[0]), pstate_cmp, NULL);
 
 	rc = _sde_crtc_check_secure_state(crtc, state, pstates, cnt);
@@ -5051,6 +5075,9 @@ static void sde_crtc_install_properties(struct drm_crtc *crtc,
 		"idle_time", 0, 0, U64_MAX, 0,
 		CRTC_PROP_IDLE_TIMEOUT);
 
+
+	msm_property_install_range(&sde_crtc->property_info,"CRTC_CUST",
+		0x0, 0, INT_MAX, 0, CRTC_PROP_CUSTOM);
 	msm_property_install_range(&sde_crtc->property_info,
 		"enable_sui_enhancement", 0, 0, U64_MAX, 0,
 		CRTC_PROP_ENABLE_SUI_ENHANCEMENT);

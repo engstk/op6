@@ -16,7 +16,8 @@
 #define CAM_RELEASE_DEV                         (CAM_COMMON_OPCODE_BASE + 0x6)
 #define CAM_SD_SHUTDOWN                         (CAM_COMMON_OPCODE_BASE + 0x7)
 #define CAM_FLUSH_REQ                           (CAM_COMMON_OPCODE_BASE + 0x8)
-#define CAM_COMMON_OPCODE_MAX                   (CAM_COMMON_OPCODE_BASE + 0x9)
+#define CAM_GET_FUSE_ID                         (CAM_COMMON_OPCODE_BASE + 0x9)
+#define CAM_COMMON_OPCODE_MAX                   (CAM_COMMON_OPCODE_BASE + 0xA)
 
 #define CAM_EXT_OPCODE_BASE                     0x200
 #define CAM_CONFIG_DEV_EXTERNAL                 (CAM_EXT_OPCODE_BASE + 0x1)
@@ -77,6 +78,9 @@ struct cam_control {
 /* camera IOCTL */
 #define VIDIOC_CAM_CONTROL \
 	_IOWR('V', BASE_VIDIOC_PRIVATE, struct cam_control)
+
+#define VIDIOC_CAM_FTM_POWNER_UP 0
+#define VIDIOC_CAM_FTM_POWNER_DOWN 1
 
 /**
  * struct cam_hw_version - Structure for HW version of camera devices

@@ -1,0 +1,62 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+/*don't suggest add to this file, this file is only for different hw*/
+#include "enchilada-dvt.dtsi"
+&vendor {
+
+};
+
+&soc {
+};
+
+&dsi_samsung_sofef00_m_cmd {
+	qcom,mdss-panel-mismatch-check;
+};
+
+&sde_dp{
+	status = "okay";
+};
+
+&sde_dp {
+	qcom,aux-en-gpio = <&tlmm 122 0>;
+	qcom,aux-sel-gpio = <&tlmm 123 0>;
+	qcom,usbplug-cc-gpio = <&tlmm 38 0>;
+};
+
+&mdss_mdp {
+	connectors = <&sde_rscc &sde_wb &sde_dp>;
+};
+
+&sde_dp_aux_active {
+	mux {
+		pins = "gpio122", "gpio123";
+		function = "gpio";
+	};
+
+	config {
+		pins = "gpio122", "gpio123";
+		bias-disable = <0>; /* no pull */
+		drive-strength = <8>;
+	};
+};
+
+&usb0 {
+	dwc3@a600000 {
+		op,enable_super_speed;
+	};
+};
+
+&usb1 {
+	dwc3@a800000 {
+		op,enable_super_speed;
+	};
+};

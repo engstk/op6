@@ -247,19 +247,10 @@ static inline void gic_write_bpr1(u32 val)
  *   The upper-word (aff3) will always be 0, so there is no need for a lock.
  * - GICR_TYPER is an ID register and doesn't need atomicity.
  */
-static inline void gic_write_irouter(u64 val, volatile void __iomem *addr)
+static inline void gic_write_irouter(u64 val,  void __iomem *addr)
 {
 	writel_relaxed((u32)val, addr);
 	writel_relaxed((u32)(val >> 32), addr + 4);
-}
-
-static inline u64 gic_read_irouter(const volatile void __iomem *addr)
-{
-	u64 val;
-
-	val = readl_relaxed(addr);
-	val |= (u64)readl_relaxed(addr + 4) << 32;
-	return val;
 }
 
 static inline u64 gic_read_typer(const volatile void __iomem *addr)

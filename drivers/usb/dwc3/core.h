@@ -1136,6 +1136,7 @@ struct dwc3 {
 	/* Indicate if need to disable controller internal clkgating */
 	unsigned		disable_clk_gating:1;
 	unsigned		enable_bus_suspend:1;
+	unsigned		enable_super_speed:1;
 	unsigned		usb3_u1u2_disable:1;
 	unsigned		usb2_l1_disable:1;
 

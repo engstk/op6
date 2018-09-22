@@ -1113,7 +1113,6 @@ static struct radeon_encoder_lvds *radeon_legacy_get_lvds_info_from_regs(struct
 	fp_vert_stretch = RREG32(RADEON_FP_VERT_STRETCH);
 	fp_horz_stretch = RREG32(RADEON_FP_HORZ_STRETCH);
 
-	/* These should be fail-safe defaults, fingers crossed */
 	lvds->panel_pwr_delay = 200;
 	lvds->panel_vcc_delay = 2000;
 

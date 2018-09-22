@@ -73,8 +73,6 @@ obj-$(CONFIG_TOUCHSCREEN_STMPE)		+= stmpe-ts.o
 obj-$(CONFIG_TOUCHSCREEN_SUN4I)		+= sun4i-ts.o
 obj-$(CONFIG_TOUCHSCREEN_SUR40)		+= sur40.o
 obj-$(CONFIG_TOUCHSCREEN_SURFACE3_SPI)	+= surface3_spi.o
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX) += synaptics_dsx/
-obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_v26)	+= synaptics_dsx_2.6/
 obj-$(CONFIG_TOUCHSCREEN_TI_AM335X_TSC)	+= ti_am335x_tsc.o
 obj-$(CONFIG_TOUCHSCREEN_TOUCHIT213)	+= touchit213.o
 obj-$(CONFIG_TOUCHSCREEN_TOUCHRIGHT)	+= touchright.o
@@ -103,6 +101,12 @@ obj-$(CONFIG_TOUCHSCREEN_TPS6507X)	+= tps6507x-ts.o
 obj-$(CONFIG_TOUCHSCREEN_ZFORCE)	+= zforce_ts.o
 obj-$(CONFIG_TOUCHSCREEN_COLIBRI_VF50)	+= colibri-vf50-ts.o
 obj-$(CONFIG_TOUCHSCREEN_ROHM_BU21023)	+= rohm_bu21023.o
+
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S3320_I2C_RMI) += synaptics_driver_s3320.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S3320_I2C_RMI) += synaptics_s3320_redremote.o
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_S3320_I2C_RMI) += synaptics_dsx_fw_update.o
+
 obj-$(CONFIG_TOUCHSCREEN_FTS)		+= focaltech_touch/
+
 obj-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET)	+= hxchipset/
 obj-$(CONFIG_TOUCHSCREEN_GT9XX_v28)		+= gt9xx_v2.8/

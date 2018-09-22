@@ -90,6 +90,8 @@
 				"msm-dai-q6-tdm.36880", "msm-dai-q6-tdm.36881",
 				"msm-dai-q6-tdm.36896", "msm-dai-q6-tdm.36897",
 				"msm-dai-q6-tdm.36912", "msm-dai-q6-tdm.36913";
+/*suzhiguang, temp add here */
+		op,smartpa ="max98927";
 	};
 };
 

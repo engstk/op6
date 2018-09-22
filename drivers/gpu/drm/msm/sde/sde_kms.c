@@ -833,6 +833,12 @@ static int _sde_kms_release_splash_buffer(unsigned int mem_addr,
 	if (!mem_addr || !size)
 		SDE_ERROR("invalid params\n");
 
+	/* reserved 10MB memory for display in dump mode */
+	if (size >= 0xa00000) {
+		mem_addr += 0xa00000;
+		size -= 0xa00000;
+	}
+
 	pfn_start = mem_addr >> PAGE_SHIFT;
 	pfn_end = (mem_addr + size) >> PAGE_SHIFT;
 
@@ -924,6 +930,12 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
 		SDE_ERROR("failed to enable power resource %d\n", rc);
 		SDE_EVT32(rc, SDE_EVTLOG_ERROR);
 		return;
+	}
+
+	if (sde_kms->first_kickoff) {
+		sde_power_scale_reg_bus(&priv->phandle, sde_kms->core_client,
+			VOTE_INDEX_HIGH, false);
+		sde_kms->first_kickoff = false;
 	}
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
@@ -3083,8 +3095,10 @@ static void sde_kms_handle_power_event(u32 event_type, void *usr)
 	if (event_type == SDE_POWER_EVENT_POST_ENABLE) {
 		sde_irq_update(msm_kms, true);
 		sde_vbif_init_memtypes(sde_kms);
+		sde_kms->first_kickoff = true;
 	} else if (event_type == SDE_POWER_EVENT_PRE_DISABLE) {
 		sde_irq_update(msm_kms, false);
+		sde_kms->first_kickoff = false;
 	}
 }
 

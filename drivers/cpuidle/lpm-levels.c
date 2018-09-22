@@ -82,6 +82,8 @@ struct lpm_debug {
 	uint32_t arg4;
 };
 
+static DEFINE_SPINLOCK(bc_timer_lock);
+
 static struct system_pm_ops *sys_pm_ops;
 
 
@@ -91,6 +93,9 @@ struct lpm_cluster *lpm_root_node;
 
 static bool lpm_prediction = true;
 module_param_named(lpm_prediction, lpm_prediction, bool, 0664);
+
+static bool cluster_prediction = true;
+module_param_named(cluster_prediction, cluster_prediction, bool, 0664);
 
 static uint32_t bias_hyst;
 module_param_named(bias_hyst, bias_hyst, uint, 0664);
@@ -127,6 +132,12 @@ module_param_named(print_parsed_dt, print_parsed_dt, bool, 0664);
 
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
+
+void msm_cpuidle_set_sleep_disable(bool disable)
+{
+       sleep_disabled = disable;
+       pr_info("%s:sleep_disabled=%d\n",__func__,disable);
+}
 
 /**
  * msm_cpuidle_get_deep_idle_latency - Get deep idle latency value
@@ -447,7 +458,7 @@ static uint64_t lpm_cpuidle_predict(struct cpuidle_device *dev,
 	uint32_t *min_residency = get_per_cpu_min_residency(dev->cpu);
 	uint32_t *max_residency = get_per_cpu_max_residency(dev->cpu);
 
-	if (!lpm_prediction || !cpu->lpm_prediction)
+	if (!lpm_prediction || (!cpu->lpm_prediction && !cluster_prediction))
 		return 0;
 
 	/*
@@ -1029,6 +1040,7 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 	struct lpm_cluster_level *level = &cluster->levels[idx];
 	struct cpumask online_cpus, cpumask;
 	unsigned int cpu;
+	int ret = 0;
 
 	cpumask_and(&online_cpus, &cluster->num_children_in_sync,
 					cpu_online_mask);
@@ -1067,9 +1079,13 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 
 		clear_predict_history();
 		clear_cl_predict_history();
-		if (sys_pm_ops && sys_pm_ops->enter)
-			if ((sys_pm_ops->enter(&cpumask)))
+		if (sys_pm_ops && sys_pm_ops->enter) {
+			spin_lock(&bc_timer_lock);
+			ret = sys_pm_ops->enter(&cpumask);
+			spin_unlock(&bc_timer_lock);
+			if (ret)
 				return -EBUSY;
+		}
 	}
 	/* Notify cluster enter event after successfully config completion */
 	cluster_notify(cluster, level, true);
@@ -1201,9 +1217,13 @@ static void cluster_unprepare(struct lpm_cluster *cluster,
 
 	level = &cluster->levels[cluster->last_level];
 
-	if (level->notify_rpm)
-		if (sys_pm_ops && sys_pm_ops->exit)
+	if (level->notify_rpm) {
+		if (sys_pm_ops && sys_pm_ops->exit) {
+			spin_lock(&bc_timer_lock);
 			sys_pm_ops->exit();
+			spin_unlock(&bc_timer_lock);
+		}
+	}
 
 	update_debug_pc_event(CLUSTER_EXIT, cluster->last_level,
 			cluster->num_children_in_sync.bits[0],
@@ -1298,6 +1318,7 @@ static bool psci_enter_sleep(struct lpm_cpu *cpu, int idx, bool from_idle)
 {
 	int affinity_level = 0, state_id = 0, power_state = 0;
 	bool success = false;
+	int ret = 0;
 	/*
 	 * idx = 0 is the default LPM state
 	 */
@@ -1310,7 +1331,17 @@ static bool psci_enter_sleep(struct lpm_cpu *cpu, int idx, bool from_idle)
 	}
 
 	if (from_idle && cpu->levels[idx].use_bc_timer) {
-		if (tick_broadcast_enter())
+		/*
+		 * tick_broadcast_enter can change the affinity of the
+		 * broadcast timer interrupt, during which interrupt will
+		 * be disabled and enabled back. To avoid system pm ops
+		 * doing any interrupt state save or restore in between
+		 * this window hold the lock.
+		 */
+		spin_lock(&bc_timer_lock);
+		ret = tick_broadcast_enter();
+		spin_unlock(&bc_timer_lock);
+		if (ret)
 			return success;
 	}
 

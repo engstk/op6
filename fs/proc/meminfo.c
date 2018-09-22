@@ -50,6 +50,7 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	long available;
 	unsigned long pages[NR_LRU_LISTS];
 	int lru;
+	int iter;
 
 	si_meminfo(&i);
 	si_swapinfo(&i);
@@ -153,7 +154,14 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	show_val_kb(m, "CmaFree:        ",
 		    global_page_state(NR_FREE_CMA_PAGES));
 #endif
-
+	show_val_kb(m, "killed_num:     ", killed_num);
+	show_val_kb(m, "a_shrink_num:   ", active_nr);
+	show_val_kb(m, "ina_shrink_num: ", inactive_nr);
+	for (iter = 0; iter < 5; iter++)
+		show_val_kb(m, "vmpress:        ", vmpress[iter]);
+	for (iter = 0; iter < 3; iter++)
+		show_val_kb(m, "priority:       ", priority_nr[iter]);
+	show_val_kb(m, "alloc_slow_nr:  ", alloc_slow_nr);
 	hugetlb_report_meminfo(m);
 
 	arch_report_meminfo(m);

@@ -148,7 +148,7 @@ int cam_bps_update_clk_rate(struct cam_hw_soc_info *soc_info,
 	if ((soc_info->clk_level_valid[CAM_TURBO_VOTE] == true) &&
 		(soc_info->clk_rate[CAM_TURBO_VOTE][src_clk_idx] != 0) &&
 		(clk_rate > soc_info->clk_rate[CAM_TURBO_VOTE][src_clk_idx])) {
-		CAM_DBG(CAM_ICP, "clk_rate %d greater than max, reset to %d",
+		CAM_WARN(CAM_ICP, "clk_rate %d greater than max, reset to %d",
 			clk_rate,
 			soc_info->clk_rate[CAM_TURBO_VOTE][src_clk_idx]);
 		clk_rate = soc_info->clk_rate[CAM_TURBO_VOTE][src_clk_idx];

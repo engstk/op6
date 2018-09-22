@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -55,7 +55,6 @@ int32_t cam_ois_construct_default_power_setting(
 
 free_power_settings:
 	kfree(power_info->power_setting);
-	power_info->power_setting = NULL;
 	return rc;
 }
 
@@ -78,6 +77,7 @@ static int cam_ois_get_dev_handle(struct cam_ois_ctrl_t *o_ctrl,
 		CAM_ERR(CAM_OIS, "Device is already acquired");
 		return -EFAULT;
 	}
+
 	if (copy_from_user(&ois_acq_dev, (void __user *) cmd->handle,
 		sizeof(ois_acq_dev)))
 		return -EFAULT;
@@ -234,13 +234,17 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 			size = i2c_list->i2c_settings.size;
 			for (i = 0; i < size; i++) {
 				rc = camera_io_dev_poll(
-				&(o_ctrl->io_master_info),
-				i2c_list->i2c_settings.reg_setting[i].reg_addr,
-				i2c_list->i2c_settings.reg_setting[i].reg_data,
-				i2c_list->i2c_settings.reg_setting[i].data_mask,
-				i2c_list->i2c_settings.addr_type,
-				i2c_list->i2c_settings.data_type,
-				i2c_list->i2c_settings.reg_setting[i].delay);
+					&(o_ctrl->io_master_info),
+					i2c_list->i2c_settings.
+						reg_setting[i].reg_addr,
+					i2c_list->i2c_settings.
+						reg_setting[i].reg_data,
+					i2c_list->i2c_settings.
+						reg_setting[i].data_mask,
+					i2c_list->i2c_settings.addr_type,
+					i2c_list->i2c_settings.data_type,
+					i2c_list->i2c_settings.
+						reg_setting[i].delay);
 				if (rc < 0) {
 					CAM_ERR(CAM_OIS,
 						"i2c poll apply setting Fail");
@@ -437,11 +441,16 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 	struct cam_ois_soc_private     *soc_private =
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
 	struct cam_sensor_power_ctrl_t  *power_info = &soc_private->power_info;
-
+	struct cam_sensor_i2c_reg_setting hhk_add_setting;//add by hhk
+	struct cam_sensor_i2c_reg_array hhk_add_reg[3];//add by hhk
+	int32_t                         j = 0;
+	uint32_t						red_reg_data=0;
 	ioctl_ctrl = (struct cam_control *)arg;
+
 	if (copy_from_user(&dev_config, (void __user *) ioctl_ctrl->handle,
 		sizeof(dev_config)))
 		return -EFAULT;
+
 	rc = cam_mem_get_cpu_buf(dev_config.packet_handle,
 		(uint64_t *)&generic_pkt_addr, &pkt_len);
 	if (rc) {
@@ -518,7 +527,6 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 				i2c_reg_settings->is_settings_valid = 1;
 				i2c_reg_settings->request_id = 0;
 				rc = cam_sensor_i2c_command_parser(
-					&o_ctrl->io_master_info,
 					i2c_reg_settings,
 					&cmd_desc[i], 1);
 				if (rc < 0) {
@@ -527,15 +535,14 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 					return rc;
 				}
 			} else if ((o_ctrl->is_ois_calib != 0) &&
-				(o_ctrl->i2c_calib_data.is_settings_valid ==
-				0)) {
+				(o_ctrl->i2c_calib_data.
+					is_settings_valid == 0)) {
 				CAM_DBG(CAM_OIS,
 					"Received calib settings");
 				i2c_reg_settings = &(o_ctrl->i2c_calib_data);
 				i2c_reg_settings->is_settings_valid = 1;
 				i2c_reg_settings->request_id = 0;
 				rc = cam_sensor_i2c_command_parser(
-					&o_ctrl->io_master_info,
 					i2c_reg_settings,
 					&cmd_desc[i], 1);
 				if (rc < 0) {
@@ -572,11 +579,30 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		}
 
 		if (o_ctrl->is_ois_calib) {
-			rc = cam_ois_apply_settings(o_ctrl,
-				&o_ctrl->i2c_calib_data);
-			if (rc) {
-				CAM_ERR(CAM_OIS, "Cannot apply calib data");
-				goto pwr_dwn;
+			//modify by huanghongkun begin
+			//for debug
+			rc = camera_io_dev_read(&(o_ctrl->io_master_info),
+			0xF008,
+			&red_reg_data,
+			CAMERA_SENSOR_I2C_TYPE_WORD,
+			CAMERA_SENSOR_I2C_TYPE_DWORD);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "Failed to read 0xF008");
+			} else
+				CAM_DBG(CAM_OIS, "read 0xF008 = 0x%x",
+				red_reg_data);
+
+			if (o_ctrl->i2c_calib_data.is_settings_valid == 1) {
+				rc = cam_ois_apply_settings(o_ctrl,
+					&o_ctrl->i2c_calib_data);
+				if (rc) {
+					CAM_ERR(CAM_OIS,
+						"Cannot apply calib data");
+					goto pwr_dwn;
+				}
+			} else{
+				CAM_ERR(CAM_OIS,
+				"WA ois calib data invalid,ignore it.");
 			}
 		}
 
@@ -586,10 +612,16 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 				"Fail deleting Init data: rc: %d", rc);
 			rc = 0;
 		}
+		if (o_ctrl->is_ois_calib
+			&& o_ctrl->i2c_calib_data.is_settings_valid == 1){
+			o_ctrl->isPollNeeded = true;
+			CAM_ERR(CAM_OIS,
+				"WA calib data invalid,ignore poll.");
+		}
 		rc = delete_request(&o_ctrl->i2c_calib_data);
 		if (rc < 0) {
 			CAM_WARN(CAM_OIS,
-				"Fail deleting Calibration data: rc: %d", rc);
+			"Fail deleting Calibration data: rc: %d", rc);
 			rc = 0;
 		}
 		break;
@@ -601,14 +633,98 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 				o_ctrl->cam_ois_state);
 			return rc;
 		}
+
+		if(o_ctrl->isPollNeeded == true)
+		{
+			red_reg_data=0;
+			for(j = 0; j < 50; j++)
+			{
+				rc = camera_io_dev_read(&(o_ctrl->io_master_info), 0x6024, &red_reg_data,
+					CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+				if (rc < 0) {
+					CAM_ERR(CAM_OIS, "Failed to read 0x6024");
+				} else
+					CAM_DBG(CAM_OIS, "calib_data end read 0x6024 = 0x%x", red_reg_data);
+				if(red_reg_data == 1)
+					break;
+				else
+					msleep(10);
+			}//control data 0
+			hhk_add_reg[0].data_mask = 0x00;
+			hhk_add_reg[0].delay = 0x00;
+			hhk_add_reg[0].reg_addr = 0x6020;
+			hhk_add_reg[0].reg_data = 0x01;
+			hhk_add_setting.reg_setting = &hhk_add_reg[0];
+			hhk_add_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			hhk_add_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			hhk_add_setting.size = 1;
+			hhk_add_setting.delay =10;
+			rc = camera_io_dev_write(&(o_ctrl->io_master_info), &hhk_add_setting);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "Failed to write control_data_0");
+				goto pwr_dwn;
+			}
+			red_reg_data=0;
+			for(j = 0; j < 50; j++)
+			{
+				rc = camera_io_dev_read(&(o_ctrl->io_master_info), 0x6024, &red_reg_data,
+					CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+				if (rc < 0) {
+					CAM_ERR(CAM_OIS, "Failed to read 0x6024");
+				} else
+					CAM_DBG(CAM_OIS, "control_data_0 end read 0x6024 = 0x%x", red_reg_data);
+				if(red_reg_data == 1)
+					break;
+				else
+					msleep(10);
+			}//control data 1
+			hhk_add_reg[0].data_mask = 0x00;
+			hhk_add_reg[0].delay = 0x00;
+			hhk_add_reg[0].reg_addr = 0x614F;
+			hhk_add_reg[0].reg_data = 0x01;
+			hhk_add_reg[1].data_mask = 0x00;
+			hhk_add_reg[1].delay = 0x00;
+			hhk_add_reg[1].reg_addr = 0x6023;
+			hhk_add_reg[1].reg_data = 0x00;
+			hhk_add_reg[2].data_mask = 0x00;
+			hhk_add_reg[2].delay = 0x00;
+			hhk_add_reg[2].reg_addr = 0x6021;
+			hhk_add_reg[2].reg_data = 0x7B;
+			hhk_add_setting.reg_setting = &hhk_add_reg[0];
+			hhk_add_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+			hhk_add_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+			hhk_add_setting.size = 3;
+			hhk_add_setting.delay = 0;
+			rc = camera_io_dev_write(&(o_ctrl->io_master_info), &hhk_add_setting);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "Failed to write control_data_1");
+				goto pwr_dwn;
+			}
+			red_reg_data=0;
+			for(j = 0; j < 50; j++)
+			{
+				rc = camera_io_dev_read(&(o_ctrl->io_master_info), 0x6024, &red_reg_data,
+					CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE);
+				if (rc < 0) {
+					CAM_ERR(CAM_OIS, "Failed to read 0x6024");
+				} else
+					CAM_DBG(CAM_OIS, "control_data_1 end read 0x6024 = 0x%x", red_reg_data);
+				if(red_reg_data == 1)
+					break;
+				else
+					msleep(10);
+			}
+			//modify by huanghongkun end
+			o_ctrl->isPollNeeded = false;
+		}
+
 		offset = (uint32_t *)&csl_packet->payload;
 		offset += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
 		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
 		i2c_reg_settings = &(o_ctrl->i2c_mode_data);
 		i2c_reg_settings->is_settings_valid = 1;
 		i2c_reg_settings->request_id = 0;
-		rc = cam_sensor_i2c_command_parser(&o_ctrl->io_master_info,
-			i2c_reg_settings,
+		rc = cam_sensor_i2c_command_parser(i2c_reg_settings,
 			cmd_desc, 1);
 		if (rc < 0) {
 			CAM_ERR(CAM_OIS, "OIS pkt parsing failed: %d", rc);
@@ -631,26 +747,23 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 	}
 	return rc;
 pwr_dwn:
+	CAM_ERR(CAM_OIS, "cam_ois_power_down.");
 	cam_ois_power_down(o_ctrl);
 	return rc;
 }
 
 void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 {
-	int rc = 0;
-	struct cam_ois_soc_private  *soc_private =
-		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
-	struct cam_sensor_power_ctrl_t *power_info =
-		&soc_private->power_info;
+	int rc;
 
 	if (o_ctrl->cam_ois_state == CAM_OIS_INIT)
 		return;
 
 	if (o_ctrl->cam_ois_state >= CAM_OIS_CONFIG) {
+		CAM_ERR(CAM_OIS, "cam_ois_power_down.");
 		rc = cam_ois_power_down(o_ctrl);
 		if (rc < 0)
 			CAM_ERR(CAM_OIS, "OIS Power down failed");
-		o_ctrl->cam_ois_state = CAM_OIS_ACQUIRE;
 	}
 
 	if (o_ctrl->cam_ois_state >= CAM_OIS_ACQUIRE) {
@@ -661,11 +774,6 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 		o_ctrl->bridge_intf.link_hdl = -1;
 		o_ctrl->bridge_intf.session_hdl = -1;
 	}
-
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
-	power_info->power_setting = NULL;
-	power_info->power_down_setting = NULL;
 
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 }
@@ -683,8 +791,8 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 	struct cam_ois_query_cap_t     ois_cap = {0};
 	struct cam_control            *cmd = (struct cam_control *)arg;
 
-	if (!o_ctrl || !arg) {
-		CAM_ERR(CAM_OIS, "Invalid arguments");
+	if (!o_ctrl) {
+		CAM_ERR(CAM_OIS, "e_ctrl is NULL");
 		return -EINVAL;
 	}
 
@@ -743,6 +851,7 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		}
 
 		if (o_ctrl->cam_ois_state == CAM_OIS_CONFIG) {
+			CAM_ERR(CAM_OIS, "cam_ois_power_down.");
 			rc = cam_ois_power_down(o_ctrl);
 			if (rc < 0) {
 				CAM_ERR(CAM_OIS, "OIS Power down failed");

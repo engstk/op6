@@ -265,6 +265,8 @@ struct sde_encoder_virt {
 	struct sde_rect cur_conn_roi;
 	struct sde_rect prv_conn_roi;
 	struct drm_crtc *crtc;
+
+	bool elevated_ahb_vote;
 };
 
 #define to_sde_encoder_virt(x) container_of(x, struct sde_encoder_virt, base)
@@ -1849,6 +1851,7 @@ static int _sde_encoder_resource_control_helper(struct drm_encoder *drm_enc,
 			return rc;
 		}
 
+		sde_enc->elevated_ahb_vote = true;
 		/* enable DSI clks */
 		rc = sde_connector_clk_ctrl(sde_enc->cur_master->connector,
 				true);
@@ -2789,6 +2792,7 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	struct sde_encoder_virt *sde_enc = NULL;
 	struct msm_drm_private *priv;
 	struct sde_kms *sde_kms;
+	struct drm_connector *drm_conn = NULL;
 	enum sde_intf_mode intf_mode;
 	int i = 0;
 
@@ -2816,6 +2820,10 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	intf_mode = sde_encoder_get_intf_mode(drm_enc);
 
 	SDE_EVT32(DRMID(drm_enc));
+	/* Disable ESD thread */
+	drm_conn = sde_enc->cur_master->connector;
+	sde_connector_schedule_status_work(drm_conn, false);
+
 
 	/* wait for idle */
 	sde_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
@@ -3275,8 +3283,8 @@ void sde_encoder_helper_hw_reset(struct sde_encoder_phys *phys_enc)
 			if (rc) {
 				SDE_ERROR_ENC(sde_enc,
 						"connector soft reset failure\n");
-				SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus",
-								"panic");
+			//	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus",
+			//					"panic");
 			}
 		}
 	}
@@ -3298,6 +3306,8 @@ static void _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc)
 	struct sde_hw_ctl *ctl;
 	uint32_t i, pending_flush;
 	unsigned long lock_flags;
+	struct msm_drm_private *priv = NULL;
+	struct sde_kms *sde_kms = NULL;
 
 	if (!sde_enc) {
 		SDE_ERROR("invalid encoder\n");
@@ -3375,6 +3385,20 @@ static void _sde_encoder_kickoff_phys(struct sde_encoder_virt *sde_enc)
 	_sde_encoder_trigger_start(sde_enc->cur_master);
 
 	spin_unlock_irqrestore(&sde_enc->enc_spinlock, lock_flags);
+
+	if (sde_enc->elevated_ahb_vote) {
+		priv = sde_enc->base.dev->dev_private;
+		if (priv != NULL) {
+			sde_kms = to_sde_kms(priv->kms);
+			if (sde_kms != NULL) {
+				sde_power_scale_reg_bus(&priv->phandle,
+						sde_kms->core_client,
+						VOTE_INDEX_LOW,
+						false);
+			}
+		}
+		sde_enc->elevated_ahb_vote = false;
+	}
 }
 
 static void _sde_encoder_ppsplit_swap_intf_for_right_only_update(

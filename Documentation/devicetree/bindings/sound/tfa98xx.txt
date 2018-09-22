@@ -1,0 +1,9 @@
+nxp,tfa9894
+
+Required properties:
+- compatible : should be "nxp,tfa9884"
+
+Example:
+	tfa98xx {
+		compatible = "nxp,tfa9894";
+	};
