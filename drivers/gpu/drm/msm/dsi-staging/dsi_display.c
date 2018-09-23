@@ -1137,6 +1137,7 @@ int dsi_display_set_power(struct drm_connector *connector,
 		break;
 	default:
 		rc = dsi_panel_set_nolp(display->panel);
+			rc = dsi_panel_enable(display->panel);
 		break;
 	}
 	if (power_mode == SDE_MODE_DPMS_ON) {
