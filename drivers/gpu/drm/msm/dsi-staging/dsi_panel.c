@@ -3905,6 +3905,28 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	panel->panel_initialized = true;
 	pr_err("aod_mode =%d\n",panel->aod_mode);
 	mutex_unlock(&panel->panel_lock);
+
+        if (panel->acl_mode)
+            dsi_panel_set_acl_mode(panel, panel->acl_mode);
+
+        if (panel->srgb_mode)
+            dsi_panel_set_srgb_mode(panel, panel->srgb_mode);
+
+        if (panel->dci_p3_mode)
+            dsi_panel_set_dci_p3_mode(panel, panel->dci_p3_mode);
+
+        if (panel->night_mode)
+            dsi_panel_set_night_mode(panel, panel->night_mode);
+
+        if (panel->oneplus_mode)
+            dsi_panel_set_oneplus_mode(panel, panel->oneplus_mode);
+
+        if (panel->adaption_mode)
+            dsi_panel_set_adaption_mode(panel, panel->adaption_mode);
+
+        if (panel->hbm_mode)
+            dsi_panel_set_hbm_mode(panel, panel->hbm_mode);
+
 	if(panel->aod_mode==2){
 		rc = dsi_panel_set_aod_mode(panel, 2);
 		}
