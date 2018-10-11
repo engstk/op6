@@ -8,6 +8,8 @@ typedef     __u8        uint8;
 #define SECURE_BOOT1			(SECURE_BOOT_BASE + 0x4*1)
 #define BUF_SIZE		64
 
+#include <linux/string.h>
+#include <linux/kallsyms.h>
 //extern uint32_t chip_serial_num;
 extern unsigned long totalram_pages __read_mostly;
 
@@ -75,12 +77,12 @@ enum COMPONENT_TYPE {
 	COMPONENT_MAX,
 };
 
-
+char *parse_function_builtin_return_address(unsigned long function_address);
 int push_component_info(enum COMPONENT_TYPE type,
 	char *version, char *manufacture);
 int reset_component_info(enum COMPONENT_TYPE type);
 uint32 get_hw_version(void);
-void save_dump_reason_to_smem(char *info);
+void save_dump_reason_to_smem(char *info, char *function_name);
 
 
 #endif
