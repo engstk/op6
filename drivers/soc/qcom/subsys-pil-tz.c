@@ -31,6 +31,7 @@
 #include <soc/qcom/scm.h>
 
 #include <soc/qcom/smem.h>
+#include <linux/project_info.h>
 
 #include "peripheral-loader.h"
 
@@ -842,7 +843,7 @@ static struct pil_reset_ops pil_ops_trusted = {
 static void log_failure_reason(const struct pil_tz_data *d)
 {
 	u32 size;
-	char *smem_reason, reason[MAX_SSR_REASON_LEN];
+	char *smem_reason, reason[MAX_SSR_REASON_LEN], *function_name;
 	const char *name = d->subsys_desc.name;
 
 	if (d->smem_id == -1)
@@ -861,6 +862,8 @@ static void log_failure_reason(const struct pil_tz_data *d)
 	}
 
 	strlcpy(reason, smem_reason, min(size, MAX_SSR_REASON_LEN));
+	function_name = parse_function_builtin_return_address((unsigned long)__builtin_return_address(0));
+	save_dump_reason_to_smem(reason, function_name);
 	pr_err("%s subsystem failure reason: %s.\n", name, reason);
 }
 
