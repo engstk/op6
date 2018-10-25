@@ -286,7 +286,7 @@ static int fingerprint_detect_probe(struct platform_device *pdev)
 			fp_detect->sensor_version = 0x04;
 		} else {
 			push_component_info(FINGERPRINTS,
-				"goodix5228", "goodix");
+				"sileadgsl7000", "silead");
 			fp_detect->sensor_version = 0x05;
 		}
 	}

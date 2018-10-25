@@ -481,6 +481,32 @@ int32_t cam_sensor_update_slave_info(struct cam_cmd_probe *probe_info,
 	return rc;
 }
 
+int32_t cam_sensor_update_id_info(struct cam_cmd_probe *probe_info,
+	struct cam_sensor_ctrl_t *s_ctrl)
+{
+	int32_t rc = 0;
+
+	s_ctrl->sensordata->id_info.sensor_slave_addr =
+		probe_info->reserved;
+	s_ctrl->sensordata->id_info.sensor_id_reg_addr =
+		probe_info->reg_addr;
+	s_ctrl->sensordata->id_info.sensor_id_mask =
+		probe_info->data_mask;
+	s_ctrl->sensordata->id_info.sensor_id =
+		probe_info->expected_data;
+	s_ctrl->sensordata->id_info.sensor_addr_type =
+		probe_info->addr_type;
+	s_ctrl->sensordata->id_info.sensor_data_type =
+		probe_info->data_type;
+
+	CAM_ERR(CAM_SENSOR,
+		"Sensor Addr: 0x%x sensor_id: 0x%x sensor_mask: 0x%x",
+		s_ctrl->sensordata->id_info.sensor_id_reg_addr,
+		s_ctrl->sensordata->id_info.sensor_id,
+		s_ctrl->sensordata->id_info.sensor_id_mask);
+	return rc;
+}
+
 int32_t cam_handle_cmd_buffers_for_probe(void *cmd_buf,
 	struct cam_sensor_ctrl_t *s_ctrl,
 	int32_t cmd_buf_num, int cmd_buf_length)
@@ -503,6 +529,13 @@ int32_t cam_handle_cmd_buffers_for_probe(void *cmd_buf,
 		rc = cam_sensor_update_slave_info(probe_info, s_ctrl);
 		if (rc < 0) {
 			CAM_ERR(CAM_SENSOR, "Updating the slave Info");
+			return rc;
+		}
+		probe_info = (struct cam_cmd_probe *)
+			(cmd_buf + sizeof(struct cam_cmd_i2c_info) + sizeof(struct cam_cmd_probe));
+		rc = cam_sensor_update_id_info(probe_info, s_ctrl);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR, "Updating the id Info");
 			return rc;
 		}
 		cmd_buf = probe_info;
@@ -661,6 +694,10 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 	uint32_t chipid = 0;
 	uint32_t sensor_version = 0;
 	uint16_t sensor_version_reg = 0x0018;
+	uint16_t sensor_slave_addr = 0;
+	uint32_t id = 0;
+	uint32_t id_l = 0;
+	uint32_t id_h = 0;
 	struct cam_camera_slave_info *slave_info;
 
 	slave_info = &(s_ctrl->sensordata->slave_info);
@@ -669,6 +706,31 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 		CAM_ERR(CAM_SENSOR, " failed: %pK",
 			 slave_info);
 		return -EINVAL;
+	}
+
+  if (((s_ctrl->sensordata->id_info.sensor_id_reg_addr & 0xFFFF) != 0) && ((s_ctrl->sensordata->id_info.sensor_id_reg_addr >> 16) != 0)) {
+		sensor_slave_addr = s_ctrl->io_master_info.cci_client->sid;
+		s_ctrl->io_master_info.cci_client->sid = s_ctrl->sensordata->id_info.sensor_slave_addr >> 1;
+		rc = camera_io_dev_read(
+			&(s_ctrl->io_master_info),
+			s_ctrl->sensordata->id_info.sensor_id_reg_addr & 0xFFFF,
+			&id_l, s_ctrl->sensordata->id_info.sensor_addr_type,
+			s_ctrl->sensordata->id_info.sensor_data_type);
+		rc = camera_io_dev_read(
+			&(s_ctrl->io_master_info),
+			s_ctrl->sensordata->id_info.sensor_id_reg_addr >> 16,
+			&id_h, s_ctrl->sensordata->id_info.sensor_addr_type,
+			s_ctrl->sensordata->id_info.sensor_data_type);
+		s_ctrl->io_master_info.cci_client->sid = sensor_slave_addr;
+		id = (id_h << 8) | id_l;
+		if (s_ctrl->sensordata->id_info.sensor_id != id) {
+			CAM_ERR(CAM_SENSOR, "sensor id 0x%x does not match 0x%x", id, s_ctrl->sensordata->id_info.sensor_id);
+			return -ENODEV;
+		} else {
+			CAM_ERR(CAM_SENSOR, "sensor id 0x%x matched", id);
+		}
+	} else {
+		CAM_ERR(CAM_SENSOR, "sensor id register is 0x%x", s_ctrl->sensordata->id_info.sensor_id_reg_addr);
 	}
 
 	rc = camera_io_dev_read(

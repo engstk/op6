@@ -19,6 +19,8 @@
 #elif defined(USE_PLATFORM_BUS)
 #include <linux/platform_device.h>
 #endif
+#include <linux/oneplus/boot_mode.h>
+
 int gf_pinctrl_init(struct gf_dev* gf_dev)
 {
 	int ret = 0;
@@ -133,8 +135,12 @@ int gf_parse_dts(struct gf_dev* gf_dev)
 	if (rc)
 		pr_err("Regulator vdd enable failed rc=%d\n", rc);
 
-
-
+	if (get_boot_mode() ==  MSM_BOOT_MODE__FACTORY)
+	{
+		rc = regulator_disable(gf_dev->vdd_3v2);
+		if (rc)
+			pr_err("Regulator vdd disable failed rc=%d\n", rc);
+	}
 
 err_irq:
 	devm_gpio_free(dev, gf_dev->reset_gpio);
@@ -161,7 +167,6 @@ int gf_power_on(struct gf_dev* gf_dev)
 {
 	int rc = 0;
 
-	msleep(10);
 	pr_info("---- power on ok ----\n");
 
 	return rc;
@@ -169,9 +174,10 @@ int gf_power_on(struct gf_dev* gf_dev)
 
 int gf_power_off(struct gf_dev* gf_dev)
 {
-	int rc = 0;
+    int rc = 0;
 
-	pr_info("---- power off ----\n");
+    pr_info("---- power off ----\n");
+
 	return rc;
 }
 
@@ -183,7 +189,7 @@ int gf_hw_reset(struct gf_dev *gf_dev, unsigned int delay_ms)
 	}
 	gpio_direction_output(gf_dev->reset_gpio, 1);
 	gpio_set_value(gf_dev->reset_gpio, 0);
-	mdelay(20);
+	mdelay(3);
 	gpio_set_value(gf_dev->reset_gpio, 1);
 	mdelay(delay_ms);
 	return 0;

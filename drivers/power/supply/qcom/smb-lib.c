@@ -5016,7 +5016,12 @@ static void smblib_handle_typec_cc_state_change(struct smb_charger *chg)
 		smblib_dbg(chg, PR_MISC, "TypeC removal\n");
 		smblib_handle_typec_removal(chg);
 	}
-
+	/* if audio adapter connectted,do not set ICL 0*/
+	if (audio_adapter_flag) {
+		smblib_dbg(chg, PR_INTERRUPT, "IRQ: cc-state-change; Type-C %s detected\n",
+			smblib_typec_mode_name[chg->typec_mode]);
+		return;
+	}
 	/* suspend usb if sink */
 	if ((chg->typec_status[3] & UFP_DFP_MODE_STATUS_BIT)
 			&& chg->typec_present)
@@ -6187,7 +6192,9 @@ int get_prop_batt_status(struct smb_charger *chg)
 		batt_status = 0;
 	else
 		batt_status = pval.intval;
-
+	if (batt_status == POWER_SUPPLY_STATUS_FULL
+		&& !(chg->chg_done || chg->recharge_status))
+		return POWER_SUPPLY_STATUS_CHARGING;
 	return batt_status;
 }
 
@@ -7103,15 +7110,28 @@ void aging_test_check_aicl(struct smb_charger *chg)
 	}
 }
 
+int plugin_update(struct smb_charger *chg)
+{
+	int rc = 0;
+	char *connected_str[2] = { "USBCable=CONNECTED", NULL};
+	char *disconnected_str[2] = { "USBCable=DISCONNECTED", NULL};
+
+	rc = kobject_uevent_env(&chg->dev->kobj, KOBJ_CHANGE,
+		chg->hw_detect ? connected_str : disconnected_str);
+
+	return rc;
+}
+
+
 static void op_otg_switch(struct work_struct *work)
 {
-	bool usb_pluged;
-	static bool pre_usb_pluged;
+	int usb_pluged;
+	int rc = 0;
 
 	if (!g_chg)
 		return;
-	usb_pluged = gpio_get_value(g_chg->plug_irq) ? false : true;
-	if (usb_pluged == pre_usb_pluged) {
+	usb_pluged = gpio_get_value(g_chg->plug_irq) ? 0 : 1;
+	if (usb_pluged == g_chg->pre_cable_pluged) {
 		pr_info("same status,return;usb_present:%d\n", usb_pluged);
 		return;
 	}
@@ -7123,8 +7143,10 @@ static void op_otg_switch(struct work_struct *work)
 		vote(g_chg->otg_toggle_votable, HW_DETECT_VOTER, 0, 0);
 		g_chg->hw_detect = 0;
 	}
-	pr_info("%s:hw_detect=%d\n", __func__, g_chg->hw_detect);
-	pre_usb_pluged = usb_pluged;
+	rc = plugin_update(g_chg);
+	pr_info("%s:hw_detect=%d and report rc: %d\n",
+					__func__, g_chg->hw_detect, rc);
+	g_chg->pre_cable_pluged = usb_pluged;
 }
 
 static int get_usb_temp(struct smb_charger *chg)

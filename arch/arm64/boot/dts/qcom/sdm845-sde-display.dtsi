@@ -516,7 +516,7 @@
 		};
 	};
 };
-
+/*
 &sde_dp {
 	qcom,dp-usbpd-detection = <&pmi8998_pdphy>;
 	qcom,ext-disp = <&ext_disp>;
@@ -532,6 +532,10 @@
 &mdss_mdp {
 	connectors = <&sde_rscc &sde_wb &sde_dp>;
 };
+*/
+&mdss_mdp {
+	connectors = <&sde_rscc &sde_wb>;
+	};
 
 &dsi_dual_nt35597_truly_video {
 	qcom,mdss-dsi-t-clk-post = <0x0D>;

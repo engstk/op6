@@ -757,7 +757,8 @@ int add_to_page_cache_lru(struct page *page, struct address_space *mapping,
 		} else
 			ClearPageActive(page);
 		if (current->group_leader->hot_count > 0 &&
-			sysctl_page_cache_reside_switch)
+			sysctl_page_cache_reside_switch &&
+			uid_lru_size() < sysctl_page_cache_reside_max)
 			uid_lru_cache_add(page);
 		else
 			lru_cache_add(page);

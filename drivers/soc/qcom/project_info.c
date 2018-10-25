@@ -596,9 +596,29 @@ int __init init_project_info(void)
         break;
     case 35:
         snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
+        project_info_desc->project_name, "DVT2nd");
+        break;
+    case 41:
+        snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
         project_info_desc->project_name, "PVT");
         break;
-    case 55:
+    case 42:
+        snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
+        project_info_desc->project_name, "PVT2nd");
+        break;
+    case 43:
+        snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
+        project_info_desc->project_name, "PVT-1");
+        break;
+    case 44:
+        snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
+        project_info_desc->project_name, "PVTSpec");
+        break;
+    case 45:
+        snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
+        project_info_desc->project_name, "MPSpec");
+        break;
+	case 55:
         snprintf(mainboard_version, sizeof(mainboard_version), "%s %s",
         project_info_desc->project_name, "DVTUSB30");
         break;
@@ -623,22 +643,23 @@ int __init init_project_info(void)
     }
 
     snprintf(rf_version, sizeof(rf_version),  " %d",project_info_desc->rf_v1);
-    push_component_info(RF_VERSION, rf_version, mainboard_manufacture);
+	push_component_info(RF_VERSION, rf_version, mainboard_manufacture);
 
-    get_ddr_manufacture_name();
-
-    if (totalram_pages > 6*(1<<18))
-        ddr_size = 8;
-    else if (totalram_pages > 5*(1<<18))
-        ddr_size = 6;
-    else if (totalram_pages > 4*(1<<18))
-        ddr_size = 5;
-    else if (totalram_pages > 3*(1<<18))
-        ddr_size = 4;
-    else if (totalram_pages > 2*(1<<18))
-        ddr_size = 3;
-    else if (totalram_pages > 1*(1<<18))
-        ddr_size = 2;
+	get_ddr_manufacture_name();
+	if (totalram_pages > 9*(1<<18))
+		ddr_size = 10;
+	else if (totalram_pages > 6*(1<<18))
+		ddr_size = 8;
+	else if (totalram_pages > 5*(1<<18))
+		ddr_size = 6;
+	else if (totalram_pages > 4*(1<<18))
+		ddr_size = 5;
+	else if (totalram_pages > 3*(1<<18))
+		ddr_size = 4;
+	else if (totalram_pages > 2*(1<<18))
+		ddr_size = 3;
+	else if (totalram_pages > 1*(1<<18))
+		ddr_size = 2;
 
     snprintf(ddr_version, sizeof(ddr_version), "size_%dG_r_%d_c_%d",
         ddr_size, project_info_desc->ddr_row,

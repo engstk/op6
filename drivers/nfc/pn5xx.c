@@ -78,6 +78,7 @@
 #define MAX_SECURE_SESSIONS 1
 /* Macro added to disable SVDD power toggling */
 /* #define JCOP_4X_VALIDATION */
+#define WAKEUP_SRC_TIMEOUT 5000
 
 struct pn544_dev    {
     wait_queue_head_t   read_wq;
@@ -130,7 +131,7 @@ static void pn544_disable_irq(struct pn544_dev *pn544_dev)
     spin_lock_irqsave(&pn544_dev->irq_enabled_lock, flags);
     if (pn544_dev->irq_enabled) {
         disable_irq_nosync(pn544_dev->client->irq);
-        disable_irq_wake(pn544_dev->client->irq);
+        //disable_irq_wake(pn544_dev->client->irq);
         pn544_dev->irq_enabled = false;
     }
     spin_unlock_irqrestore(&pn544_dev->irq_enabled_lock, flags);
@@ -139,6 +140,10 @@ static void pn544_disable_irq(struct pn544_dev *pn544_dev)
 static irqreturn_t pn544_dev_irq_handler(int irq, void *dev_id)
 {
     struct pn544_dev *pn544_dev = dev_id;
+
+    if (device_may_wakeup(&pn544_dev->client->dev)) {
+        pm_wakeup_event(&pn544_dev->client->dev, WAKEUP_SRC_TIMEOUT);
+    }
 
     pn544_disable_irq(pn544_dev);
     /* HiKey Compilation fix */
@@ -181,7 +186,7 @@ static ssize_t pn544_dev_read(struct file *filp, char __user *buf,
         while (1) {
             pn544_dev->irq_enabled = true;
             enable_irq(pn544_dev->client->irq);
-            enable_irq_wake(pn544_dev->client->irq);
+            //enable_irq_wake(pn544_dev->client->irq);
             ret = wait_event_interruptible(
                     pn544_dev->read_wq,
                     !pn544_dev->irq_enabled);
@@ -1276,6 +1281,8 @@ static int pn544_probe(struct i2c_client *client,
         goto err_request_irq_failed;
     }
     enable_irq_wake(pn544_dev->client->irq);
+    device_init_wakeup(&client->dev, true);
+    device_set_wakeup_capable(&client->dev, true);
     pn544_disable_irq(pn544_dev);
     i2c_set_clientdata(client, pn544_dev);
 #if HWINFO
@@ -1331,6 +1338,28 @@ static int pn544_remove(struct i2c_client *client)
     return 0;
 }
 
+static int pn544_suspend(struct device *device)
+{
+    struct i2c_client *client = to_i2c_client(device);
+    pn544_dev = i2c_get_clientdata(client);
+
+    if (pn544_dev->nfc_ven_enabled && gpio_get_value(pn544_dev->irq_gpio)) {
+        pm_wakeup_event(&pn544_dev->client->dev, WAKEUP_SRC_TIMEOUT);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int pn544_resume(struct device *device)
+{
+    return 0;
+}
+
+static const struct dev_pm_ops nfc_pm_ops = {
+    SET_SYSTEM_SLEEP_PM_OPS(pn544_suspend, pn544_resume)
+};
+
 static const struct i2c_device_id pn544_id[] = {
         { "pn544", 0 },
         { }
@@ -1349,6 +1378,7 @@ static struct i2c_driver pn544_driver = {
                 .owner = THIS_MODULE,
                 .name  = "pn544",
                 .of_match_table = pn544_i2c_dt_match,
+                .pm = &nfc_pm_ops,
         },
 };
 #if HWINFO
@@ -1431,7 +1461,7 @@ static void check_hw_info() {
              * */
             pn544_dev->irq_enabled = true;
             enable_irq(pn544_dev->client->irq);
-            enable_irq_wake(pn544_dev->client->irq);
+            //enable_irq_wake(pn544_dev->client->irq);
             ret = wait_event_interruptible(
                     pn544_dev->read_wq,
                     !pn544_dev->irq_enabled);

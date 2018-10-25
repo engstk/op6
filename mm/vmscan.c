@@ -60,6 +60,7 @@
 #include <trace/events/vmscan.h>
 
 int sysctl_page_cache_reside_switch;
+int sysctl_page_cache_reside_max = 153600; //600M
 unsigned long inactive_nr, active_nr;
 unsigned long vmpress[5];
 unsigned long priority_nr[3];
@@ -2328,29 +2329,15 @@ static void move_active_pages_to_lru(struct lruvec *lruvec,
 		__count_vm_events(PGDEACTIVATE, pgmoved);
 }
 
-unsigned long uid_lru_size(struct lruvec *lruvec)
+unsigned long uid_lru_size()
 {
-	unsigned long lru_size = 0;
-	int zid;
-
-	for (zid = 1; zid < MAX_NR_ZONES; zid++) {
-		struct zone *zone = &lruvec_pgdat(lruvec)->node_zones[zid];
-
-		if (!managed_zone(zone))
-			continue;
-
-		lru_size += zone_page_state(&lruvec_pgdat(lruvec)->node_zones[zid],
-				       NR_ZONE_UID_LRU);
-	}
-
-	return lru_size;
+	return global_page_state(NR_ZONE_UID_LRU);
 }
-
 static int active_list_is_low(struct lruvec *lruvec)
 {
 	unsigned long active = lruvec_lru_size(lruvec, LRU_ACTIVE_FILE, MAX_NR_ZONES);
 	unsigned long inactive = lruvec_lru_size(lruvec, LRU_INACTIVE_FILE, MAX_NR_ZONES);
-	unsigned long total_uid_lru_nr = uid_lru_size(lruvec);
+	unsigned long total_uid_lru_nr = uid_lru_size();
 
 	return ((active + inactive) << 1) < (total_uid_lru_nr >> 2);
 }
@@ -2362,7 +2349,7 @@ static void shrink_uid_lru_list(struct lruvec *lruvec,
 	LIST_HEAD(frees_list);
 	unsigned long nr_reclaimed = 0, nr_isolate_failed = 0;
 	unsigned long dummy1, dummy2, dummy3, dummy4, dummy5;
-	unsigned long uid_size = uid_lru_size(lruvec);
+	unsigned long uid_size = uid_lru_size();
 	long nr_to_shrink = sc->nr_to_reclaim<< 1;
 	struct hotcount_prio_node *pos;
 	struct page *page;
@@ -2415,9 +2402,9 @@ static void shrink_uid_lru_list(struct lruvec *lruvec,
 	}
 
 	sc->nr_reclaimed += nr_reclaimed;
-	pr_err("%s: reclaimed:%lu isolate:%lu isolate_failed:%lu ",
+	/*pr_err("%s: reclaimed:%lu isolate:%lu isolate_failed:%lu ",
 			__func__, nr_reclaimed,
-			sc->nr_to_reclaim << 1, nr_isolate_failed);
+			sc->nr_to_reclaim << 1, nr_isolate_failed);*/
 }
 static void shrink_active_list(unsigned long nr_to_scan,
 			       struct lruvec *lruvec,

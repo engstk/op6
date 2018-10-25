@@ -63,7 +63,8 @@ static int __cam_node_handle_query_cap(struct cam_node *node,
 
 	return rc;
 }
-
+static   uint64_t   LrmeaRequreCount = 0;
+static   uint64_t   LrmeaReleaseCount = 0;
 static int __cam_node_handle_acquire_dev(struct cam_node *node,
 	struct cam_acquire_dev_cmd *acquire)
 {
@@ -72,10 +73,15 @@ static int __cam_node_handle_acquire_dev(struct cam_node *node,
 
 	if (!acquire)
 		return -EINVAL;
-
+       if (!strcmp(node->name, "cam-lrme")){
+	     CAM_ERR(CAM_CORE, "Acquire device for node %s session_handle =%d, %lld",
+	           node->name,acquire->session_handle, ++LrmeaRequreCount);		 
+       }
 	ctx = cam_node_get_ctxt_from_free_list(node);
 	if (!ctx) {
 		rc = -ENOMEM;
+		 if (!strcmp(node->name, "cam-lrme"))
+		   	CAM_ERR(CAM_CORE, "Can not get context for node %s", node->name);	
 		goto err;
 	}
 
@@ -243,7 +249,10 @@ static int __cam_node_handle_release_dev(struct cam_node *node,
 		CAM_ERR(CAM_CORE, "Invalid session handle for context");
 		return -EINVAL;
 	}
-
+       if (!strcmp(node->name, "cam-lrme")){	
+	     CAM_ERR(CAM_CORE, "cam_node_handle_release_dev %d,node %s, %lld",
+	           release->dev_handle, node->name,++LrmeaReleaseCount);		 
+       }
 	ctx = (struct cam_context *)cam_get_device_priv(release->dev_handle);
 	if (!ctx) {
 		CAM_ERR(CAM_CORE, "Can not get context for handle %d node %s",

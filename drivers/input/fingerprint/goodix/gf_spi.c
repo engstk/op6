@@ -419,7 +419,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			pr_info("power cmd\n");
 		} else {
 			pr_info("Sensor is power off currently. \n");
-			return -ENODEV;
+			//return -ENODEV;
 		}
 	}
 
@@ -444,7 +444,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	case GF_IOC_RESET:
 		pr_info("%s GF_IOC_RESET. \n", __func__);
-		gf_hw_reset(gf_dev, 3);
+		gf_hw_reset(gf_dev, 0);
 		break;
 	case GF_IOC_INPUT_KEY_EVENT:
 		if (copy_from_user(&gf_key, (struct gf_key *)arg, sizeof(struct gf_key))) {
@@ -572,7 +572,7 @@ static int gf_open(struct inode *inode, struct file *filp)
 					goto err_irq;
 			}
             #endif
-			gf_hw_reset(gf_dev, 3);
+			//gf_hw_reset(gf_dev, 5);
 			gf_dev->device_available = 1;
 		}
 	} else {
@@ -661,6 +661,29 @@ static const struct attribute_group gf_attribute_group = {
 	.attrs = gf_attributes,
 };
 
+int gf_opticalfp_irq_handler(int event)
+{
+	char msg = 0;
+
+	pr_info("[info]:%s, event %d", __func__, event);
+
+	if (gf.spi == NULL) {
+		return 0;
+	}
+	if (event == 1) {
+		msg = GF_NET_EVENT_TP_TOUCHDOWN;
+		sendnlmsg(&msg);
+	} else if (event == 0) {
+		msg = GF_NET_EVENT_TP_TOUCHUP;
+		sendnlmsg(&msg);
+	}
+
+	__pm_wakeup_event(&fp_wakelock, 10*HZ);
+
+	return 0;
+}
+EXPORT_SYMBOL(gf_opticalfp_irq_handler);
+
 #if defined(CONFIG_FB)
 static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 		unsigned long val, void *data)
@@ -725,7 +748,8 @@ static int goodix_fb_state_chg_callback(
 	unsigned int blank;
 	char msg = 0;
 
-	if (val != MSM_DRM_EARLY_EVENT_BLANK)
+	if (val != MSM_DRM_EARLY_EVENT_BLANK &&
+		val != MSM_DRM_ONSCREENFINGERPRINT_EVENT)
 		return 0;
 
 	if (evdata->id != MSM_DRM_PRIMARY_DISPLAY)
@@ -733,6 +757,27 @@ static int goodix_fb_state_chg_callback(
 
 	pr_info("[info] %s go to the msm_drm_notifier_callback value = %d\n",
 			__func__, (int)val);
+	blank = *(int *)(evdata->data);
+	if (val == MSM_DRM_ONSCREENFINGERPRINT_EVENT) {
+		pr_info("[%s] UI ready enter\n", __func__);
+
+		switch (blank) {
+		case 0:
+			pr_info("[%s] UI disappear\n", __func__);
+			msg = GF_NET_EVENT_UI_DISAPPEAR;
+			sendnlmsg(&msg);
+			break;
+		case 1:
+			pr_info("[%s] UI ready\n", __func__);
+			msg = GF_NET_EVENT_UI_READY;
+			sendnlmsg(&msg);
+			break;
+		default:
+			pr_info("[%s] Unknown EVENT\n", __func__);
+			break;
+		}
+		return 0;
+	}
 	gf_dev = container_of(nb, struct gf_dev, msm_drm_notif);
 	if (evdata && evdata->data && val ==
 		MSM_DRM_EARLY_EVENT_BLANK && gf_dev) {

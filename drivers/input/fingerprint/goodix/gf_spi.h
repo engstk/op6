@@ -120,6 +120,10 @@ struct gf_ioc_chip_info {
 #define GF_NET_EVENT_IRQ 1
 #define GF_NET_EVENT_FB_BLACK 2
 #define GF_NET_EVENT_FB_UNBLACK 3
+#define GF_NET_EVENT_TP_TOUCHDOWN 4
+#define GF_NET_EVENT_TP_TOUCHUP 5
+#define GF_NET_EVENT_UI_READY 6
+#define GF_NET_EVENT_UI_DISAPPEAR 7
 #define NETLINK_TEST 25
 
 struct gf_dev {
@@ -177,4 +181,5 @@ int gf_irq_num(struct gf_dev *gf_dev);
 void sendnlmsg(char *msg);
 int netlink_init(void);
 void netlink_exit(void);
+extern int gf_opticalfp_irq_handler(int event);
 #endif /*__GF_SPI_H*/

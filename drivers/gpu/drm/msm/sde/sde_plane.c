@@ -2843,6 +2843,17 @@ void sde_plane_clear_multirect(const struct drm_plane_state *drm_state)
 	pstate->multirect_index = SDE_SSPP_RECT_SOLO;
 	pstate->multirect_mode = SDE_SSPP_MULTIRECT_NONE;
 }
+int sde_plane_check_fingerprint_layer(const struct drm_plane_state *drm_state)
+{
+	struct sde_plane_state *pstate;
+
+	if (!drm_state)
+		return 0;
+
+	pstate = to_sde_plane_state(drm_state);
+
+	return sde_plane_get_property(pstate, PLANE_PROP_CUSTOM);
+}
 /**
  * multi_rect validate API allows to validate only R0 and R1 RECT
  * passing for each plane. Client of this API must not pass multiple

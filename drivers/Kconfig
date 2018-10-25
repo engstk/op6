@@ -207,6 +207,7 @@ source "drivers/hwtracing/intel_th/Kconfig"
 source "drivers/fpga/Kconfig"
 
 source "drivers/sensors/Kconfig"
+source "drivers/oem_debug/Kconfig"
 
 source "drivers/oem_debug/Kconfig"
 source "drivers/oneplus/Kconfig"

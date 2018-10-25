@@ -384,8 +384,9 @@ struct smb_charger {
 	int				op_icl_val;
 	int				plug_irq;
 	int				sw_iterm_ma;
+	int				pre_cable_pluged;
+	int				hw_detect;
 	bool				otg_switch;
-	bool				hw_detect;
 	bool				use_fake_chgvol;
 	bool				use_fake_temp;
 	bool				use_fake_protect_sts;
@@ -603,6 +604,7 @@ bool get_prop_fastchg_status(struct smb_charger *chg);
 int op_usb_icl_set(struct smb_charger *chg, int icl_ua);
 int op_get_aicl_result(struct smb_charger *chg);
 void op_disconnect_vbus(struct smb_charger *chg, bool enable);
+int plugin_update(struct smb_charger *chg);
 int smblib_set_prop_input_current_limited(struct smb_charger *chg,
 				const union power_supply_propval *val);
 

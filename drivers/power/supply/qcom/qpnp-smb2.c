@@ -2712,7 +2712,13 @@ static void request_plug_irq(struct smb_charger *chip)
 			__func__);
 		vote(chip->otg_toggle_votable, HW_DETECT_VOTER, 1, 0);
 		chip->hw_detect = 1;
-	}
+		chip->pre_cable_pluged = 1;
+
+		ret = plugin_update(chip);
+		pr_info("%s:hw_detect=%d and report rc: %d\n",
+						__func__, chip->hw_detect, ret);
+	} else
+		chip->pre_cable_pluged = 0;
 }
 
 void requset_vbus_ctrl_gpio(struct smb_charger *chg)

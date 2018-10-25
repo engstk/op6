@@ -2585,6 +2585,21 @@ static ssize_t page_hot_count_read(struct file *file, char __user *buf,
 	return simple_read_from_buffer(buf, count, ppos, buffer, len);
 }
 
+static struct cgroup_subsys_state *
+task_get_css_noretry(struct task_struct *task, int subsys_id)
+{
+	struct cgroup_subsys_state *css;
+
+	rcu_read_lock();
+	css = task_css(task, subsys_id);
+	if (unlikely(!css_tryget_online(css))) {
+		rcu_read_unlock();
+		return NULL;
+	}
+	rcu_read_unlock();
+	return css;
+}
+
 static ssize_t page_hot_count_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
@@ -2621,16 +2636,20 @@ static ssize_t page_hot_count_write(struct file *file, const char __user *buf,
 		struct css_task_iter it;
 		struct task_struct *tsk;
 		struct cgroup_subsys_state *parent;
+		struct cgroup_subsys_state * css;
 
-		parent = task_get_css(task, cpuacct_cgrp_id)->parent;
-		rcu_read_lock();
-		css_for_each_child(pos, parent) {
-			css_task_iter_start(&pos->cgroup->self, &it);
-			while ((tsk = css_task_iter_next(&it)))
-				tsk->hot_count = 0;
-			css_task_iter_end(&it);
+		css = task_get_css_noretry(task, cpuacct_cgrp_id);
+		if (css) {
+			parent = css->parent;
+			rcu_read_lock();
+			css_for_each_child(pos, parent) {
+				css_task_iter_start(&pos->cgroup->self, &it);
+				while ((tsk = css_task_iter_next(&it)))
+					tsk->hot_count = 0;
+				css_task_iter_end(&it);
+			}
+			rcu_read_unlock();
 		}
-		rcu_read_unlock();
 		reclaim_pages_from_uid_list(uid);
 		delete_prio_node(uid);
 	} else {

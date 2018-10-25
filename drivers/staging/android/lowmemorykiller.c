@@ -155,7 +155,7 @@ static int adjust_minadj(short *min_score_adj)
 	return ret;
 }
 
-static int batch_kill;
+static int batch_kill = 1;
 module_param(batch_kill, int, 0644);
 MODULE_PARM_DESC(batch_kill, "lowmemorykiller kill more strategy");
 
@@ -471,7 +471,7 @@ static void mark_lmk_victim(struct task_struct *tsk)
 static bool selftest_running = false;
 static int selftest_min_score_adj = 906;
 
-static int quick_select;
+static int quick_select = 1;
 module_param(quick_select, int, 0644);
 MODULE_PARM_DESC(quick_select, "lowmemorykiller quick select task from adj chain");
 
@@ -927,6 +927,7 @@ static unsigned long lowmem_batch_kill(
 			lowmem_print(1, "batch Killing '%s' (%d) (tgid %d), adj %hd,\n"
 					"to free %ldkB on behalf of '%s' (%d) because\n"
 					"cache %ldkB is below limit %ldkB for oom score %hd\n"
+					"uid_lru_list size %ld pages\n"
 					"Free memory is %ldkB above reserved.\n"
 					"Free CMA is %ldkB\n"
 					"Total reserve is %ldkB\n"
@@ -941,6 +942,7 @@ static unsigned long lowmem_batch_kill(
 					current->comm, current->pid,
 					cache_size, cache_limit,
 					min_score_adj,
+					uid_lru_size(),
 					free,
 					global_page_state(NR_FREE_CMA_PAGES) *
 					(long)(PAGE_SIZE / 1024),
@@ -1002,8 +1004,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 
 	batch_kill_init(bkws);
 
-	uid_lru_total =
-		uid_lru_size(mem_cgroup_lruvec(NODE_DATA(0), sc->memcg));
+	uid_lru_total = uid_lru_size();
 
 	if (!mutex_trylock(&scan_mutex))
 		return 0;

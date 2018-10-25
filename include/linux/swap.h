@@ -425,7 +425,8 @@ static inline long get_nr_swap_pages(void)
 }
 
 extern int sysctl_page_cache_reside_switch;
-extern unsigned long uid_lru_size(struct lruvec *lruvec);
+extern int sysctl_page_cache_reside_max;
+extern unsigned long uid_lru_size(void);
 extern void uid_lru_cache_add(struct page *page);
 extern void _uid_lru_add_fn(struct page *page, struct lruvec *lruvec);
 extern struct uid_node *find_uid_node(uid_t uid, struct lruvec *lruvec);

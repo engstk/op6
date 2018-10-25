@@ -21,4 +21,7 @@ config FINGERPRINT_GOODIX
 	tristate "goodix fingerprint sensor support"
 	depends on SPI_MASTER
 
+config FINGERPRINT_SILEAD
+	tristate "silead fingerprint sensor support"
+	depends on SPI_MASTER
 endif

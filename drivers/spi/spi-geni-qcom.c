@@ -28,7 +28,8 @@
 
 #define SPI_NUM_CHIPSELECT	(4)
 #define SPI_XFER_TIMEOUT_MS	(250)
-#define SPI_AUTO_SUSPEND_DELAY	(250)
+/* Change suspend delay to avoid eSE lock issue */
+#define SPI_AUTO_SUSPEND_DELAY	(50)
 /* SPI SE specific registers */
 #define SE_SPI_CPHA		(0x224)
 #define SE_SPI_LOOPBACK		(0x22C)
@@ -1390,6 +1391,8 @@ static int spi_geni_probe(struct platform_device *pdev)
 		ret = PTR_ERR(rsc->geni_gpio_sleep);
 		goto spi_geni_probe_err;
 	}
+
+	pinctrl_select_state(rsc->geni_pinctrl, rsc->geni_gpio_sleep);
 
 	rsc->se_clk = devm_clk_get(&pdev->dev, "se-clk");
 	if (IS_ERR(rsc->se_clk)) {
