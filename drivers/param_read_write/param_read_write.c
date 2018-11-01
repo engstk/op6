@@ -22,6 +22,7 @@
 
 #include <linux/moduleparam.h>
 
+#define DISABLE_PARAM_DEBUG_LOG
 
 #define PARAM_PARTITION "/dev/block/bootdevice/by-name/param"
 #define READ_CHUNK_MAX_SIZE (1024)
@@ -75,19 +76,22 @@ out:
 }
 
 int get_param_by_index_and_offset(uint32 sid_index,
-            uint32 offset, void * buf, int length)
+	uint32 offset, void *buf, int length)
 {
-    int ret = length;
-    uint32 file_offset;
+	int ret = length;
+	uint32 file_offset;
 	mutex_lock(&param_ram_zone.mutex);
-	pr_info("%s[%d]  sid_index = %d offset = %d buf = %p length = %d\n",
-			__func__, __LINE__,sid_index,offset,buf,length);
 
-    file_offset = PARAM_SID_LENGTH*sid_index+ offset;
+	#ifndef DISABLE_PARAM_DEBUG_LOG
+	pr_info("%s[%d]  sid_index = %d offset = %d buf = %p length = %d\n",
+	    __func__, __LINE__, sid_index, offset, buf, length);
+	#endif
+
+	file_offset = PARAM_SID_LENGTH*sid_index + offset;
 
 	if (buf && ((offset + length) <= PARAM_SID_LENGTH) &&
 			(file_offset + length) <=  param_ram_zone.size)
-		memcpy(buf,(param_ram_zone.buffer +file_offset), length);
+		memcpy(buf, (param_ram_zone.buffer + file_offset), length);
 	else{
 		pr_info("%s:invaild argument, sid_index=%d offset=%d buf=%p length=%d\n",
 				__func__, sid_index, offset, buf, length);
