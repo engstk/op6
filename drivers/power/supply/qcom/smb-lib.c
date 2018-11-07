@@ -5484,6 +5484,7 @@ static void op_handle_usb_removal(struct smb_charger *chg)
 	chg->ffc_count = 0;
 	vote(chg->fcc_votable,
 	DEFAULT_VOTER, true, SDP_CURRENT_UA);
+	set_sdp_current(chg, USBIN_500MA);
 	op_battery_temp_region_set(chg, BATT_TEMP_INVALID);
 }
 
