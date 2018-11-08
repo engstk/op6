@@ -2798,6 +2798,16 @@ static struct attribute *pwm_attrs[] = {
 	NULL
 };
 
+static struct attribute *lpg_attrs_6T[] = {
+	&dev_attr_pause_lo.attr,
+	&dev_attr_pause_hi.attr,
+	&dev_attr_start_idx.attr,
+	&dev_attr_ramp_step_ms.attr,
+	&dev_attr_lut_flags.attr,
+	&dev_attr_duty_pcts.attr,
+	NULL
+};
+
 static struct attribute *lpg_attrs[] = {
 	&dev_attr_pause_lo.attr,
 	&dev_attr_pause_hi.attr,
@@ -2817,9 +2827,15 @@ static const struct attribute_group pwm_attr_group = {
 	.attrs = pwm_attrs,
 };
 
-static const struct attribute_group lpg_attr_group = {
+static const struct attribute_group lpg_attr_group_6T = {
+	.attrs = lpg_attrs_6T,
+};
+
+static const struct attribute_group lpg_attr_group_6 = {
 	.attrs = lpg_attrs,
 };
+
+static struct attribute_group lpg_attr_group;
 
 static const struct attribute_group blink_attr_group = {
 	.attrs = blink_attrs,
@@ -3914,6 +3930,16 @@ err_config_gpio:
 	return rc;
 }
 
+static bool OP6T = false;
+static int __init get_model(char *cmdline_model)
+{
+	if (strstr(cmdline_model, "18801")) {
+		OP6T = true;
+	}
+	return 0;
+}
+__setup("androidboot.project_name=", get_model);
+
 static int qpnp_leds_probe(struct platform_device *pdev)
 {
 	struct qpnp_led_data *led, *led_array;
@@ -3938,6 +3964,11 @@ static int qpnp_leds_probe(struct platform_device *pdev)
 				GFP_KERNEL);
 	if (!led_array)
 		return -ENOMEM;
+
+	if (OP6T)
+		lpg_attr_group = lpg_attr_group_6T;
+	else
+		lpg_attr_group = lpg_attr_group_6;
 
 	for_each_child_of_node(node, temp) {
 		led = &led_array[parsed_leds];
