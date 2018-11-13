@@ -252,8 +252,7 @@ static void *__dma_alloc(struct device *dev, size_t size,
 		page = virt_to_page(ptr);
 		prot = __get_dma_pgprot(attrs, __pgprot(PROT_NORMAL_NC), false);
 		coherent_ptr = dma_common_contiguous_remap(
-					page, size, VM_USERMAP, prot,
-					__builtin_return_address(0));
+					page, size, VM_USERMAP, prot, NULL);
 		if (!coherent_ptr)
 			goto no_map;
 	}
