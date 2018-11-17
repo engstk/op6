@@ -105,6 +105,7 @@ enum {
 	SMEM_OSS_RRCASN1_BUF2,
 	SMEM_ID_VENDOR0,
 	SMEM_ID_VENDOR1,
+	SMEM_DUMP_INFO = SMEM_ID_VENDOR1,
 	SMEM_ID_VENDOR2,
 /*For more details, could check boot_iamges/core/api/mproc/smem_type.h*/
 	SMEM_PROJECT_INFO = 136,

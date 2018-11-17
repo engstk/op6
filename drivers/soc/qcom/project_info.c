@@ -25,6 +25,8 @@
 static struct component_info component_info_desc[COMPONENT_MAX];
 static struct kobject *project_info_kobj;
 static struct project_info *project_info_desc;
+static struct dump_info *dp_info;
+
 static struct kobject *component_info;
 static ssize_t project_info_get(struct device *dev,
     struct device_attribute *attr, char *buf);
@@ -49,6 +51,26 @@ static DEVICE_ATTR(platform_id, 0444, project_info_get, NULL);
 static DEVICE_ATTR(serialno, 0444, project_info_get, NULL);
 static DEVICE_ATTR(feature_id, 0444, project_info_get, NULL);
 static DEVICE_ATTR(aboard_id, 0444, project_info_get, NULL);
+
+void save_dump_reason_to_smem(char *info)
+{
+    int strl = 0 ;
+
+    dp_info = smem_alloc(SMEM_DUMP_INFO,
+        sizeof(struct dump_info), 0,
+        SMEM_ANY_HOST_FLAG);
+
+    if (IS_ERR_OR_NULL(dp_info))
+        pr_err("%s: get dp_info failure\n", __func__);
+    else {
+        pr_err("%s: info : %s\n",__func__, info);
+
+        strl = strlen(info)+1;
+        strl = strl <  DUMP_REASON_SIZE ? strl: DUMP_REASON_SIZE ;
+        memcpy(dp_info->dump_reason,info,strl);
+        pr_err("%s: dump_reason : %s strl=%d \n",__func__, dp_info->dump_reason,strl);
+    }
+}
 
 uint8 get_secureboot_fuse_status(void)
 {

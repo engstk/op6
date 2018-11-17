@@ -11,24 +11,29 @@ typedef     __u8        uint8;
 //extern uint32_t chip_serial_num;
 extern unsigned long totalram_pages __read_mostly;
 
-
 struct project_info {
-	char project_name[8];  //eg, 16859
-	uint32  hw_version;  //PCB number, T0, EVT
-	uint32  rf_v1;   //v1 for mainboard_rf_version
-	uint32  rf_v2;   //v2 for aboard_rf_version
-	uint32  rf_v3;
-	uint32  modem;
-	uint32  operator;
-	uint32  ddr_manufacture_info;
-	uint32  ddr_row;
-	uint32  ddr_column;
-	uint32  ddr_fw_version;
-	uint32  ddr_reserve_info;
-	uint32  platform_id;
-	uint32  ftm_uart_boot_mode;
-	uint32  feature_id;
+    char project_name[8];  //eg, 16859
+    uint32  hw_version;  //PCB number, T0, EVT
+    uint32  rf_v1;   //v1 for mainboard_rf_version
+    uint32  rf_v2;   //v2 for aboard_rf_version
+    uint32  rf_v3;
+    uint32  modem;
+    uint32  operator;
+    uint32  ddr_manufacture_info;
+    uint32  ddr_row;
+    uint32  ddr_column;
+    uint32  ddr_fw_version;
+    uint32  ddr_reserve_info;
+    uint32  platform_id;
+    uint32  ftm_uart_boot_mode;
+    uint32  feature_id;
     uint32  a_board_version;
+};
+
+#define DUMP_REASON_SIZE 256
+
+struct dump_info{
+    char    dump_reason[DUMP_REASON_SIZE];  //dump reason
 };
 
 struct component_info {
@@ -75,6 +80,7 @@ int push_component_info(enum COMPONENT_TYPE type,
 	char *version, char *manufacture);
 int reset_component_info(enum COMPONENT_TYPE type);
 uint32 get_hw_version(void);
+void save_dump_reason_to_smem(char *info);
 
 
 #endif
