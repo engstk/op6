@@ -56,8 +56,10 @@ void save_dump_reason_to_smem(char *info, char *function_name)
     int strl = 0, strl1 = 0;
     static int flag = 0;
 
-    if (flag)
-         return;
+    /* Make sure save_dump_reason_to_smem() is not called
+     infinite times by panic()  during DDR bit flip crash etc */
+    if (flag > 1)
+	return;
 
     dp_info = smem_alloc(SMEM_DUMP_INFO,
         sizeof(struct dump_info), 0,
@@ -73,15 +75,15 @@ void save_dump_reason_to_smem(char *info, char *function_name)
         strl = strl <  DUMP_REASON_SIZE ? strl: DUMP_REASON_SIZE;
         strl1 = strl1 <  DUMP_REASON_SIZE ? strl1: DUMP_REASON_SIZE ;
         if ((strlen(dp_info->dump_reason) + strl) < DUMP_REASON_SIZE)
-                strcat(dp_info->dump_reason,info);
+                strncat(dp_info->dump_reason,info,strl);
 
-        if (function_name != NULL && ((strlen(dp_info->dump_reason) + strl1) < DUMP_REASON_SIZE))
-                strcat(dp_info->dump_reason,function_name);
+        if (function_name != NULL && ((strlen(dp_info->dump_reason) + strl1) < DUMP_REASON_SIZE)) {
+                strncat(dp_info->dump_reason,function_name,strl1);
+                strncat(dp_info->dump_reason,"\n",1);
+	}
     }
     pr_err("\r%s: dump_reason : %s strl=%d function caused panic :%s strl1=%d \n", __func__,
                            dp_info->dump_reason, strl, function_name, strl1);
-    /* Make sure save_dump_reason_to_smem() is
-     called only once  during subsystem crash */
     flag++;
 }
 
