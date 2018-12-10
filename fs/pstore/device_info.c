@@ -143,14 +143,6 @@ static void __init write_device_info(const char *key, const char *value)
 	pstore_write_device_info("\r\n", 2);
 }
 
-static int __init get_pcba_number(char *str)
-{
-	pr_info("pcba number is %s\n", str);
-	return 1;
-}
-
-__setup("androidboot.pcba_number", get_pcba_number);
-
 static int __init init_device_info(void)
 {
 	pstore_device_info_init();
