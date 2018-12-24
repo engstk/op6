@@ -388,7 +388,7 @@ static void dwp_OnOff(long nfc_service_pid, p61_access_state_t origin)
     {
         if (0 == signal_handler(origin, nfc_service_pid))
         {
-            init_completion(&dwp_onoff_sema);
+            //init_completion(&dwp_onoff_sema);
             if(wait_for_completion_timeout(&dwp_onoff_sema, tempJ) != 0)
             {
                 pr_info("Dwp On/off wait protection: Timeout");
@@ -1293,6 +1293,8 @@ static int pn544_probe(struct i2c_client *client,
 #endif
 
     push_component_info(NFC, "NQ330", "NXP");
+
+    init_completion(&dwp_onoff_sema);
 
     return 0;
 
