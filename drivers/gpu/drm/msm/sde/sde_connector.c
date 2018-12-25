@@ -612,6 +612,7 @@ error:
 extern bool HBM_flag ;
 extern int oneplus_dim_status;
 extern bool aod_real_flag;
+extern bool aod_complete;
 static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 {
 	struct drm_connector *connector = &c_conn->base;
@@ -643,6 +644,9 @@ static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 		return 0;
 	}
     if(dsi_display->panel->aod_status==1) {
+        if(!aod_complete){
+            return 0;
+        }
         if(oneplus_dim_status==5)
             fingerprint_mode = false;
         else

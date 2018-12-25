@@ -4476,6 +4476,7 @@ int dsi_panel_set_adaption_mode(struct dsi_panel *panel, int level)
 return rc;
 }
 bool aod_real_flag = false;
+bool aod_complete = false;
 int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level)
 {
 	int rc = 0;
@@ -4503,6 +4504,7 @@ int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level)
 			printk(KERN_ERR"send AOD ON commd mode 2 start \n");
             rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_AOD_ON_2);
 			aod_real_flag=false;
+			aod_complete=true;
 			printk(KERN_ERR"send AOD ON commd mode 2 end   \n");
            
         }
@@ -4526,9 +4528,9 @@ int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level)
 		    if (panel->adaption_mode)
 		        dsi_panel_set_adaption_mode(panel, panel->adaption_mode);
 			   rc= dsi_panel_update_backlight(panel,panel->bl_config.bl_level);
-                                }
+				}
               printk(KERN_ERR"send AOD OFF commd end \n");
-                
+              aod_complete = false;
             }
         }
     panel->aod_curr_mode = level;
