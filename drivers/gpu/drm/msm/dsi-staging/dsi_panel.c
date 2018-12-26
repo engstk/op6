@@ -3898,6 +3898,9 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 	printk(KERN_ERR"Send DSI_CMD_SET_ON\n");
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
+	if(panel->aod_mode!=2){
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_POST_ON);
+		}
 	if (rc) {
 		pr_err("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
 		       panel->name, rc);
@@ -3940,6 +3943,7 @@ int dsi_panel_enable(struct dsi_panel *panel)
 int dsi_panel_post_enable(struct dsi_panel *panel)
 {
 	int rc = 0;
+	return 0;
 
 	if (!panel) {
 		pr_err("invalid params\n");
