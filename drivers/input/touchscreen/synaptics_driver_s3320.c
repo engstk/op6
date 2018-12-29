@@ -1904,7 +1904,7 @@ static void synaptics_ts_work_func(struct work_struct *work)
 	if (atomic_read(&ts->is_stop) == 1)
 	{
 		touch_disable(ts);
-		return;
+		goto EXIT;
 	}
 
 	if( ts->enable_remote) {
