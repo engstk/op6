@@ -52,6 +52,7 @@ struct external_battery_gauge {
 	int (*fast_normal_to_warm)(void);
 	int (*set_normal_to_warm_false)(void);
 	int (*get_adapter_update)(void);
+	bool (*is_enhance_dash)(void);
 	bool (*get_fast_chg_ing)(void);
 	bool (*get_fast_low_temp_full)(void);
 	int (*set_low_temp_full_false)(void);
@@ -82,6 +83,14 @@ enum temp_region_type {
 	BATT_TEMP_WARM,
 	BATT_TEMP_HOT,
 	BATT_TEMP_INVALID,
+};
+enum ffc_step {
+	FFC_DEFAULT = 0,
+	FFC_FAST,
+	FFC_TAPER,
+	FFC_NOR_TAPER,
+	FFC_WARM_TAPER,
+	FFC_IDLE,
 };
 
 enum batt_status_type {
@@ -119,4 +128,6 @@ extern bool dash_adapter_update_is_tx_gpio(unsigned int  gpio_num);
 extern bool dash_adapter_update_is_rx_gpio(unsigned  int gpio_num);
 extern int is_hw_support_n76e(void);
 extern bool audio_adapter_flag;
+
+void op_switch_normal_set(void);
 #endif

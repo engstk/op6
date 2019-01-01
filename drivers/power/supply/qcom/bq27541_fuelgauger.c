@@ -90,6 +90,8 @@
 #define BQ27411_REG_AI                  0x10
 #define BQ27411_REG_SOC                 0x1c
 #define BQ27411_REG_HEALTH              0x20
+#define BQ27411_REG_OVER_TEMP           0x40
+#define BQ27411_REG_GET_OVER_TEMP_EN    0x0002
 
 #define CONTROL_CMD                 0x00
 #define CONTROL_STATUS              0x00
@@ -104,7 +106,7 @@
 #define BQ27411_CONFIG_MODE_POLLING_LIMIT	60
 #define BQ27411_CONFIG_MODE_BIT                 BIT(4)
 #define BQ27411_BLOCK_DATA_CONTROL		0x61
-#define BQ27411_DATA_CLASS_ACCESS		0x003e
+#define BQ27411_DATA_CLASS_ACCESS		0x3e
 #define BQ27411_CC_DEAD_BAND_ID                 0x006b
 #define BQ27411_CC_DEAD_BAND_ADDR		0x42
 #define BQ27411_CHECKSUM_ADDR				0x60
@@ -151,7 +153,7 @@
 #define BQ27541_SUBCMD_RESET     0x0041
 #define ZERO_DEGREE_CELSIUS_IN_TENTH_KELVIN   (-2731)
 #define BQ27541_INIT_DELAY   ((HZ)*1)
-#define SET_BQ_PARAM_DELAY_MS 6000
+#define SET_BQ_PARAM_DELAY_MS 600
 
 
 /* Bq27411 sub commands */
@@ -176,6 +178,8 @@
 #define BQ27411_SUBCMD_DISABLE_IT				0x0023
 
 #define BQ27541_BQ27411_CMD_INVALID			0xFF
+#define BQ27411_OVER_TEMP           0x6c02
+#define BQ27411_MCL_DF           0xBD
 
 
 #define ERROR_SOC  33
@@ -225,6 +229,7 @@ struct bq27541_device_info {
 	int  batt_vol_pre;
 	int current_pre;
 	int health_pre;
+	int get_over_temp;
 	unsigned long rtc_resume_time;
 	unsigned long rtc_suspend_time;
 	atomic_t suspended;
@@ -245,6 +250,8 @@ struct bq27541_device_info {
 	struct cmd_address cmd_addr;
 	bool modify_soc_smooth;
 	bool already_modify_smooth;
+	bool is_mcl_verion;
+	bool df_ver_match;
 #endif
 };
 
@@ -257,6 +264,12 @@ struct update_pre_capacity_data {
 	int suspend_time;
 };
 static struct update_pre_capacity_data update_pre_capacity_data;
+
+static int __debug_temp_mask;
+module_param_named(
+	debug_temp_mask, __debug_temp_mask, int, 0600
+);
+
 static void bq27411_modify_soc_smooth_parameter(
 	struct bq27541_device_info *di, bool is_powerup);
 
@@ -388,6 +401,24 @@ static int bq27541_i2c_txsubcmd(u8 reg, unsigned short subcmd,
 		return -EIO;
 
 	return 0;
+}
+
+static bool check_df_version(struct bq27541_device_info *di)
+{
+	int df;
+	bool ret;
+
+	if (di->device_type == DEVICE_BQ27541)
+		return true;
+	bq27541_cntl_cmd(di, BQ27541_SUBCMD_DF_CSUM);
+	udelay(66);
+	bq27541_read(BQ27541_REG_CNTL, &df, 0, di);
+	pr_info("DEVICE DF:%d\n", df);
+	if (df == BQ27411_MCL_DF)
+		ret = true;
+	else
+		ret = false;
+	return ret;
 }
 
 static int bq27541_chip_config(struct bq27541_device_info *di)
@@ -912,6 +943,42 @@ static int bq27541_get_batt_bq_soc(void)
 	return soc;
 }
 
+static bool battery_is_match(void)
+{
+	if (bq27541_di->device_type == DEVICE_BQ27541)
+		return true;
+	if (bq27541_di->df_ver_match)
+		return true;
+	if (bq27541_di->get_over_temp == BQ27411_OVER_TEMP
+			&& bq27541_di->is_mcl_verion)
+		return true;
+	else if (bq27541_di->get_over_temp != BQ27411_OVER_TEMP
+			&& !bq27541_di->is_mcl_verion)
+		return true;
+	else
+		return false;
+}
+static int bq_get_over_temp(struct bq27541_device_info *di)
+{
+	int flags;
+	int ret;
+
+	ret = bq27541_i2c_txsubcmd(BQ27411_DATA_CLASS_ACCESS,
+				BQ27411_REG_GET_OVER_TEMP_EN, bq27541_di);
+	if (ret < 0)
+		pr_err("error w register %02x ret = %d\n",
+				BQ27411_DATA_CLASS_ACCESS, ret);
+	ret = bq27541_read(BQ27411_REG_OVER_TEMP,
+				&flags, 0, bq27541_di);
+	if (ret < 0) {
+		pr_err("error reading register %02x ret = %d\n",
+				BQ27411_REG_OVER_TEMP, ret);
+	}
+	pr_info("BQ27411 OVER_TEMP:0x%x\n",flags);
+	return flags;
+}
+
+
 #define SHUTDOWN_TBAT 680
 static int bq27541_get_battery_temperature(void)
 {
@@ -919,6 +986,13 @@ static int bq27541_get_battery_temperature(void)
 	static unsigned long pre_time;
 	unsigned long current_time, time_last;
 
+	if (__debug_temp_mask)
+			return __debug_temp_mask;
+	if (bq27541_di->df_ver_match
+		|| bq27541_di->already_modify_smooth) {
+		if (!battery_is_match())
+			return SHUTDOWN_TBAT+10;
+	}
 	ret = bq27541_battery_temperature(bq27541_di);
 	if (ret >= SHUTDOWN_TBAT) {
 		bq27541_di->t_count++;
@@ -1226,6 +1300,7 @@ static void bq27541_hw_config(struct work_struct *work)
 	if (type == DEVICE_TYPE_BQ27411) {
 		di->device_type = DEVICE_BQ27411;
 		pr_info("DEVICE_BQ27411\n");
+		di->df_ver_match = check_df_version(di);
 	} else {
 		di->device_type = DEVICE_BQ27541;
 		pr_info("DEVICE_BQ27541\n");
@@ -1405,7 +1480,9 @@ static void bq27541_parse_dt(struct bq27541_device_info *di)
 
 	di->modify_soc_smooth = of_property_read_bool(node,
 				"qcom,modify-soc-smooth");
-	pr_err("di->modify_soc_smooth=%d\n", di->modify_soc_smooth);
+	di->is_mcl_verion = of_property_read_bool(node,
+				"op,mcl_verion");
+	pr_info("di->is_mcl_verion=%d\n", di->is_mcl_verion);
 }
 static int sealed(void)
 {
@@ -1617,6 +1694,7 @@ static int bq27411_enable_config_mode(
 		return 0;
 }
 
+
 static bool bq27411_check_soc_smooth_parameter(
 	struct bq27541_device_info *di, bool is_powerup)
 {
@@ -1761,6 +1839,8 @@ static void bq27411_modify_soc_smooth_parameter(
 			return;
 		msleep(50);
 	}
+	if (di->is_mcl_verion && !di->df_ver_match)
+		di->get_over_temp = bq_get_over_temp(di);
 write_parameter:
 	rc = bq27411_write_soc_smooth_parameter(di, is_powerup);
 	if (rc && tried_again == false) {
