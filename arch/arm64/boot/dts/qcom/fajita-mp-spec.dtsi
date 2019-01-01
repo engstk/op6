@@ -18,3 +18,16 @@
 &soc {
 
 };
+
+&oneplus_fastchg {
+	op,mcl_verion;
+};
+
+&pmi8998_charger {
+	warm-bat-decidegc = <480>;
+};
+
+&bq27541_battery {
+		op,mcl_verion;
+};
+

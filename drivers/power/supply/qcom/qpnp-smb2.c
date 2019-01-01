@@ -281,7 +281,10 @@ static int smb2_parse_dt(struct smb2 *chip)
 			chg->vbatmax[BATT_TEMP_NORMAL], rc, 1);
 	OF_PROP_READ(node, "vbatmax-warm-mv",
 			chg->vbatmax[BATT_TEMP_WARM], rc, 1);
-
+	OF_PROP_READ(node, "little-cool-vbat-thr-mv",
+			chg->temp_littel_cool_voltage, rc, 1);
+	if (rc < 0)
+		chg->temp_littel_cool_voltage = 4180;
 	/* read vbatdet setting for different temp regions */
 	OF_PROP_READ(node, "vbatdet-little-cold-mv",
 			chg->vbatdet[BATT_TEMP_LITTLE_COLD], rc, 1);
@@ -312,7 +315,27 @@ static int smb2_parse_dt(struct smb2 *chip)
 			chg->BATT_TEMP_T5, rc, 1);
 	OF_PROP_READ(node, "hot-bat-decidegc",
 			chg->BATT_TEMP_T6, rc, 1);
-
+	/*read ffc param*/
+	OF_PROP_READ(node, "ffc-pre-normal-decidegc",
+			chg->FFC_TEMP_T1, rc, 1);
+	OF_PROP_READ(node, "ffc-normal-decidegc",
+		chg->FFC_TEMP_T2, rc, 1);
+	OF_PROP_READ(node, "ffc-warm-decidegc",
+		chg->FFC_TEMP_T3, rc, 1);
+	OF_PROP_READ(node, "ffc-normal-fcc-ma",
+		chg->FFC_NOR_FCC, rc, 1);
+	OF_PROP_READ(node, "ffc-warm-fcc-ma",
+		chg->FFC_WARM_FCC, rc, 1);
+	OF_PROP_READ(node, "ffc-normal-cutoff-ma",
+		chg->FFC_NORMAL_CUTOFF, rc, 1);
+	OF_PROP_READ(node, "ffc-warm-cutoff-ma",
+		chg->FFC_WARM_CUTOFF, rc, 1);
+	OF_PROP_READ(node, "ffc-full-vbat-mv",
+		chg->FFC_VBAT_FULL, rc, 1);
+	pr_info("T1:%d, T2:%d, T3:%d, fcc1:%d, fcc1:%d, cut1:%d, cut2:%d,full:%d\n",
+		chg->FFC_TEMP_T1, chg->FFC_TEMP_T2, chg->FFC_TEMP_T3,
+		chg->FFC_NOR_FCC, chg->FFC_WARM_FCC, chg->FFC_NORMAL_CUTOFF,
+		chg->FFC_WARM_CUTOFF, chg->FFC_VBAT_FULL);
 	chg->OTG_ICL_CTRL = of_property_read_bool(node,
 					"op,otg-icl-ctrl-enable");
 	OF_PROP_READ(node, "otg-low-battery-thr",
@@ -332,6 +355,13 @@ static int smb2_parse_dt(struct smb2 *chip)
 		chg->OTG_LOW_BAT,
 		chg->OTG_LOW_BAT_ICL,
 		chg->OTG_NORMAL_BAT_ICL);
+	pr_info("q1:%d,q2:%d,q3:%d,NORMAL_CUTOFF:%d,warm:%d,FULL=%d\n",
+		chg->FFC_TEMP_T1,
+		chg->FFC_TEMP_T2,
+		chg->FFC_TEMP_T3,
+		chg->FFC_NORMAL_CUTOFF,
+		chg->FFC_WARM_CUTOFF,
+		chg->FFC_VBAT_FULL);
 	chg->plug_irq = of_get_named_gpio_flags(node,
 						"op,usb-check", 0, &flags);
 	chg->vbus_ctrl = of_get_named_gpio_flags(node,
@@ -1194,7 +1224,6 @@ static enum power_supply_property smb2_batt_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_CHARGE_FULL,
-	POWER_SUPPLY_PROP_CYCLE_COUNT,
 };
 
 static int smb2_batt_get_prop(struct power_supply *psy,
@@ -1329,7 +1358,6 @@ static int smb2_batt_get_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-	case POWER_SUPPLY_PROP_CYCLE_COUNT:
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 	case POWER_SUPPLY_PROP_TEMP:

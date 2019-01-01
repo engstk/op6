@@ -38,7 +38,7 @@ enum print_reason {
 #define TIME_1000MS 1000
 #define REDET_COUTNT 1
 #define APSD_CHECK_COUTNT 15
-#define DASH_CHECK_COUNT 4
+#define DASH_CHECK_COUNT 40
 #define BOOST_BACK_COUNT 2
 #define TIME_200MS 200
 #define TIME_100MS 100
@@ -268,6 +268,7 @@ struct smb_charger {
 	int			smb_version;
 	int			otg_delay_ms;
 	int			*weak_chg_icl_ua;
+	int			ffc_count;
 
 	/* locks */
 	struct mutex		lock;
@@ -365,10 +366,19 @@ struct smb_charger {
 	int				BATT_TEMP_T4;
 	int				BATT_TEMP_T5;
 	int				BATT_TEMP_T6;
+	int				FFC_TEMP_T1;
+	int				FFC_TEMP_T2;
+	int				FFC_TEMP_T3;
+	int				FFC_NOR_FCC;
+	int				FFC_WARM_FCC;
+	int				FFC_NORMAL_CUTOFF;
+	int				FFC_WARM_CUTOFF;
+	int				FFC_VBAT_FULL;
 	int				batt_health;
 	int				ibatmax[TEMP_REGION_MAX];
 	int				vbatmax[TEMP_REGION_MAX];
 	int				vbatdet[TEMP_REGION_MAX];
+	int				temp_littel_cool_voltage;
 	int				fake_chgvol;
 	int				fake_temp;
 	int				fake_protect_sts;
@@ -416,6 +426,7 @@ struct smb_charger {
 	bool				is_aging_test;
 	bool				revert_boost_trigger;
 	bool				check_batt_full_by_sw;
+	enum ffc_step			ffc_status;
 	enum temp_region_type		mBattTempRegion;
 	enum batt_status_type		battery_status;
 	short				mBattTempBoundT0;
@@ -696,6 +707,9 @@ int smblib_set_prop_pr_swap_in_progress(struct smb_charger *chg,
 int smblib_stat_sw_override_cfg(struct smb_charger *chg, bool override);
 void smblib_usb_typec_change(struct smb_charger *chg);
 int smblib_toggle_stat(struct smb_charger *chg, int reset);
+int smblib_get_prop_batt_temp(struct smb_charger *chg,
+			      union power_supply_propval *val);
+
 
 int smblib_init(struct smb_charger *chg);
 int smblib_deinit(struct smb_charger *chg);
