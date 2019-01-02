@@ -236,6 +236,7 @@ struct bq27541_device_info {
 	int temp_pre;
 	int lcd_off_delt_soc;
 	int  t_count;
+	int  temp_thr_update_count;
 	bool lcd_is_off;
 	bool allow_reading;
 	bool fastchg_started;
@@ -1140,10 +1141,31 @@ static bool get_dash_started(void)
 	else
 		return false;
 }
+#define TEMP_UPDATE_COUNT 5
+#define TEMP_UPDATE_THRESHOLD  450
 
+
+static int bq27541_temperature_thrshold_update(int temp)
+{
+	int ret;
+
+	if (!bq27541_di->batt_psy)
+		return 0;
+	if (temp >= TEMP_UPDATE_THRESHOLD) {
+		bq27541_di->temp_thr_update_count++;
+		if (bq27541_di->temp_thr_update_count > TEMP_UPDATE_COUNT) {
+			bq27541_di->temp_thr_update_count = 0;
+			power_supply_changed(bq27541_di->batt_psy);
+		}
+	} else {
+		bq27541_di->temp_thr_update_count = 0;
+	}
+
+	return ret;
+}
 static void update_battery_soc_work(struct work_struct *work)
 {
-	int schedule_time, vbat;
+	int schedule_time, vbat, temp;
 
 	if (is_usb_pluged() || get_dash_started()) {
 		schedule_delayed_work(
@@ -1160,12 +1182,13 @@ static void update_battery_soc_work(struct work_struct *work)
 	bq27541_set_allow_reading(true);
 	vbat = bq27541_get_battery_mvolts()/1000;
 	bq27541_get_average_current();
-	bq27541_get_battery_temperature();
+	temp = bq27541_get_battery_temperature();
 	bq27541_get_battery_soc();
 	bq27541_get_batt_remaining_capacity();
 	pr_debug("battery remain capacity:%d\n",
 				bq27541_get_batt_health());
 	bq27541_set_allow_reading(false);
+	bq27541_temperature_thrshold_update(temp);
 	if (!bq27541_di->already_modify_smooth)
 		schedule_delayed_work(
 		&bq27541_di->modify_soc_smooth_parameter, 1000);
