@@ -93,6 +93,7 @@ static int get_prop_fg_voltage_now(struct smb_charger *chg);
 static void op_check_charger_collapse(struct smb_charger *chg);
 static int op_set_collapse_fet(struct smb_charger *chg, bool on);
 static int op_check_battery_temp(struct smb_charger *chg);
+static void op_clean_enhache_status(void);
 
 #define smblib_err(chg, fmt, ...)		\
 	pr_err("%s: %s: " fmt, chg->name,	\
@@ -5460,6 +5461,7 @@ static void op_handle_usb_removal(struct smb_charger *chg)
 	set_prop_fast_switch_to_normal_false(chg);
 	set_usb_switch(chg, false);
 	set_dash_charger_present(false);
+	op_clean_enhache_status();
 
 	chg->chg_ovp = false;
 	chg->dash_on = false;
@@ -5691,6 +5693,13 @@ bool op_set_fast_chg_allow(struct smb_charger *chg, bool enable)
 		return fast_charger->set_fast_chg_allow(enable);
 	pr_err("no fast_charger register found\n");
 	return false;
+}
+
+static void op_clean_enhache_status(void)
+{
+	if (fast_charger && fast_charger->clean_enhache)
+		return fast_charger->clean_enhache();
+	pr_err("no fast_charger register found\n");
 }
 
 static bool op_get_fast_chg_allow(struct smb_charger *chg)
