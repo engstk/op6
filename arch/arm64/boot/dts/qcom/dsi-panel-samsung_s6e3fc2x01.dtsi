@@ -469,7 +469,7 @@
 				39 01 00 00 00 00 03 F0 A5 A5
 				];
 				qcom,mdss-dsi-panel-oneplus-mode-on-command-state = "dsi_lp_mode";
-				qcom,mdss-dsi-panel-oneplus-mode-off-comman-state = "dsi_lp_mode";
+				qcom,mdss-dsi-panel-oneplus-mode-off-command-state = "dsi_lp_mode";
 
 				qcom,mdss-dsi-panel-adaption-mode-on-command = [
 				  39 01 00 00 02 00 02 81 90
