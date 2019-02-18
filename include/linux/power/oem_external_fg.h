@@ -48,6 +48,7 @@ struct external_battery_gauge {
 	bool (*fast_switch_to_normal)(void);
 	int (*set_switch_to_noraml_false)(void);
 	int (*set_fast_chg_allow)(bool enable);
+	void (*clean_enhache)(void);
 	bool (*get_fast_chg_allow)(void);
 	int (*fast_normal_to_warm)(void);
 	int (*set_normal_to_warm_false)(void);

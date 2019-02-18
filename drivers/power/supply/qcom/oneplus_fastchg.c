@@ -581,6 +581,12 @@ static int bq27541_set_fast_chg_allow(bool enable)
 	return 0;
 }
 
+static void clean_enhache_status(void)
+{
+	if (fastchg_di)
+		fastchg_di->dash_enhance = 0;
+}
+
 static bool bq27541_get_fast_chg_allow(void)
 {
 	if (fastchg_di)
@@ -666,6 +672,7 @@ static struct external_battery_gauge fastcharge_information  = {
 	.is_usb_switch_on = fastchg_is_usb_switch_on,
 	.get_adapter_update = dash_get_adapter_update_status,
 	.is_enhance_dash = enhance_dash_on,
+	.clean_enhache = clean_enhache_status,
 };
 
 static struct notify_dash_event *notify_event;
