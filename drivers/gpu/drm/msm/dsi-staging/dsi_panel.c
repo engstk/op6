@@ -24,6 +24,11 @@
 #include "dsi_panel.h"
 #include "dsi_ctrl_hw.h"
 #include <linux/pm_wakeup.h>
+
+#ifdef CONFIG_KLAPSE
+#include "../sde/klapse.h"
+#endif
+
 /**
  * topology is currently defined by a set of following 3 values:
  * 1. num of layer mixers
@@ -760,6 +765,10 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		pr_err("Backlight type(%d) not supported\n", bl->type);
 		rc = -ENOTSUPP;
 	}
+	
+#ifdef CONFIG_KLAPSE
+	set_rgb_slider(bl_lvl);
+#endif
 
 	return rc;
 }
