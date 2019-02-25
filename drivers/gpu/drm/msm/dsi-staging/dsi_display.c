@@ -70,6 +70,7 @@ static struct pm_qos_request lcdspeedup_big_cpu_qos;
 
 static DEFINE_MUTEX(dsi_display_list_lock);
 static LIST_HEAD(dsi_display_list);
+static DEFINE_MUTEX(dsi_display_clk_mutex);
 static char dsi_display_primary[MAX_CMDLINE_PARAM_LEN];
 static char dsi_display_secondary[MAX_CMDLINE_PARAM_LEN];
 static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY];
@@ -4370,6 +4371,43 @@ int dsi_display_splash_res_cleanup(struct  dsi_display *display)
 	return rc;
 }
 
+static int dsi_display_link_clk_force_update_ctrl(void *handle)
+{
+	int rc = 0;
+
+	if (!handle) {
+		pr_err("%s: Invalid arg\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&dsi_display_clk_mutex);
+
+	rc = dsi_display_link_clk_force_update(handle);
+
+	mutex_unlock(&dsi_display_clk_mutex);
+
+	return rc;
+}
+
+int dsi_display_clk_ctrl(void *handle,
+	enum dsi_clk_type clk_type, enum dsi_clk_state clk_state)
+{
+	int rc = 0;
+
+	if (!handle) {
+		pr_err("%s: Invalid arg\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&dsi_display_clk_mutex);
+	rc = dsi_clk_req_state(handle, clk_type, clk_state);
+	if (rc)
+		pr_err("%s: failed set clk state, rc = %d\n", __func__, rc);
+	mutex_unlock(&dsi_display_clk_mutex);
+
+	return rc;
+}
+
 static int dsi_display_force_update_dsi_clk(struct dsi_display *display)
 {
 	int rc = 0;
@@ -4529,7 +4567,7 @@ static ssize_t sysfs_dynamic_dsi_clk_write(struct device *dev,
 
 	pr_info("%s: bitrate param value: '%d'\n", __func__, clk_rate);
 
-	mutex_lock(&display->display_lock);
+	mutex_lock(&dsi_display_clk_mutex);
 
 	display->cached_clk_rate = clk_rate;
 	rc = dsi_display_request_update_dsi_bitrate(display, clk_rate);
@@ -4549,7 +4587,7 @@ static ssize_t sysfs_dynamic_dsi_clk_write(struct device *dev,
 	}
 	atomic_set(&display->clkrate_change_pending, 1);
 
-	mutex_unlock(&display->display_lock);
+	mutex_unlock(&dsi_display_clk_mutex);
 
 	return count;
 
