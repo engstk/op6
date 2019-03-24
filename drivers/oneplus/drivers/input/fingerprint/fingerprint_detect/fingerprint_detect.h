@@ -14,5 +14,6 @@ struct fingerprint_detect_data {
 	int project_version;
 };
 extern int fp_version;
+extern bool screen_off;
 #endif
 
