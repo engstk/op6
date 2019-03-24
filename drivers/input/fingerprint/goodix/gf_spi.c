@@ -57,7 +57,6 @@
 #include "../fingerprint_detect/fingerprint_detect.h"
 
 #include <linux/moduleparam.h>
-bool screen_off = false;
 bool haptic_feedback_disable_fprg = false;
 module_param(haptic_feedback_disable_fprg, bool, 0644);
 void qpnp_hap_ignore_next_request(void);
