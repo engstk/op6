@@ -56,6 +56,12 @@
 
 #include "../fingerprint_detect/fingerprint_detect.h"
 
+#include <linux/moduleparam.h>
+bool screen_off = false;
+bool haptic_feedback_disable_fprg = false;
+module_param(haptic_feedback_disable_fprg, bool, 0644);
+void qpnp_hap_ignore_next_request(void);
+
 #define VER_MAJOR   1
 #define VER_MINOR   2
 #define PATCH_LEVEL 8
@@ -331,6 +337,10 @@ static irqreturn_t gf_irq(int irq, void *handle)
 	if (gf_dev->async)
 		kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
 #endif
+
+	if (screen_off && haptic_feedback_disable_fprg)
+		qpnp_hap_ignore_next_request();
+
 	return IRQ_HANDLED;
 }
 
@@ -821,6 +831,7 @@ static int goodix_fb_state_chg_callback(
 #endif
 			}
 			gf_dev->screen_state = 0;
+			screen_off = 1;
 			sysfs_notify(&gf_dev->spi->dev.kobj,
 				NULL, dev_attr_screen_state.attr.name);
 			break;
@@ -837,6 +848,7 @@ static int goodix_fb_state_chg_callback(
 #endif
 			}
 			gf_dev->screen_state = 1;
+			screen_off = 0;
 			sysfs_notify(&gf_dev->spi->dev.kobj,
 				NULL, dev_attr_screen_state.attr.name);
 			break;
