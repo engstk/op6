@@ -3032,7 +3032,7 @@ error_exit:
 enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
-
+        int times = 0, ready;
 	/* mute */
 	tfaRunMute(tfa);
 
@@ -3047,7 +3047,23 @@ enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 	/* disable I2S output on TFA1 devices without TDM */
 	err = tfa98xx_aec_output(tfa, 0);
 
-	return err;
+	while ((TFA_GET_BF(tfa, MANSTATE) != 0) && (times++ < 20)) {
+		pr_info("tfa stop wait state machine goto powerdown mode.\n");
+		err = tfa98xx_dsp_system_stable(tfa, &ready);
+		if (err != Tfa98xx_Error_Ok || !ready) {
+			pr_err("tfa stop: No I2S CLK\n");
+			break;
+		}
+		msleep_interruptible(5);
+	}
+
+	if (times < 20) {
+		pr_debug("tfa stop: already in PowerDown\n");
+	} else {
+		pr_debug("tfa stop: Not in PowerDown\n");
+	}
+
+	return (enum tfa_error)err;	//liuhaituo modify
 }
 
 /*
