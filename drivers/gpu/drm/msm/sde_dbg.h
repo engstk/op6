@@ -421,7 +421,7 @@ static inline void sde_dbg_reg_register_dump_range(const char *base_name,
 {
 }
 
-void sde_dbg_set_sde_top_offset(u32 blk_off)
+static inline void sde_dbg_set_sde_top_offset(u32 blk_off)
 {
 }
 
