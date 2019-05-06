@@ -103,10 +103,6 @@ enum sched_boost_policy sched_boost_policy(void)
 	return boost_policy;
 }
 
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-static int boost_slot;
-#endif // CONFIG_DYNAMIC_STUNE_BOOST
-
 static bool verify_boost_params(int old_val, int new_val)
 {
 	/*
@@ -119,13 +115,6 @@ static bool verify_boost_params(int old_val, int new_val)
 
 static void _sched_set_boost(int old_val, int type)
 {
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-	if (type > 0)
-		do_stune_sched_boost("top-app", &boost_slot);
-	else
-		reset_stune_boost("top-app", boost_slot);
-#endif // CONFIG_DYNAMIC_STUNE_BOOST
-
 	switch (type) {
 	case NO_BOOST:
 		if (old_val == FULL_THROTTLE_BOOST)
