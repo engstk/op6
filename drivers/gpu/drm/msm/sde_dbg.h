@@ -159,7 +159,7 @@ extern struct sde_dbg_evtlog *sde_dbg_base_evtlog;
 #define SDE_DBG_CTRL(...) sde_dbg_ctrl(__func__, ##__VA_ARGS__, \
 		SDE_DBG_DUMP_DATA_LIMITER)
 
-#if defined(CONFIG_DEBUG_FS)
+#if 0
 
 /**
  * sde_evtlog_init - allocate a new event log object
