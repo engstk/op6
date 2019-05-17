@@ -95,6 +95,10 @@ unsigned long killed_num;
 			pr_info(x);			\
 	} while (0)
 
+unsigned long get_max_minfree(void)
+{
+	return lowmem_minfree[lowmem_minfree_size - 1];
+}
 static unsigned long lowmem_count(struct shrinker *s,
 				  struct shrink_control *sc)
 {
@@ -1027,10 +1031,10 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		array_size = lowmem_adj_size;
 	if (lowmem_minfree_size < array_size)
 		array_size = lowmem_minfree_size;
+
 	for (i = 0; i < array_size; i++) {
 		minfree = lowmem_minfree[i];
-		if (other_free < minfree &&
-		    other_file < minfree + uid_lru_total) {
+		if (other_free < minfree && other_file < minfree) {
 			min_score_adj = lowmem_adj[i];
 			break;
 		}

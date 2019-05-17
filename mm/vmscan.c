@@ -62,7 +62,6 @@
 int sysctl_page_cache_reside_switch;
 int sysctl_page_cache_reside_max = 153600; //600M
 unsigned long inactive_nr, active_nr;
-unsigned long vmpress[5];
 unsigned long priority_nr[3];
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
@@ -2329,6 +2328,8 @@ static void move_active_pages_to_lru(struct lruvec *lruvec,
 		__count_vm_events(PGDEACTIVATE, pgmoved);
 }
 
+#define SMART_BOOST_PUTBACK_LRU 2
+extern unsigned long get_max_minfree(void);
 unsigned long uid_lru_size()
 {
 	return global_page_state(NR_ZONE_UID_LRU);
@@ -2339,7 +2340,10 @@ static int active_list_is_low(struct lruvec *lruvec)
 	unsigned long inactive = lruvec_lru_size(lruvec, LRU_INACTIVE_FILE, MAX_NR_ZONES);
 	unsigned long total_uid_lru_nr = uid_lru_size();
 
-	return ((active + inactive) << 1) < (total_uid_lru_nr >> 2);
+	if ((active + inactive) > get_max_minfree())
+		return ((active + inactive) << 1) < (total_uid_lru_nr >> 2);
+	else
+		return SMART_BOOST_PUTBACK_LRU;
 }
 
 static void shrink_uid_lru_list(struct lruvec *lruvec,
@@ -2350,12 +2354,16 @@ static void shrink_uid_lru_list(struct lruvec *lruvec,
 	unsigned long nr_reclaimed = 0, nr_isolate_failed = 0;
 	unsigned long dummy1, dummy2, dummy3, dummy4, dummy5;
 	unsigned long uid_size = uid_lru_size();
-	long nr_to_shrink = sc->nr_to_reclaim<< 1;
+	long nr_to_shrink = uid_size >> sc->priority;
+        int putback_lru = active_list_is_low(lruvec);
 	struct hotcount_prio_node *pos;
 	struct page *page;
 
 	if (uid_size <= 0)
 		return;
+
+	if (SMART_BOOST_PUTBACK_LRU == putback_lru)
+                nr_to_shrink = uid_size;
 
 	read_lock(&prio_list_lock);
 	spin_lock_irq(&pgdat->lru_lock);
@@ -2390,10 +2398,11 @@ static void shrink_uid_lru_list(struct lruvec *lruvec,
 	spin_unlock_irq(&pgdat->lru_lock);
 	read_unlock(&prio_list_lock);
 
-	nr_reclaimed = shrink_page_list(&frees_list, pgdat, sc,
-				TTU_UNMAP|TTU_IGNORE_ACCESS,
-				&dummy1, &dummy2, &dummy3,
-				&dummy4, &dummy5, true);
+	if (putback_lru != SMART_BOOST_PUTBACK_LRU)
+		nr_reclaimed = shrink_page_list(&frees_list, pgdat, sc,
+					TTU_UNMAP|TTU_IGNORE_ACCESS,
+					&dummy1, &dummy2, &dummy3,
+					&dummy4, &dummy5, true);
 
 	while (!list_empty(&frees_list)) {
 		page = lru_to_page(&frees_list);
@@ -3028,29 +3037,6 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			vmpressure(sc->gfp_mask, memcg, false,
 				   sc->nr_scanned - scanned,
 				   sc->nr_reclaimed - reclaimed);
-			if ((sc->nr_reclaimed - reclaimed) <
-				((sc->nr_scanned - scanned) >> 2))
-				vmpress[0]++;
-			else if ((sc->nr_reclaimed - reclaimed) >
-						((sc->nr_scanned - scanned) >> 2) &&
-						(sc->nr_reclaimed - reclaimed) <
-						((sc->nr_scanned - scanned) >> 1))
-				vmpress[1]++;
-			else if ((sc->nr_reclaimed - reclaimed) >
-					((sc->nr_scanned - scanned) >> 1) &&
-					(sc->nr_reclaimed - reclaimed) <
-					(((sc->nr_scanned - scanned) >> 1) +
-					((sc->nr_scanned - scanned) >> 2)))
-				vmpress[2]++;
-			else if ((sc->nr_reclaimed - reclaimed) >
-					(((sc->nr_scanned - scanned) >> 1) +
-					((sc->nr_scanned - scanned) >> 2)) &&
-					(sc->nr_reclaimed - reclaimed) <
-					(sc->nr_scanned - scanned))
-				vmpress[3]++;
-			else if ((sc->nr_reclaimed - reclaimed) ==
-					(sc->nr_scanned - scanned))
-				vmpress[4]++;
 			/*
 			 * Direct reclaim and kswapd have to scan all memory
 			 * cgroups to fulfill the overall scan target for the
