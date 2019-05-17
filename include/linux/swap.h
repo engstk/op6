@@ -436,7 +436,7 @@ extern struct uid_node **alloc_uid_hash_table(void);
 extern unsigned long killed_num;
 extern unsigned long inactive_nr;
 extern unsigned long active_nr;
-extern unsigned long vmpress[];
+extern atomic_t vmpress[];
 extern unsigned long priority_nr[];
 extern unsigned long alloc_slow_nr;
 extern void si_swapinfo(struct sysinfo *);

@@ -729,7 +729,7 @@ int add_to_page_cache_locked(struct page *page, struct address_space *mapping,
 }
 EXPORT_SYMBOL(add_to_page_cache_locked);
 
-
+extern unsigned long get_max_minfree(void);
 int add_to_page_cache_lru(struct page *page, struct address_space *mapping,
 				pgoff_t offset, gfp_t gfp_mask)
 {
@@ -756,9 +756,9 @@ int add_to_page_cache_lru(struct page *page, struct address_space *mapping,
 			workingset_activation(page);
 		} else
 			ClearPageActive(page);
-		if (current->group_leader->hot_count > 0 &&
-			sysctl_page_cache_reside_switch &&
-			uid_lru_size() < sysctl_page_cache_reside_max)
+		if (sysctl_page_cache_reside_switch &&
+			current->group_leader->hot_count > 0 &&
+			(global_node_page_state(NR_FILE_PAGES) - total_swapcache_pages()) > get_max_minfree())
 			uid_lru_cache_add(page);
 		else
 			lru_cache_add(page);
