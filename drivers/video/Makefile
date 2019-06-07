@@ -13,4 +13,4 @@ ifeq ($(CONFIG_OF),y)
 obj-$(CONFIG_VIDEOMODE_HELPERS) += of_display_timing.o of_videomode.o
 endif
 
-obj-$(CONFIG_KLAPSE)    += klapse/klapse.o
+obj-$(CONFIG_KLAPSE)    += klapse/
