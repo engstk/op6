@@ -3971,6 +3971,8 @@ int dsi_panel_enable(struct dsi_panel *panel)
 
 	if (panel->hbm_mode)
 		dsi_panel_apply_hbm_mode(panel);
+	if (panel->display_mode != DISPLAY_MODE_DEFAULT)
+		dsi_panel_apply_display_mode(panel);
 
 	return rc;
 }
@@ -4152,6 +4154,27 @@ int dsi_panel_apply_hbm_mode(struct dsi_panel *panel)
 		type = type_map[panel->hbm_mode];
 	else
 		type = DSI_CMD_SET_HBM_OFF;
+
+	mutex_lock(&panel->panel_lock);
+	rc = dsi_panel_tx_cmd_set(panel, type);
+	mutex_unlock(&panel->panel_lock);
+
+	return rc;
+}
+
+int dsi_panel_apply_display_mode(struct dsi_panel *panel)
+{
+	enum dsi_cmd_set_type type;
+	int rc;
+
+	switch (panel->display_mode) {
+		case DISPLAY_MODE_SRGB: type = DSI_CMD_SET_SRGB_ON; break;
+		case DISPLAY_MODE_DCI_P3: type = DSI_CMD_SET_DCI_P3_ON; break;
+		case DISPLAY_MODE_NIGHT: type = DSI_CMD_SET_NIGHT_ON; break;
+		case DISPLAY_MODE_ONEPLUS: type = DSI_CMD_SET_ONEPLUS_MODE_ON; break;
+		case DISPLAY_MODE_ADAPTION: type = DSI_CMD_SET_ADAPTION_ON; break;
+		default: type = DSI_CMD_SET_SRGB_OFF; break;
+	}
 
 	mutex_lock(&panel->panel_lock);
 	rc = dsi_panel_tx_cmd_set(panel, type);

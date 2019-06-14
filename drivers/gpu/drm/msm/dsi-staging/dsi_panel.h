@@ -149,6 +149,15 @@ enum dsi_panel_type {
 	DSI_PANEL_TYPE_MAX,
 };
 
+enum dsi_panel_display_mode {
+	DISPLAY_MODE_DEFAULT,
+	DISPLAY_MODE_SRGB,
+	DISPLAY_MODE_DCI_P3,
+	DISPLAY_MODE_NIGHT,
+	DISPLAY_MODE_ONEPLUS,
+	DISPLAY_MODE_ADAPTION
+};
+
 struct dsi_panel {
 	const char *name;
 	enum dsi_panel_type type;
@@ -191,6 +200,7 @@ struct dsi_panel {
 	int acl_cmd_index;
 	int acl_mode_index;
 	int hbm_mode;
+	enum dsi_panel_display_mode display_mode;
     int aod_mode;
     int aod_status;
     int aod_curr_mode;
@@ -300,6 +310,8 @@ int dsi_panel_unprepare(struct dsi_panel *panel);
 int dsi_panel_post_unprepare(struct dsi_panel *panel);
 
 int dsi_panel_apply_hbm_mode(struct dsi_panel *panel);
+
+int dsi_panel_apply_display_mode(struct dsi_panel *panel);
 
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl);
 
