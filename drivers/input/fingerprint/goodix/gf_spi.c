@@ -684,15 +684,26 @@ static ssize_t proximity_state_set(struct device *dev,
 
 static DEVICE_ATTR(proximity_state, S_IWUSR, NULL, proximity_state_set);
 
+static struct attribute *gf_attributes_6T[] = {
+	&dev_attr_screen_state.attr,
+	NULL
+};
+
 static struct attribute *gf_attributes[] = {
 	&dev_attr_screen_state.attr,
 	&dev_attr_proximity_state.attr,
 	NULL
 };
 
-static const struct attribute_group gf_attribute_group = {
+static const struct attribute_group gf_attribute_group_6T = {
+	.attrs = gf_attributes_6T,
+};
+
+static const struct attribute_group gf_attribute_group_6 = {
 	.attrs = gf_attributes,
 };
+
+static struct attribute_group gf_attribute_group;
 
 int gf_opticalfp_irq_handler(int event)
 {
@@ -860,6 +871,16 @@ static int goodix_fb_state_chg_callback(
 }
 #endif
 
+static bool OP6T = false;
+static int __init get_model(char *cmdline_model)
+{
+	if (strstr(cmdline_model, "18801")) {
+		OP6T = true;
+	}
+	return 0;
+}
+__setup("androidboot.project_name=", get_model);
+
 static struct class *gf_class;
 #if defined(USE_SPI_BUS)
 static int gf_probe(struct spi_device *spi)
@@ -884,6 +905,11 @@ static int gf_probe(struct platform_device *pdev)
 	gf_dev->pwr_gpio = -EINVAL;
 	gf_dev->device_available = 0;
 	gf_dev->fb_black = 0;
+
+	if (OP6T)
+		gf_attribute_group = gf_attribute_group_6T;
+	else
+		gf_attribute_group = gf_attribute_group_6;
 
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
