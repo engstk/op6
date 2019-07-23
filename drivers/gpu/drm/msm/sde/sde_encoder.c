@@ -3927,7 +3927,7 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 	else
 		ln_cnt1 = -EINVAL;
 	
-	if (sde_enc->cur_master)
+	if (sde_enc->cur_master &&(!strcmp(sde_enc->cur_master->connector->name, "DSI-1")))
 		sde_connector_update_backlight(sde_enc->cur_master->connector);
 
 	/* prepare for next kickoff, may include waiting on previous kickoff */
