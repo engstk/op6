@@ -690,6 +690,10 @@ static int dsi_panel_led_bl_register(struct dsi_panel *panel,
 }
 #endif
 bool HBM_flag =false;
+extern int op_dimlayer_bl_alpha;
+extern int op_dimlayer_bl_enabled;
+extern int op_dimlayer_bl_enable_real;
+
 static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
 {
@@ -705,6 +709,18 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	if (panel->is_hbm_enabled){
 		return 0;
 		}
+	if (op_dimlayer_bl_enabled != op_dimlayer_bl_enable_real) {
+		op_dimlayer_bl_enable_real = op_dimlayer_bl_enabled;
+		if (op_dimlayer_bl_enable_real) {
+		bl_lvl = op_dimlayer_bl_alpha;
+			pr_err("dc light enable\n");
+		} else {
+			pr_err("dc light disenable\n");
+		}
+	}
+	if (op_dimlayer_bl_enable_real) {
+		bl_lvl = op_dimlayer_bl_alpha;
+    }
     if (panel->bl_config.bl_high2bit){
 	if(HBM_flag==true){
 		return 0;
