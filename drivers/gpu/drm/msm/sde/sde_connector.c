@@ -550,6 +550,10 @@ static int _sde_connector_update_bl_scale(struct sde_connector *c_conn)
 	SDE_DEBUG("bl_scale = %u, bl_scale_ad = %u, bl_level = %u\n",
 		bl_config->bl_scale, bl_config->bl_scale_ad,
 		bl_config->bl_level);
+	if(c_conn->ops.set_backlight==NULL){
+		printk(KERN_ERR"c_conn->ops.set_backlight==NULL\n");
+		return 0;
+		}	
 	rc = c_conn->ops.set_backlight(dsi_display, bl_config->bl_level);
 		mutex_unlock(&bd->update_lock);
 
@@ -613,6 +617,23 @@ extern bool HBM_flag ;
 extern int oneplus_dim_status;
 extern bool aod_real_flag;
 extern bool aod_complete;
+extern int op_dimlayer_bl;
+extern int op_dimlayer_bl_enabled;
+
+int sde_connector_update_backlight(struct drm_connector *connector)
+{
+	if (op_dimlayer_bl != op_dimlayer_bl_enabled) {
+		struct sde_connector *c_conn = to_sde_connector(connector);
+		if (!c_conn) {
+			SDE_ERROR("Invalid params sde_connector null\n");
+			return -EINVAL;
+			}
+		op_dimlayer_bl_enabled = op_dimlayer_bl;
+		_sde_connector_update_bl_scale(c_conn);
+	}
+
+	return 0;
+}
 static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 {
 	struct drm_connector *connector = &c_conn->base;

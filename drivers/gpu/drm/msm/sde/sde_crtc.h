@@ -415,6 +415,7 @@ struct sde_crtc_state {
 	u64 sbuf_clk_rate[2];
 	bool sbuf_clk_shifted;
 
+		bool fingerprint_mode;
 		bool fingerprint_pressed;
 		struct sde_hw_dim_layer *fingerprint_dim_layer;
 
