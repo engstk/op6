@@ -20,6 +20,7 @@
 #include <linux/sched/sysctl.h>
 #include "sched.h"
 #include "tune.h"
+#include <../drivers/oneplus/coretech/opchain/opchain_helper.h>
 
 /* Stub out fast switch routines present on mainline to reduce the backport
  * overhead. */
@@ -147,8 +148,10 @@ static void sugov_update_commit(struct sugov_policy *sg_policy, u64 time,
 		return;
 	}
 
-	if (sg_policy->next_freq == next_freq)
+	if (policy->cur == next_freq) {
+		sg_policy->next_freq = next_freq;
 		return;
+	}
 
 	sg_policy->next_freq = next_freq;
 	sg_policy->last_freq_update_time = time;
@@ -195,7 +198,10 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	unsigned int freq = arch_scale_freq_invariant() ?
 				policy->cpuinfo.max_freq : policy->cur;
 
-	freq = (freq + (freq >> 2)) * util / max;
+	if (!policy->cpu || !opc_fps_check(0))
+		freq = (freq + (freq >> 2)) * util / max;
+	else
+		freq = freq * util / max + 1;
 
 	if (freq == sg_policy->cached_raw_freq && sg_policy->next_freq != UINT_MAX)
 		return sg_policy->next_freq;
