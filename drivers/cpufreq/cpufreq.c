@@ -2864,7 +2864,7 @@ static int c0_cpufreq_qos_handler(struct notifier_block *b,
                 return NOTIFY_BAD;
        }
 
-       if (strcmp(policy->governor->name, "schedutil")) {
+       if (strcmp(policy->governor->name, "schedutil") || strcmp(policy->governor->name, "blu_schedutil")) {
                cpufreq_cpu_put(policy);
                return NOTIFY_OK;
        }
@@ -2902,7 +2902,7 @@ static int c1_cpufreq_qos_handler(struct notifier_block *b,
                return NOTIFY_BAD;
        }
 
-       if (strcmp(policy->governor->name, "schedutil")) {
+       if (strcmp(policy->governor->name, "schedutil") || strcmp(policy->governor->name, "blu_schedutil")) {
                cpufreq_cpu_put(policy);
                return NOTIFY_OK;
        }
