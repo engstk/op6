@@ -5022,19 +5022,6 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 	else
 		display->panel->dim_status = false;
 
-		//if (fp_mode == 1 && sde_crtc_config_fingerprint_dim_layer(&cstate->base, cnt - 1)) {
-		//	pr_err("Failed to config dim layer\n");
-		//	return -EINVAL;
-		//}
-		if (fp_mode == 1) {
-			cstate->fingerprint_pressed = true;
-			return 0;
-		} else {
-			cstate->fingerprint_pressed = false;
-			cstate->fingerprint_dim_layer = NULL;
-			return 0;
-		}
-
 	if(aod_index <0){
 		oneplus_aod_hid = 0;
 		}
@@ -5162,6 +5149,16 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 	}
 	if (fppressed_index < 0)
 		cstate->fingerprint_pressed = false;
+
+	if (fp_mode == 1) {
+		display->panel->dim_status = true;
+		cstate->fingerprint_pressed = true;
+		return 0;
+	} else if (fp_mode == 0) {
+		display->panel->dim_status = false;
+		cstate->fingerprint_pressed = false;
+		return 0;
+	}
 
 	return 0;
 }
