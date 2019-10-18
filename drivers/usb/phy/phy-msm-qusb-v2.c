@@ -55,6 +55,14 @@
 #define CORE_RESET			BIT(5)
 #define CORE_RESET_MUX			BIT(6)
 
+#define QUSB2PHY_PORT_TUNE1		0x240
+#define QUSB2PHY_PORT_TUNE2		0x244
+#define QUSB2PHY_PORT_TUNE3		0x248
+#define QUSB2PHY_PORT_TUNE4		0x24c
+#define QUSB2PHY_PORT_TUNE5		0x250
+#define QUSB2PHY_PORT_BIAS1		0x194
+#define QUSB2PHY_PORT_BIAS2		0x198
+
 #define QUSB2PHY_1P8_VOL_MIN           1800000 /* uV */
 #define QUSB2PHY_1P8_VOL_MAX           1800000 /* uV */
 #define QUSB2PHY_1P8_HPM_LOAD          30000   /* uA */
@@ -81,6 +89,27 @@
 
 /* STAT5 register bits */
 #define VSTATUS_PLL_LOCK_STATUS_MASK	BIT(0)
+unsigned int phy_tune1;
+module_param(phy_tune1, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_tune1, "QUSB PHY v2 TUNE1");
+unsigned int phy_tune2;
+module_param(phy_tune2, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_tune2, "QUSB PHY v2 TUNE2");
+unsigned int phy_tune3;
+module_param(phy_tune3, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_tune3, "QUSB PHY v2 TUNE3");
+unsigned int phy_tune4;
+module_param(phy_tune4, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_tune4, "QUSB PHY v2 TUNE4");
+unsigned int phy_tune5;
+module_param(phy_tune5, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_tune5, "QUSB PHY v2 TUNE5");
+unsigned int phy_bias1;
+module_param(phy_bias1, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_bias1, "QUSB PHY v2 BIAS1");
+unsigned int phy_bias2;
+module_param(phy_bias2, uint, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(phy_bias2, "QUSB PHY v2 BIAS2");
 
 enum qusb_phy_reg {
 	PORT_TUNE1,
@@ -116,6 +145,9 @@ struct qusb_phy {
 	int			vdd_levels[3]; /* none, low, high */
 	int			init_seq_len;
 	int			*qusb_phy_init_seq;
+/*2018/03/31 @BSP add host mode phy init parameters*/
+	int			ophost_init_seq_len;
+	int			*qusb_phy_ophost_init_seq;
 	int			host_init_seq_len;
 	int			*qusb_phy_host_init_seq;
 
@@ -123,6 +155,8 @@ struct qusb_phy {
 	int			qusb_phy_reg_offset_cnt;
 
 	u32			tune_val;
+/*2018/02/21 BSP@Infi do not need override the bias2 value*/
+	bool		overwrite_bias2_disable;
 	int			efuse_bit_pos;
 	int			efuse_num_of_bits;
 
@@ -143,6 +177,10 @@ struct qusb_phy {
 	struct pinctrl_state	*atest_usb_suspend;
 	struct pinctrl_state	*atest_usb_active;
 
+/*2018/06/28 @BSP Add HW-SW WR to optimize the usb diagram*/
+	struct pinctrl_state	*usb_oe_active;
+	struct pinctrl_state	*usb_oe_suspend;
+	bool			usb_oe_exist;
 	/* emulation targets specific */
 	void __iomem		*emu_phy_base;
 	bool			emulation;
@@ -440,6 +478,7 @@ static void qusb_phy_get_tune1_param(struct qusb_phy *qphy)
 	qphy->tune_val = TUNE_VAL_MASK(qphy->tune_val,
 				qphy->efuse_bit_pos, bit_mask);
 	reg = readb_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1]);
+	pr_debug("%s(): tune1 value:0x%x before change\n",__func__, reg);
 	if (qphy->tune_val) {
 		reg = reg & 0x0f;
 		reg |= (qphy->tune_val << 4);
@@ -611,9 +650,18 @@ static int qusb_phy_init(struct usb_phy *phy)
 			PWR_CTRL1_POWR_DOWN,
 			qphy->base + qphy->phy_reg[PWR_CTRL1]);
 
-	if (qphy->qusb_phy_init_seq)
-		qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq,
-				qphy->init_seq_len, 0);
+/*2018/03/31 @BSP add host mode phy init parameters*/
+	if (qphy->qusb_phy_init_seq || qphy->qusb_phy_ophost_init_seq){
+		if ((qphy->phy.flags & PHY_HOST_MODE) && qphy->qusb_phy_ophost_init_seq){
+			dev_info(phy->dev, "%s PHY_HOST_MODE!\n", __func__);
+			qusb_phy_write_seq(qphy->base, qphy->qusb_phy_ophost_init_seq,
+					qphy->init_seq_len, 0);
+		}
+		else
+			qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq,
+					qphy->init_seq_len, 0);
+	}
+
 	if (qphy->efuse_reg) {
 		if (!qphy->tune_val)
 			qusb_phy_get_tune1_param(qphy);
@@ -626,20 +674,78 @@ static int qusb_phy_init(struct usb_phy *phy)
 
 	/* if debugfs based tunex params are set, use that value. */
 	for (p_index = 0; p_index < 5; p_index++) {
-		if (qphy->tune[p_index])
+		if (qphy->tune[p_index]){
+			pr_debug("%s(): Programming TUNE%d parameter as:%x\n", __func__,p_index+1,
+					qphy->tune_val);
 			writel_relaxed(qphy->tune[p_index],
 				qphy->base + qphy->phy_reg[PORT_TUNE1] +
 							(4 * p_index));
+		}
 	}
-
-	if (qphy->refgen_north_bg_reg && qphy->override_bias_ctrl2)
-		if (readl_relaxed(qphy->refgen_north_bg_reg) & BANDGAP_BYPASS)
-			writel_relaxed(BIAS_CTRL_2_OVERRIDE_VAL,
-				qphy->base + qphy->phy_reg[BIAS_CTRL_2]);
 
 	if (qphy->bias_ctrl2)
 		writel_relaxed(qphy->bias_ctrl2,
 				qphy->base + qphy->phy_reg[BIAS_CTRL_2]);
+/*2018/02/21 BSP@Infi do not need override the bias2 value*/
+	if (qphy->refgen_north_bg_reg && !qphy->overwrite_bias2_disable)
+		if (readl_relaxed(qphy->refgen_north_bg_reg) & BANDGAP_BYPASS){
+			pr_debug("%s(): overwrite bias2\n", __func__);
+			writel_relaxed(BIAS_CTRL_2_OVERRIDE_VAL,
+				qphy->base + qphy->phy_reg[BIAS_CTRL_2]);
+		}
+	/* if soc revision is mentioned override DEBUG_CTRL1 value */
+	if (qphy->soc_min_rev)
+		writel_relaxed(DEBUG_CTRL1_OVERRIDE_VAL,
+				qphy->base + qphy->phy_reg[DEBUG_CTRL1]);
+	/* If phy_tune1 modparam set, override tune1 value */
+	if (phy_tune1) {
+		pr_err("%s(): (modparam) TUNE1 val:0x%02x\n",
+						__func__, phy_tune1);
+		writel_relaxed(phy_tune1,
+				qphy->base + qphy->phy_reg[PORT_TUNE1]);
+	}
+	/* If phy_tune2 modparam set, override tune2 value */
+	if (phy_tune2) {
+		pr_err("%s(): (modparam) TUNE2 val:0x%02x\n",
+						__func__, phy_tune2);
+		writel_relaxed(phy_tune2,
+				qphy->base + qphy->phy_reg[PORT_TUNE1]+4);
+	}
+	/* If phy_tune3 modparam set, override tune3 value */
+	if (phy_tune3) {
+		pr_err("%s(): (modparam) TUNE3 val:0x%02x\n",
+						__func__, phy_tune3);
+		writel_relaxed(phy_tune3,
+				qphy->base + qphy->phy_reg[PORT_TUNE1]+8);
+	}
+	/* If phy_tune4 modparam set, override tune4 value */
+	if (phy_tune4) {
+		pr_err("%s(): (modparam) TUNE4 val:0x%02x\n",
+						__func__, phy_tune4);
+		writel_relaxed(phy_tune4,
+				qphy->base + qphy->phy_reg[PORT_TUNE1]+0xc);
+	}
+	/* If phy_tune5 modparam set, override tune5 value */
+	if (phy_tune5) {
+		pr_err("%s(): (modparam) TUNE5 val:0x%02x\n",
+						__func__, phy_tune5);
+		writel_relaxed(phy_tune5,
+				qphy->base + qphy->phy_reg[PORT_TUNE1]+0x10);
+	}
+	/* If phy_BIAS1 modparam set, override bias1 value */
+	if (phy_bias1) {
+		pr_err("%s(): (modparam) bias1 val:0x%02x\n",
+						__func__, phy_bias1);
+		writel_relaxed(phy_bias1,
+				qphy->base + qphy->phy_reg[BIAS_CTRL_2]-4);
+	}
+	/* If phy_BIAS2 modparam set, override bias2 value */
+	if (phy_bias2) {
+		pr_err("%s(): (modparam) bias2 val:0x%02x\n",
+						__func__, phy_bias2);
+		writel_relaxed(phy_bias2,
+				qphy->base + qphy->phy_reg[BIAS_CTRL_2]);
+	}
 
 	/* ensure above writes are completed before re-enabling PHY */
 	wmb();
@@ -675,6 +781,14 @@ static enum hrtimer_restart qusb_dis_ext_pulldown_timer(struct hrtimer *timer)
 		if (ret < 0)
 			dev_err(qphy->phy.dev,
 				"pinctrl state suspend select failed\n");
+/*2018/06/28 @BSP Add HW-SW WR to optimize the usb diagram*/
+		if (qphy->usb_oe_exist && qphy->usb_oe_active) {
+			ret = pinctrl_select_state(qphy->pinctrl,
+					qphy->usb_oe_active);
+			if (ret < 0)
+				dev_err(qphy->phy.dev,
+					"pinctrl state usb_oe_active select failed\n");
+		}
 	}
 
 	return HRTIMER_NORESTART;
@@ -695,10 +809,35 @@ static void qusb_phy_enable_ext_pulldown(struct usb_phy *phy)
 					"pinctrl state active select failed\n");
 			return;
 		}
-
+/*2018/06/28 @BSP Add HW-SW WR to optimize the usb diagram*/
+		if (qphy->usb_oe_exist && qphy->usb_oe_suspend) {
+			ret = pinctrl_select_state(qphy->pinctrl,
+					qphy->usb_oe_suspend);
+			if (ret < 0)
+				dev_err(phy->dev,
+					"pinctrl state usb_oe_suspend select failed\n");
+		}
 		hrtimer_start(&qphy->timer, ms_to_ktime(10), HRTIMER_MODE_REL);
 	}
 }
+
+/*2018/06/28 @BSP Add HW-SW WR to optimize the usb diagram*/
+static void qusb_phy_enable_usb_oe(struct usb_phy *phy)
+{
+	struct qusb_phy *qphy = container_of(phy, struct qusb_phy, phy);
+	int ret = 0;
+
+	dev_dbg(phy->dev, "%s\n", __func__);
+
+	if (qphy->pinctrl && qphy->usb_oe_active) {
+		ret = pinctrl_select_state(qphy->pinctrl,
+				qphy->usb_oe_active);
+		if (ret < 0)
+			dev_err(phy->dev,
+				"pinctrl state usb_oe_active select failed\n");
+	}
+}
+
 
 static void qusb_phy_shutdown(struct usb_phy *phy)
 {
@@ -1063,6 +1202,9 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		qphy->efuse_reg = devm_ioremap_nocache(dev, res->start,
 							resource_size(res));
 		if (!IS_ERR_OR_NULL(qphy->efuse_reg)) {
+/*2018/02/21 BSP@Infi do not need override the bias2 value*/
+			qphy->overwrite_bias2_disable = of_property_read_bool(dev->of_node,
+					"qcom,overwrite-bias2-disable");
 			ret = of_property_read_u32(dev->of_node,
 					"qcom,efuse-bit-pos",
 					&qphy->efuse_bit_pos);
@@ -1244,6 +1386,31 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		}
 	}
 
+/*2018/03/31 @BSP add host mode phy init parameters*/
+	size = 0;
+	of_get_property(dev->of_node, "qcom,qusb-phy-ophost-init-seq", &size);
+	if (size) {
+		dev_info(dev,"%s:qusb-phy-ophost-init-seq got!",__func__);
+		qphy->qusb_phy_ophost_init_seq = devm_kzalloc(dev,
+						size, GFP_KERNEL);
+		if (qphy->qusb_phy_ophost_init_seq) {
+			qphy->ophost_init_seq_len =
+				(size / sizeof(*qphy->qusb_phy_ophost_init_seq));
+			if (qphy->ophost_init_seq_len % 2) {
+				dev_err(dev, "invalid ophost_init_seq_len\n");
+				return -EINVAL;
+			}
+
+			of_property_read_u32_array(dev->of_node,
+				"qcom,qusb-phy-ophost-init-seq",
+				qphy->qusb_phy_ophost_init_seq,
+				qphy->ophost_init_seq_len);
+		} else {
+			dev_err(dev,
+			"error allocating memory for phy_ophost_init_seq\n");
+		}
+	}
+
 	qphy->host_init_seq_len = of_property_count_elems_of_size(dev->of_node,
 				"qcom,qusb-phy-host-init-seq",
 				sizeof(*qphy->qusb_phy_host_init_seq));
@@ -1329,6 +1496,22 @@ static int qusb_phy_probe(struct platform_device *pdev)
 			dev_err(dev, "pinctrl lookup active failed\n");
 	}
 
+/*2018/06/28 @BSP Add HW-SW WR to optimize the usb diagram*/
+	qphy->usb_oe_exist = of_property_read_bool(dev->of_node,
+							"qcom,usb-oe-exist");
+	dev_info(dev, "usb_oe_exist=%d\n", qphy->usb_oe_exist);
+	if (qphy->usb_oe_exist) {
+		qphy->usb_oe_suspend = pinctrl_lookup_state(qphy->pinctrl,
+								"usb_oe_suspend");
+		if (IS_ERR(qphy->usb_oe_suspend))
+			dev_err(dev, "pinctrl lookup usb_oe_suspend failed\n");
+
+		qphy->usb_oe_active = pinctrl_lookup_state(qphy->pinctrl,
+								"usb_oe_active");
+		if (IS_ERR(qphy->usb_oe_active))
+			dev_err(dev, "pinctrl lookup usb_oe_active failed\n");
+	}
+
 	hrtimer_init(&qphy->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	qphy->timer.function = qusb_dis_ext_pulldown_timer;
 
@@ -1360,7 +1543,9 @@ skip_pinctrl_config:
 	ret = qusb_phy_regulator_init(qphy);
 	if (ret)
 		usb_remove_phy(&qphy->phy);
-
+/*2018/06/28 @BSP Add HW-SW WR to optimize the usb diagram*/
+	if (qphy->usb_oe_exist)
+		qusb_phy_enable_usb_oe(&qphy->phy);
 	qusb_phy_create_debugfs(qphy);
 
 	return ret;

@@ -199,7 +199,6 @@ void TSInitialize(struct ieee80211_device *ieee)
 			break;
 		pRxReorderEntry = &ieee->RxReorderEntry[count+1];
 	}
-//#endif
 
 }
 
@@ -490,7 +489,6 @@ static void RemoveTsEntry(struct ieee80211_device *ieee, PTS_COMMON_INFO pTs,
 			spin_unlock_irqrestore(&(ieee->reorder_spinlock), flags);
 		}
 
-//#endif
 	}
 	else
 	{

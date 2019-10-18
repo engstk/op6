@@ -1,0 +1,55 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+/*don't suggest add to this file, this file is only for different hw*/
+#include "enchilada-pvt.dtsi"
+&vendor {
+
+};
+
+&soc {
+
+};
+
+&qupv3_se10_i2c {
+	oneplus_fastchg@26{
+		status = "disable";
+	};
+
+	oneplus_fastchg@52{
+		status = "ok";
+		compatible = "microchip,oneplus_fastchg";
+		reg = <0x52>;
+		microchip,mcu-en-gpio = <&tlmm 102 0x00>;
+		microchip,usb-sw-1-gpio = <&tlmm 37 0x00>;
+		microchip,usb-sw-2-gpio = <&tlmm 51 0x00>;
+		microchip,ap-clk = <&tlmm 43 0x00>;
+		microchip,ap-data = <&tlmm 44 0x00>;
+		op,fw-erase-count = <959>;
+		op,fw-addr-low = <0>;
+		op,fw-addr-high = <0>;
+		op,n76e_support;
+
+		pinctrl-names = "mux_fastchg_active",
+		"mux_fastchg_suspend",
+		"mcu_data_active",
+		"mcu_data_suspend";
+		pinctrl-0 = <&fastchg_active
+		&usb_sw_active
+		&ap_clk_active >;
+		pinctrl-1 = <&usb_sw_suspend
+		&fastchg_suspend
+		&ap_clk_suspend>;
+		pinctrl-2 =<&ap_data_active>;
+		pinctrl-3 =<&ap_data_suspend>;
+	};
+};
+

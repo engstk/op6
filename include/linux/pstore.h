@@ -29,7 +29,7 @@
 #include <linux/spinlock.h>
 #include <linux/time.h>
 #include <linux/types.h>
-
+#include <linux/pstore_ram.h>
 /* types */
 enum pstore_type_id {
 	PSTORE_TYPE_DMESG	= 0,
@@ -42,6 +42,7 @@ enum pstore_type_id {
 	PSTORE_TYPE_PPC_COMMON	= 6,
 	PSTORE_TYPE_PMSG	= 7,
 	PSTORE_TYPE_PPC_OPAL	= 8,
+	PSTORE_TYPE_DEVICE_INFO	= 9,
 	PSTORE_TYPE_UNKNOWN	= 255
 };
 
@@ -89,4 +90,34 @@ extern int pstore_register(struct pstore_info *);
 extern void pstore_unregister(struct pstore_info *);
 extern bool pstore_cannot_block_path(enum kmsg_dump_reason reason);
 
+struct ramoops_context {
+	struct persistent_ram_zone **przs;
+	struct persistent_ram_zone *cprz;
+	struct persistent_ram_zone *fprz;
+	struct persistent_ram_zone *mprz;
+	struct persistent_ram_zone *dprz;
+	phys_addr_t phys_addr;
+	unsigned long size;
+	unsigned int memtype;
+	size_t record_size;
+	size_t console_size;
+	size_t ftrace_size;
+	size_t pmsg_size;
+    size_t device_info_size;
+	int dump_oops;
+	struct persistent_ram_ecc_info ecc_info;
+	unsigned int max_dump_cnt;
+	unsigned int dump_write_cnt;
+	/* _read_cnt need clear on ramoops_pstore_open */
+	unsigned int dump_read_cnt;
+	unsigned int console_read_cnt;
+	unsigned int ftrace_read_cnt;
+	unsigned int pmsg_read_cnt;
+	unsigned int device_info_read_cnt;
+	struct pstore_info pstore;
+};
+
+void save_dump_reason_to_device_info(char *buf);
+void save_tz_dump_reason_to_device_info(char *buf);
+void save_modem_dump_reason_to_device_info(char *buf);
 #endif /*_LINUX_PSTORE_H*/

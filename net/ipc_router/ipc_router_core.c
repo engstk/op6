@@ -239,7 +239,7 @@ static int is_sensor_port(struct msm_ipc_router_remote_port *rport)
 
 	if (rport && rport->server) {
 		svcid = rport->server->name.service;
-		if (svcid == 400 || (svcid >= 256 && svcid <= 320))
+		if (svcid >= 256 && svcid <= 320)
 			return true;
 	}
 

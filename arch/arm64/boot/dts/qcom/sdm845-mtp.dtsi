@@ -48,9 +48,7 @@
 		label = "gpio-keys";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&key_vol_up_default
-			     &key_cam_snapshot_default
-			     &key_cam_focus_default>;
+		pinctrl-0 = <&key_vol_up_default>;
 
 		vol_up {
 			label = "volume_up";
@@ -61,7 +59,7 @@
 			debounce-interval = <15>;
 			linux,can-disable;
 		};
-
+        /*
 		cam_snapshot {
 			label = "cam_snapshot";
 			gpios = <&pm8998_gpios 7 GPIO_ACTIVE_LOW>;
@@ -81,6 +79,7 @@
 			debounce-interval = <15>;
 			linux,can-disable;
 		};
+        */
 	};
 };
 
@@ -275,9 +274,6 @@
 &vendor {
 	mtp_batterydata: qcom,battery-data {
 		qcom,batt-id-range-pct = <15>;
-		#include "fg-gen3-batterydata-itech-3000mah.dtsi"
-		#include "fg-gen3-batterydata-ascent-3450mah.dtsi"
-		#include "fg-gen3-batterydata-demo-6000mah.dtsi"
 	};
 
 	extcon_usb1: extcon_usb1 {

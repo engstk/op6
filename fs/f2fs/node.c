@@ -1755,6 +1755,7 @@ continue_unlock:
 		f2fs_msg(sbi->sb, KERN_DEBUG,
 			"Retry to write fsync mark: ino=%u, idx=%lx",
 					ino, last_page->index);
+		f2fs_find_node_path(inode);//f2fs debug use
 		lock_page(last_page);
 		f2fs_wait_on_page_writeback(last_page, NODE, true, true);
 		set_page_dirty(last_page);

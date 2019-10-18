@@ -70,8 +70,20 @@
 #include <linux/pid_namespace.h>
 #include <linux/security.h>
 #include <linux/spinlock.h>
+
+// neiltsai, 20161115, add for oemlogkit used
+#include <linux/proc_fs.h>
+// neiltsai end
+
+#ifdef CONFIG_ANDROID_BINDER_IPC_32BIT
+#define BINDER_IPC_32BIT 1
+#endif
+
+#include <uapi/linux/android/binder.h>
 #include "binder_alloc.h"
 #include "binder_trace.h"
+/* curtis, 20180111, opchain*/
+#include <../drivers/oneplus/coretech/uxcore/opchain_helper.h>
 
 static HLIST_HEAD(binder_deferred_list);
 static DEFINE_MUTEX(binder_deferred_lock);
@@ -3323,6 +3335,9 @@ static void binder_transaction(struct binder_proc *proc,
 	sg_buf_offset = ALIGN(off_end_offset, sizeof(void *));
 	sg_buf_end_offset = sg_buf_offset + extra_buffers_size;
 	off_min = 0;
+	/* curtis, 20180111, opchain*/
+	binder_alloc_pass_binder_buffer(&target_proc->alloc,
+					t->buffer, tr->data_size);
 	for (buffer_offset = off_start_offset; buffer_offset < off_end_offset;
 	     buffer_offset += sizeof(binder_size_t)) {
 		struct binder_object_header *hdr;
@@ -6056,6 +6071,57 @@ static int __init init_binder_device(const char *name)
 	return ret;
 }
 
+// neiltsai, 20161115, add for oemlogkit used
+static int proc_state_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, binder_state_show, NULL);
+}
+
+static int proc_transactions_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, binder_transactions_show, NULL);
+}
+
+static int proc_transaction_log_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, binder_transaction_log_show,
+		&binder_transaction_log);
+}
+
+
+static const struct file_operations proc_state_operations = {
+	.open       = proc_state_open,
+	.read       = seq_read,
+	.llseek     = seq_lseek,
+	.release    = single_release,
+};
+
+static const struct file_operations proc_transactions_operations = {
+	.open       = proc_transactions_open,
+	.read       = seq_read,
+	.llseek     = seq_lseek,
+	.release    = single_release,
+};
+
+static const struct file_operations proc_transaction_log_operations = {
+	.open       = proc_transaction_log_open,
+	.read       = seq_read,
+	.llseek     = seq_lseek,
+	.release    = single_release,
+};
+
+static int binder_proc_init(void)
+{
+	proc_create("proc_state", 0444, NULL,
+			&proc_state_operations);
+	proc_create("proc_transactions", 0444, NULL,
+			&proc_transactions_operations);
+	proc_create("proc_transaction_log", 0444, NULL,
+			&proc_transaction_log_operations);
+	return 0;
+}
+// neiltsai end
+
 static int __init binder_init(void)
 {
 	int ret;
@@ -6120,6 +6186,9 @@ static int __init binder_init(void)
 		if (ret)
 			goto err_init_binder_device_failed;
 	}
+	// neiltsai, 20161115, add for oemlogkit used
+		binder_proc_init();
+	// neiltsai end
 
 	return ret;
 

@@ -833,6 +833,12 @@ static int _sde_kms_release_splash_buffer(unsigned int mem_addr,
 	if (!mem_addr || !size)
 		SDE_ERROR("invalid params\n");
 
+	/* reserved 10MB memory for display in dump mode */
+	if (size >= 0xa00000) {
+		mem_addr += 0xa00000;
+		size -= 0xa00000;
+	}
+
 	pfn_start = mem_addr >> PAGE_SHIFT;
 	pfn_end = (mem_addr + size) >> PAGE_SHIFT;
 

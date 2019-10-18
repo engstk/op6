@@ -665,8 +665,11 @@ no_page:
 	si->flags -= SWP_SCANNING;
 	return 0;
 }
-
+#ifdef CONFIG_MEMPLUS
+swp_entry_t get_swap_page(unsigned long swap_bdv)
+#else
 swp_entry_t get_swap_page(void)
+#endif
 {
 	struct swap_info_struct *si, *next;
 	pgoff_t offset;
@@ -704,6 +707,13 @@ start_over:
 		spin_unlock(&swap_avail_lock);
 start:
 		spin_lock(&si->lock);
+#ifdef CONFIG_MEMPLUS
+		if (swap_bdv ^ (si->flags & SWP_FAST)) {
+			spin_lock(&swap_avail_lock);
+			spin_unlock(&si->lock);
+			goto nextsi;
+		}
+#endif
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
 			if (plist_node_empty(&si->avail_list)) {
@@ -750,7 +760,25 @@ nextsi:
 noswap:
 	return (swp_entry_t) {0};
 }
+/*
+#ifdef CONFIG_MEMPLUS
+bool is_fast_entry(struct page *page)
+{
+	struct swap_info_struct *p;
+	swp_entry_t entry;
+	bool ret = false;
 
+	entry.val = page_private(page);
+	p = swap_info_get(entry);
+	if (p) {
+		if (p->flags & SWP_FAST)
+			ret = true;
+		spin_unlock(&p->lock);
+	}
+	return ret;
+}
+#endif
+*/
 /* The only caller of this function is now suspend routine */
 swp_entry_t get_swap_page_of_type(int type)
 {
@@ -1177,6 +1205,41 @@ unsigned int count_swap_pages(int type, int free)
 	return n;
 }
 #endif /* CONFIG_HIBERNATION */
+
+#ifdef CONFIG_MEMPLUS
+bool enough_swap_size(unsigned long req_size, int swap_bdv)
+{
+	bool ret = false;
+	unsigned int n = 0;
+	unsigned int type;
+
+	if (swap_bdv > 1)
+		return ret;
+
+	spin_lock(&swap_lock);
+	for (type = 0; type < nr_swapfiles; type++) {
+		struct swap_info_struct *sis = swap_info[type];
+		int fast_i = (sis->flags & SWP_FAST)? 1:0;
+
+		if (fast_i == swap_bdv) {
+			spin_lock(&sis->lock);
+			if (sis->flags & SWP_WRITEOK) {
+				n += sis->pages - sis->inuse_pages;
+				if (n > req_size) {
+					ret = true;
+					spin_unlock(&sis->lock);
+					goto unlock;
+				}
+			}
+			spin_unlock(&sis->lock);
+		}
+	}
+
+unlock:
+	spin_unlock(&swap_lock);
+	return ret;
+}
+#endif /* CONFIG_MEMPLUS */
 
 static inline int pte_same_as_swp(pte_t pte, pte_t swp_pte)
 {

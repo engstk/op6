@@ -140,10 +140,15 @@ static bool blk_flush_queue_rq(struct request *rq, bool add_front)
 		blk_mq_kick_requeue_list(q);
 		return false;
 	} else {
-		if (add_front)
+
+/*dylanchang, 2019/4/30, add foreground task io opt*/
+		if (add_front) {
 			list_add(&rq->queuelist, &rq->q->queue_head);
-		else
+			queue_throtl_add_request(rq->q, rq, true);
+		} else {
 			list_add_tail(&rq->queuelist, &rq->q->queue_head);
+			queue_throtl_add_request(rq->q, rq, false);
+		}
 		return true;
 	}
 }
@@ -450,8 +455,11 @@ void blk_insert_flush(struct request *rq)
 	    !(policy & (REQ_FSEQ_PREFLUSH | REQ_FSEQ_POSTFLUSH))) {
 		if (q->mq_ops) {
 			blk_mq_insert_request(rq, false, false, true);
-		} else
+		} else {
+/*dylanchang, 2019/4/30, add foreground task io opt*/
 			list_add_tail(&rq->queuelist, &q->queue_head);
+			queue_throtl_add_request(q, rq, false);
+		}
 		return;
 	}
 

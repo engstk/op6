@@ -49,11 +49,12 @@ enum sde_dbg_dump_flag {
 	SDE_DBG_DUMP_IN_MEM = BIT(1),
 };
 
-#ifdef CONFIG_DRM_SDE_EVTLOG_DEBUG
-#define SDE_EVTLOG_DEFAULT_ENABLE (SDE_EVTLOG_CRITICAL | SDE_EVTLOG_IRQ)
-#else
+//#ifdef CONFIG_DRM_SDE_EVTLOG_DEBUG
+//#define SDE_EVTLOG_DEFAULT_ENABLE (SDE_EVTLOG_CRITICAL | SDE_EVTLOG_IRQ)
+//#else
+//#define SDE_EVTLOG_DEFAULT_ENABLE 0
+
 #define SDE_EVTLOG_DEFAULT_ENABLE 0
-#endif
 
 /*
  * evtlog will print this number of entries when it is called through

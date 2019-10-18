@@ -2022,4 +2022,9 @@ static inline struct xhci_ring *xhci_urb_to_transfer_ring(struct xhci_hcd *xhci,
 int xhci_submit_single_step_set_feature(struct usb_hcd *hcd, struct urb *urb,
 					int is_setup);
 
+/*2018/03/19 handle xiaomi typec headset dsp crash issue*/
+extern void kick_usbpd_vbus_sm(void);
+extern unsigned int connected_usb_idVendor;
+extern unsigned int connected_usb_idProduct;
+
 #endif /* __LINUX_XHCI_HCD_H */

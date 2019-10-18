@@ -164,5 +164,4 @@ extern struct btfmslim_ch wcn3990_rxport[];
 #undef SLIM_SLAVE_PORT_EN
 #define SLIM_SLAVE_PORT_EN btfm_slim_chrk_enable_port
 #endif
-//#endif /* CONFIG_BTFM_WCN3990 */
 #endif /* BTFM_SLIM_WCN3990_H */

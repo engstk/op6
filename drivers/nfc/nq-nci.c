@@ -28,6 +28,7 @@
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
+#include <linux/project_info.h>
 
 struct nqx_platform_data {
 	unsigned int irq_gpio;
@@ -1191,6 +1192,8 @@ static int nqx_probe(struct i2c_client *client,
 	device_set_wakeup_capable(&client->dev, true);
 	i2c_set_clientdata(client, nqx_dev);
 	nqx_dev->irq_wake_up = false;
+
+	push_component_info(NFC, "NQ330", "NXP");
 
 	dev_err(&client->dev,
 	"%s: probing NFCC NQxxx exited successfully\n",

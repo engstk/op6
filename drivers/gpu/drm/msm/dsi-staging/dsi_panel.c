@@ -19,10 +19,11 @@
 #include <linux/of_gpio.h>
 #include <video/mipi_display.h>
 #include <linux/firmware.h>
+#include <linux/project_info.h>
 
 #include "dsi_panel.h"
 #include "dsi_ctrl_hw.h"
-
+#include <linux/pm_wakeup.h>
 /**
  * topology is currently defined by a set of following 3 values:
  * 1. num of layer mixers
@@ -288,8 +289,27 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 			goto error_release_mode_sel;
 		}
 	}
-
+	if (gpio_is_valid(r_config->vci_gpio)) {
+		rc = gpio_request(r_config->vci_gpio, "vci_gpio");
+		if (rc) {
+			pr_err("request for vci_gpio failed, rc=%d\n", rc);
+			goto error_release_vci;
+		}
+	}
+	if (gpio_is_valid(r_config->poc_gpio)) {
+		rc = gpio_request(r_config->poc_gpio, "poc_gpio");
+		if (rc) {
+			pr_err("request for poc_gpio failed, rc=%d\n", rc);
+			goto error_release_poc;
+		}
+	}
 	goto error;
+error_release_poc:
+	if (gpio_is_valid(r_config->vci_gpio))
+		gpio_free(r_config->vci_gpio);
+error_release_vci:
+	if (gpio_is_valid(r_config->lcd_mode_sel_gpio))
+		gpio_free(r_config->lcd_mode_sel_gpio);
 error_release_mode_sel:
 	if (gpio_is_valid(panel->bl_config.en_gpio))
 		gpio_free(panel->bl_config.en_gpio);
@@ -407,7 +427,42 @@ static int dsi_panel_reset(struct dsi_panel *panel)
 exit:
 	return rc;
 }
+int mdss_dsi_disp_vci_en(struct dsi_panel *panel, int enable)
+{
+    int rc = 0;
+    struct dsi_panel_reset_config *r_config = &panel->reset_config;
 
+    if (gpio_is_valid(r_config->vci_gpio)){
+        if (enable) {
+            rc = gpio_direction_output(r_config->vci_gpio, 1);
+            if (rc) {
+                pr_err("unable to set dir for disp gpio rc=%d\n", rc);
+                return rc;
+            }
+        } else {
+            gpio_set_value(r_config->vci_gpio, 0);
+        }
+    }
+    return rc;
+}
+int mdss_dsi_disp_poc_en(struct dsi_panel *panel, int enable)
+{
+    int rc = 0;
+    struct dsi_panel_reset_config *r_config = &panel->reset_config;
+
+    if (gpio_is_valid(r_config->poc_gpio)){
+        if (enable) {
+            rc = gpio_direction_output(r_config->poc_gpio, 1);
+            if (rc) {
+                pr_err("unable to set dir for disp gpio rc=%d\n", rc);
+                return rc;
+            }
+        } else {
+            gpio_set_value(r_config->poc_gpio, 0);
+        }
+    }
+    return rc;
+}
 static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 {
 	int rc = 0;
@@ -431,24 +486,27 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 {
 	int rc = 0;
 
+    mdss_dsi_disp_poc_en(panel, 1);
 	rc = dsi_pwr_enable_regulator(&panel->power_info, true);
 	if (rc) {
 		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
 		goto exit;
 	}
 
-	rc = dsi_panel_set_pinctrl_state(panel, true);
-	if (rc) {
-		pr_err("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
-		goto error_disable_vregs;
-	}
-
-	rc = dsi_panel_reset(panel);
-	if (rc) {
-		pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
-		goto error_disable_gpio;
-	}
-
+    mdss_dsi_disp_vci_en(panel, 1);
+    usleep_range(10000, 10000);
+    if (!panel->lp11_init){
+        rc = dsi_panel_set_pinctrl_state(panel, true);
+        if (rc) {
+            pr_err("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
+            goto error_disable_vregs;
+        }
+        rc = dsi_panel_reset(panel);
+        if (rc) {
+            pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
+            goto error_disable_gpio;
+        }
+    }
 	goto exit;
 
 error_disable_gpio:
@@ -476,7 +534,7 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 
 	if (gpio_is_valid(panel->reset_config.reset_gpio))
 		gpio_set_value(panel->reset_config.reset_gpio, 0);
-
+	    usleep_range(10* 1000, 10* 1000);
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
 
@@ -485,15 +543,17 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		pr_err("[%s] failed set pinctrl state, rc=%d\n", panel->name,
 		       rc);
 	}
-
+    mdss_dsi_disp_vci_en(panel, 0);
 	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
 	if (rc)
 		pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
-
+    mdss_dsi_disp_poc_en(panel, 0);
 	return rc;
 }
-static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
-				enum dsi_cmd_set_type type)
+
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+					enum dsi_cmd_set_type type)
+
 {
 	int rc = 0, i = 0;
 	ssize_t len;
@@ -626,6 +686,10 @@ static int dsi_panel_led_bl_register(struct dsi_panel *panel,
 }
 #endif
 
+extern int op_dimlayer_bl_alpha;
+extern int op_dimlayer_bl_enabled;
+extern int op_dimlayer_bl_enable_real;
+bool HBM_flag;
 static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
 {
@@ -638,8 +702,31 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	}
 
 	dsi = &panel->mipi_device;
+	/* add for fingerprint*/
+	if (panel->is_hbm_enabled) {
+		pr_err("OPEN HBM\n");
+		return 0;
+	}
+	/*** DC Backlight config ***/
+	if (op_dimlayer_bl_enabled != op_dimlayer_bl_enable_real) {
+		op_dimlayer_bl_enable_real = op_dimlayer_bl_enabled;
+		if (op_dimlayer_bl_enable_real) {
+		bl_lvl = op_dimlayer_bl_alpha;
+			pr_err("dc light enable\n");
+		} else {
+			pr_err("dc light disenable\n");
+		}
+	}
+	if (op_dimlayer_bl_enable_real) {
+		bl_lvl = op_dimlayer_bl_alpha;
+	}
+	if (panel->bl_config.bl_high2bit) {
+		if (HBM_flag == true)
+			return 0;
 
-	rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl);
+		rc = mipi_dsi_dcs_set_display_brightness_samsung(dsi, bl_lvl);
+	} else
+		rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl);
 	if (rc < 0)
 		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
 
@@ -650,6 +737,12 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 {
 	int rc = 0;
 	struct dsi_backlight_config *bl = &panel->bl_config;
+	static bool first_bl_level = true;
+
+	if (first_bl_level || (bl_lvl == 0)) {
+        pr_err("---backlight level = %d---\n", bl_lvl);
+        first_bl_level = (bl_lvl == 0)? true : false;
+	}
 
 	if (panel->type == EXT_BRIDGE)
 		return 0;
@@ -660,6 +753,7 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		led_trigger_event(bl->wled, bl_lvl);
 		break;
 	case DSI_BACKLIGHT_DCS:
+		panel->hbm_backlight = bl_lvl;
 		rc = dsi_panel_update_backlight(panel, bl_lvl);
 		break;
 	default:
@@ -1510,6 +1604,51 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"ROI not parsed from DTSI, generated dynamically",
 	"qcom,mdss-dsi-timing-switch-command",
 	"qcom,mdss-dsi-post-mode-switch-on-command",
+	"qcom,mdss-dsi-panel-acl-command",
+	"qcom,mdss-dsi-panel-hbm-on-command",//464
+	"qcom,mdss-dsi-panel-hbm-on-command-2",//498
+	"qcom,mdss-dsi-panel-hbm-on-command-3",//532
+	"qcom,mdss-dsi-panel-hbm-on-command-4",//566
+	"qcom,mdss-dsi-panel-hbm-on-command-5",//600
+	"qcom,mdss-dsi-panel-hbm-off-command",
+	"qcom,mdss-dsi-panel-aod-on-command-1",//10-alpm
+	"qcom,mdss-dsi-panel-aod-on-command-2",//50
+	"qcom,mdss-dsi-panel-aod-on-command-3",//10-hlpm
+	"qcom,mdss-dsi-panel-aod-on-command-4",//50
+	"qcom,mdss-dsi-panel-aod-off-command",
+	"qcom,mdss-dsi-panel-aod-mode-command-1",
+	"qcom,mdss-dsi-panel-aod-mode-command-2",
+	"qcom,mdss-dsi-panel-aod-mode-command-3",
+	"qcom,mdss-dsi-panel-aod-mode-command-4",
+	"qcom,mdss-dsi-panel-serial-num-command",
+	"qcom,mdss-dsi-panel-id-command",
+	"qcom,mdss-dsi-panel-read-register-open-command",
+	"qcom,mdss-dsi-panel-id1-command",
+	"qcom,mdss-dsi-panel-id2-command",
+	"qcom,mdss-dsi-panel-id3-command",
+	"qcom,mdss-dsi-panel-id4-command",
+	"qcom,mdss-dsi-panel-id5-command",
+	"qcom,mdss-dsi-panel-id6-command",
+	"qcom,mdss-dsi-panel-id7-command",
+	"qcom,mdss-dsi-panel-read-register-close-command",
+	"qcom,mdss-dsi-panel-hbm-max-brightness-command-on",
+	"qcom,mdss-dsi-panel-hbm-max-brightness-command-off",
+	"qcom,mdss-dsi-panel-aod-off-hbm-on-command",
+	"qcom,mdss-dsi-panel-hbm-off-aod-on-command",
+	"qcom,mdss-dsi-panel-aod-off-samsung-command",
+	"qcom,mdss-dsi-panel-aod-off-new-command",
+    "qcom,mdss-dsi-panel-display-p3-mode-on-command",
+	"qcom,mdss-dsi-panel-display-p3-mode-off-command",
+	"qcom,mdss-dsi-panel-display-wide-color-mode-on-command",
+	"qcom,mdss-dsi-panel-display-wide-color-mode-off-command",
+	"qcom,mdss-dsi-panel-display-srgb-color-mode-on-command",
+	"qcom,mdss-dsi-panel-display-srgb-color-mode-off-command",
+	"qcom,mdss-dsi-customer-srgb-enable-command",
+	"qcom,mdss-dsi-customer-srgb-disable-command",
+	"qcom,mdss-dsi-customer-p3-enable-command",
+	"qcom,mdss-dsi-customer-p3-disable-command",
+	"qcom,mdss-dsi-panel-command",
+	"qcom,mdss-dsi-seed-command",
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1534,6 +1673,51 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"ROI not parsed from DTSI, generated dynamically",
 	"qcom,mdss-dsi-timing-switch-command-state",
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
+	"qcom,mdss-dsi-acl-command-state",
+	"qcom,mdss-dsi-hbm-on-command-state",//464
+	"qcom,mdss-dsi-hbm-on-command-state",//498
+	"qcom,mdss-dsi-hbm-on-command-state",//532
+	"qcom,mdss-dsi-hbm-on-command-state",//566
+	"qcom,mdss-dsi-hbm-on-command-state",//600
+	"qcom,mdss-dsi-hbm-off-command-state",//off
+	"qcom,mdss-dsi-aod-on-command-state",// 1
+	"qcom,mdss-dsi-aod-on-command-state",// 2
+	"qcom,mdss-dsi-aod-on-command-state",// 3
+	"qcom,mdss-dsi-aod-on-command-state",// 4
+	"qcom,mdss-dsi-aod-off-command-state",//off
+	"qcom,mdss-dsi-aod-mode-command-state",//10nit
+	"qcom,mdss-dsi-aod-mode-command-state",//50nit
+	"qcom,mdss-dsi-aod-mode-command-state",//10nit
+	"qcom,mdss-dsi-aod-mode-command-state",//50nit
+	"qcom,mdss-dsi-panel-serial-num-command-state",
+	"qcom,mdss-dsi-panel-id-command-state",
+	"qcom,mdss-dsi-panel-read-register-open-command-state",
+	"qcom,mdss-dsi-panel-id1-command-state",
+	"qcom,mdss-dsi-panel-id2-command-state",
+	"qcom,mdss-dsi-panel-id3-command-state",
+	"qcom,mdss-dsi-panel-id4-command-state",
+	"qcom,mdss-dsi-panel-id5-command-state",
+	"qcom,mdss-dsi-panel-id6-command-state",
+	"qcom,mdss-dsi-panel-id7-command-state",
+	"qcom,mdss-dsi-panel-read-register-close-command-state",
+	"qcom,mdss-dsi-panel-hbm-max-brightness-command-on-state",
+	"qcom,mdss-dsi-panel-hbm-max-brightness-command-off-state",
+	"qcom,mdss-dsi-panel-aod-off-hbm-on-command-state",
+	"qcom,mdss-dsi-panel-hbm-off-aod-on-command-state",
+	"qcom,mdss-dsi-panel-aod-off-samsung-command-state",
+	"qcom,mdss-dsi-panel-aod-off-new-command-state",
+	"qcom,mdss-dsi-panel-display-p3-mode-on-command-state",
+	"qcom,mdss-dsi-panel-display-p3-mode-off-command-state",
+	"qcom,mdss-dsi-panel-display-wide-color-mode-on-command-state",
+	"qcom,mdss-dsi-panel-display-wide-color-mode-off-command-state",
+	"qcom,mdss-dsi-panel-display-srgb-color-mode-on-command-state",
+	"qcom,mdss-dsi-panel-display-srgb-color-mode-off-command-state",
+	"qcom,mdss-dsi-customer-srgb-enable-command-state",
+	"qcom,mdss-dsi-customer-srgb-disable-command-state",
+	"qcom,mdss-dsi-customer-p3-enable-command-state",
+	"qcom,mdss-dsi-customer-p3-disable-command-state",
+	"qcom,mdss-dsi-panel-command-state",
+	"qcom,mdss-dsi-seed-command-state",
 };
 
 static int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -1922,6 +2106,15 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel,
 	if (!gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		pr_debug("%s:%d mode gpio not specified\n", __func__, __LINE__);
 
+	panel->reset_config.vci_gpio = of_get_named_gpio(of_node,
+		"qcom,platform-vci-gpio", 0);
+	if (!gpio_is_valid(panel->reset_config.vci_gpio))
+		pr_debug("%s:%d vci_gpio not specified\n", __func__, __LINE__);
+
+	panel->reset_config.poc_gpio = of_get_named_gpio(of_node,
+		"qcom,platform-poc-gpio", 0);
+	if (!gpio_is_valid(panel->reset_config.poc_gpio))
+		pr_debug("%s:%d poc gpio not specified\n", __func__, __LINE__);
 	data = of_get_property(of_node,
 		"qcom,mdss-dsi-mode-sel-gpio-state", NULL);
 	if (data) {
@@ -2048,6 +2241,17 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel,
 	} else {
 		panel->bl_config.bl_max_level = val;
 	}
+
+	rc = of_property_read_u32(of_node, "qcom,mdss-brightness-default-val",
+		&val);
+	if (rc) {
+		pr_debug("[%s] brightness-default-val unspecified, defaulting to val\n",
+			panel->name);
+		panel->bl_config.bl_def_val = 200;
+	} else {
+		panel->bl_config.bl_def_val = val;
+	}
+	pr_err("default backlight bl_def_val= %d\n", panel->bl_config.bl_def_val);
 
 	rc = of_property_read_u32(of_node, "qcom,mdss-brightness-max-level",
 		&val);
@@ -2681,6 +2885,93 @@ static int dsi_panel_parse_dms_info(struct dsi_panel *panel,
 	return 0;
 };
 
+
+static int dsi_panel_parse_oem_config(struct dsi_panel *panel,
+		struct device_node *of_node)
+{
+	u32 tmp;
+	int rc;
+	static const char *panel_manufacture;
+	static const char *panel_version;
+	static const char *backlight_manufacture;
+	static const char *backlight_version;
+
+	panel_manufacture = of_get_property(of_node,
+			"qcom,mdss-dsi-panel-manufacture", NULL);
+	if (!panel_manufacture)
+		pr_info("%s:%d, panel manufacture not specified\n",
+				__func__, __LINE__);
+	panel_version = of_get_property(of_node,
+			"qcom,mdss-dsi-panel-version", NULL);
+	if (!panel_version)
+		pr_info("%s:%d, panel version not specified\n",
+				__func__, __LINE__);
+	push_component_info(LCD, (char *)panel_version,
+	                          (char *)panel_manufacture);
+
+	backlight_manufacture = of_get_property(of_node,
+			"qcom,mdss-dsi-backlight-manufacture", NULL);
+	if (!backlight_manufacture)
+		pr_info("%s:%d, backlight manufacture not specified\n",
+				__func__, __LINE__);
+	backlight_version = of_get_property(of_node,
+			"qcom,mdss-dsi-backlight-version", NULL);
+	if (!backlight_version)
+		pr_info("%s:%d, backlight version not specified\n",
+				__func__, __LINE__);
+	push_component_info(BACKLIGHT, (char *)backlight_version,
+	                    (char *)backlight_manufacture);
+
+	panel->lp11_init =
+		of_property_read_bool(of_node, "qcom,mdss-dsi-lp11-init");
+	if (panel->lp11_init)
+		pr_debug("lp11_init:%d\n", panel->lp11_init);
+
+	panel->bl_config.bl_high2bit =
+		of_property_read_bool(of_node, "qcom,mdss-bl-high2bit");
+	if (panel->bl_config.bl_high2bit) {
+		pr_debug("bl_high2bit:%d\n", panel->bl_config.bl_high2bit);
+	}
+
+	tmp = 0;
+	rc = of_property_read_u32(of_node, "qcom,mdss-dsi-acl-cmd-index", &tmp);
+	panel->acl_cmd_index = (!rc ? tmp : 0);
+
+	tmp = 0;
+	rc = of_property_read_u32(of_node, "qcom,mdss-dsi-acl-mode-index",
+					&tmp);
+	panel->acl_mode_index = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(of_node,
+			 "qcom,mdss-dsi-panel-seria-num-year-index", &tmp);
+	panel->panel_year_index = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(of_node,
+			"qcom,mdss-dsi-panel-seria-num-mon-index", &tmp);
+	panel->panel_mon_index = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(of_node,
+			"qcom,mdss-dsi-panel-seria-num-day-index", &tmp);
+	panel->panel_day_index = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(of_node,
+			"qcom,mdss-dsi-panel-seria-num-hour-index", &tmp);
+	panel->panel_hour_index = (!rc ? tmp : 0);
+
+	rc = of_property_read_u32(of_node,
+			"qcom,mdss-dsi-panel-seria-num-min-index", &tmp);
+	panel->panel_min_index = (!rc ? tmp : 0);
+
+	tmp = 0;
+	rc = of_property_read_u32(of_node,
+			"qcom,mdss-dsi-panel-status-value-2", &tmp);
+	panel->status_value = (!rc ? tmp : 0);
+
+	panel->panel_mismatch_check = of_property_read_bool(of_node,
+					"qcom,mdss-panel-mismatch-check");
+
+	return 0;
+}
 /*
  * The length of all the valid values to be checked should not be greater
  * than the length of returned data from read command.
@@ -3006,6 +3297,9 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		if (rc)
 			pr_err("failed to parse hdr config, rc=%d\n", rc);
 
+    rc = dsi_panel_parse_oem_config(panel, of_node);
+	if (rc)
+	    pr_debug("failed to get oem config, rc=%d\n", rc);
 		rc = dsi_panel_get_mode_count(panel, of_node);
 		if (rc) {
 			pr_err("failed to get mode count, rc=%d\n", rc);
@@ -3398,9 +3692,8 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 
 	/* If LP11_INIT is set, panel will be powered up during prepare() */
-	if (panel->lp11_init)
-		goto error;
-
+//	if (panel->lp11_init)
+//		goto error;
 	rc = dsi_panel_power_on(panel);
 	if (rc) {
 		pr_err("[%s] panel power on failed, rc=%d\n", panel->name, rc);
@@ -3469,6 +3762,8 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 	if (rc)
 		pr_err("[%s] failed to send DSI_CMD_SET_LP1 cmd, rc=%d\n",
 		       panel->name, rc);
+	pr_info("dsi_panel_set_lp1 aod_mode %d aod_status %d", panel->aod_mode,
+			 panel->aod_status);
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
@@ -3511,6 +3806,10 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	if (rc)
 		pr_err("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
+	if (panel->aod_status) {
+		panel->aod_status = 0;
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_AOD_OFF);
+	}
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
@@ -3528,16 +3827,25 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 		return 0;
 
 	mutex_lock(&panel->panel_lock);
-
-	if (panel->lp11_init) {
+   /*if (panel->lp11_init) {
 		rc = dsi_panel_power_on(panel);
 		if (rc) {
 			pr_err("[%s] panel power on failed, rc=%d\n",
 			       panel->name, rc);
 			goto error;
 		}
-	}
-
+	}*/
+//#else
+    if (panel->lp11_init){
+        rc = dsi_panel_set_pinctrl_state(panel, true);
+        if (rc) {
+            pr_err("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
+        }
+        rc = dsi_panel_reset(panel);
+        if (rc) {
+            pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
+        }
+    }
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PRE_ON);
 	if (rc) {
 		pr_err("[%s] failed to send DSI_CMD_SET_PRE_ON cmds, rc=%d\n",
@@ -3729,12 +4037,52 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
-	if (rc) {
+	if (rc)
 		pr_err("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
 		       panel->name, rc);
-	}
+
+	if (panel->aod_mode != 2)
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_POST_ON);
+
+	if (rc)
+		pr_err("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
+				panel->name, rc);
+
 	panel->panel_initialized = true;
 	mutex_unlock(&panel->panel_lock);
+	if (panel->aod_mode == 2) {
+		rc = dsi_panel_set_aod_mode(panel, 2);
+		panel->aod_status = 1;
+	}
+	if (panel->aod_mode == 0) {
+		rc = dsi_panel_set_aod_mode(panel, 0);
+		panel->aod_status = 0;
+	}
+/*
+	if (panel->acl_mode)
+		dsi_panel_set_acl_mode(panel, panel->acl_mode);
+
+	if (panel->srgb_mode)
+		dsi_panel_set_srgb_mode(panel, panel->srgb_mode);
+
+	if (panel->dci_p3_mode)
+		dsi_panel_set_dci_p3_mode(panel, panel->dci_p3_mode);
+
+	if (panel->night_mode)
+		dsi_panel_set_night_mode(panel, panel->night_mode);
+
+	if (panel->oneplus_mode)
+		dsi_panel_set_oneplus_mode(panel, panel->oneplus_mode);
+
+	if (panel->adaption_mode)
+		dsi_panel_set_adaption_mode(panel, panel->adaption_mode);
+
+*/	
+
+	if (panel->hbm_mode)
+		dsi_panel_set_hbm_mode(panel, panel->hbm_mode);
+	/* remove print actvie ws */
+	pm_print_active_wakeup_sources_queue(false);
 	return rc;
 }
 
@@ -3801,10 +4149,24 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	if (panel->type == EXT_BRIDGE)
 		return 0;
 
+	panel->panel_initialized = false;
 	mutex_lock(&panel->panel_lock);
+
+	if (panel->aod_mode == 2) {
+		//panel->aod_status = 0;
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_AOD_OFF_SAMSUNG);
+	}
 
 	/* Avoid sending panel off commands when ESD recovery is underway */
 	if (!atomic_read(&panel->esd_recovery_pending)) {
+		HBM_flag = false;
+
+		if (panel->aod_mode == 2)
+			panel->aod_status = 1;
+
+		if (panel->aod_mode == 0)
+			panel->aod_status = 0;
+
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_OFF);
 		if (rc) {
 			pr_err("[%s] failed to send DSI_CMD_SET_OFF cmds, rc=%d\n",
@@ -3812,10 +4174,11 @@ int dsi_panel_disable(struct dsi_panel *panel)
 			goto error;
 		}
 	}
-	panel->panel_initialized = false;
 
 error:
 	mutex_unlock(&panel->panel_lock);
+	/* add print actvie ws */
+	pm_print_active_wakeup_sources_queue(true);
 	return rc;
 }
 
@@ -3839,7 +4202,6 @@ int dsi_panel_unprepare(struct dsi_panel *panel)
 		       panel->name, rc);
 		goto error;
 	}
-
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -3867,5 +4229,537 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel)
 	}
 error:
 	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+
+int dsi_panel_set_acl_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+	struct dsi_cmd_desc *cmds;
+	struct dsi_display_mode *mode;
+	u8 *tx = NULL;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+	mutex_lock(&panel->panel_lock);
+
+	mode = panel->cur_mode;
+
+	count = mode->priv_info->cmd_sets[DSI_CMD_SET_ACL_MODE].count;
+	cmds = mode->priv_info->cmd_sets[DSI_CMD_SET_ACL_MODE].cmds;
+
+	if (count == 0) {
+		pr_err("This panel does not support acl mode\n");
+		goto error;
+	}
+
+	tx = (u8 *)cmds[panel->acl_cmd_index].msg.tx_buf;
+	if (tx != NULL)
+		tx[panel->acl_mode_index] = level;
+
+	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ACL_MODE);
+	pr_info("Set ACL Mode = %d\n", level);
+
+error:
+	mutex_unlock(&panel->panel_lock);
+
+	return rc;
+}
+
+int dsi_panel_set_hbm_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+	struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&panel->panel_lock);
+
+	mode = panel->cur_mode;
+	switch (level) {
+	case 0:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_OFF].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode off.\n");
+			goto error;
+		} else {
+		HBM_flag = false;
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_OFF);
+		pr_err("hbm_backight = %d panel->bl_config.bl_level =%d\n",
+			panel->hbm_backlight, panel->bl_config.bl_level);
+		rc = dsi_panel_update_backlight(panel, panel->hbm_backlight);
+		}
+		break;
+
+	case 1:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode.\n");
+			goto error;
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON);
+		}
+		break;
+
+	case 2:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON_2].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode 2.\n");
+			goto error;
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_2);
+		}
+		break;
+
+	case 3:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON_3].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode 3.\n");
+			goto error;
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_3);
+		}
+		break;
+
+	case 4:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON_4].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode 4.\n");
+			goto error;
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_4);
+		}
+		break;
+
+	case 5:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON_5].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode 5.\n");
+			goto error;
+		} else {
+			HBM_flag = true;
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_5);
+		}
+		break;
+	default:
+		break;
+
+	}
+	pr_info("Set HBM Mode = %d\n", level);
+
+error:
+	mutex_unlock(&panel->panel_lock);
+
+	return rc;
+}
+
+int dsi_panel_op_set_hbm_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+	struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&panel->panel_lock);
+
+	mode = panel->cur_mode;
+	switch (level) {
+	case 0:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_OFF].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode off.\n");
+			goto error;
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_OFF);
+			pr_err("HBM OFF->hbm_backight = %d"
+					"panel->bl_config.bl_level = %d\n",
+					panel->hbm_backlight,
+					panel->bl_config.bl_level);
+			rc = dsi_panel_update_backlight(panel,
+				panel->hbm_backlight);
+		}
+		break;
+
+	case 1:
+		count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON_5].count;
+		if (!count) {
+			pr_err("This panel does not support HBM mode.\n");
+			goto error;
+		} else {
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_5);
+		}
+		break;
+	default:
+		break;
+
+	}
+	pr_err("Set HBM Mode = %d\n", level);
+	if (level == 5)
+		pr_err("HBM == 5 for fingerprint\n");
+
+error:
+	mutex_unlock(&panel->panel_lock);
+
+	return rc;
+}
+
+int dsi_panel_set_native_display_p3_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+    struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+    mode = panel->cur_mode;
+	mutex_lock(&panel->panel_lock);
+
+    if (level) {
+        count = mode->priv_info->cmd_sets[DSI_CMD_SET_NATIVE_DISPLAY_P3_ON].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_P3_ON);
+            pr_err("Native Display p3 Mode On.\n");    
+    } else {
+        count = mode->priv_info->cmd_sets[DSI_CMD_SET_NATIVE_DISPLAY_P3_OFF].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_P3_OFF);
+            pr_err("Native Display p3 Mode Off.\n");
+    }
+	mutex_unlock(&panel->panel_lock);
+return rc;
+}
+
+int dsi_panel_set_native_display_wide_color_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+    struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+    mode = panel->cur_mode;
+	mutex_lock(&panel->panel_lock);
+
+    if (level) {
+        count = mode->priv_info->cmd_sets[DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_ON);
+            pr_err("Native wide color Mode On.\n");    
+    } else {
+        count = mode->priv_info->cmd_sets[DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_OFF].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_WIDE_COLOR_OFF);
+            pr_err("Native wide color Mode Off.\n");
+    }
+	mutex_unlock(&panel->panel_lock);
+return rc;
+}
+
+int dsi_panel_set_native_display_srgb_color_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+    struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+    mode = panel->cur_mode;
+	mutex_lock(&panel->panel_lock);
+
+    if (level) {
+        count = mode->priv_info->cmd_sets[DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_ON);
+            pr_err("Native srgb color Mode On.\n");    
+    } else {
+        count = mode->priv_info->cmd_sets[DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_OFF].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NATIVE_DISPLAY_SRGB_COLOR_OFF);
+            pr_err("Native  srgb color Mode Off.\n");
+    }
+	mutex_unlock(&panel->panel_lock);
+return rc;
+}
+
+int dsi_panel_set_customer_srgb_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+    struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+    mode = panel->cur_mode;
+	mutex_lock(&panel->panel_lock);
+
+    if (level) {
+        count = mode->priv_info->cmd_sets[DSI_CMD_LOADING_CUSTOMER_RGB_ON].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_RGB_ON);
+            pr_err("turn on customer srgb\n");    
+    } else {
+        count = mode->priv_info->cmd_sets[DSI_CMD_LOADING_CUSTOMER_RGB_OFF].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_RGB_OFF);
+            pr_err("turn off customer srgb\n");
+    }
+	mutex_unlock(&panel->panel_lock);
+return rc;
+}
+
+int dsi_panel_set_customer_p3_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	u32 count;
+    struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+    mode = panel->cur_mode;
+	mutex_lock(&panel->panel_lock);
+
+    if (level) {
+        count = mode->priv_info->cmd_sets[DSI_CMD_LOADING_CUSTOMER_P3_ON].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_ON);
+            pr_err("turn on customer P3\n");    
+    } else {
+        count = mode->priv_info->cmd_sets[DSI_CMD_LOADING_CUSTOMER_P3_OFF].count;
+
+            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_LOADING_CUSTOMER_P3_OFF);
+            pr_err("turn off customer P3\n");
+    }
+	mutex_unlock(&panel->panel_lock);
+return rc;
+}
+
+
+
+bool aod_real_flag;
+bool aod_complete;
+int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level)
+{
+	int rc = 0;
+	struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+
+	if (panel->aod_disable)
+		return 0;
+
+	mode = panel->cur_mode;
+	if (level == 1) {
+		if (panel->aod_status == 0) {
+			pr_info("send AOD ON commd mode 1 start\n");
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_AOD_ON_1);
+			pr_info("send AOD ON commd mode 1 end\n");
+			panel->aod_status = 1;
+		}
+	} else if (level == 2) {
+		if (panel->aod_status == 0) {
+			panel->aod_status = 1;
+			pr_info("send AOD ON commd mode 2 start\n");
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_AOD_ON_2);
+			aod_real_flag = false;
+			aod_complete = true;
+			pr_info("send AOD ON commd mode 2 end\n");
+
+		}
+	} else {
+		if (panel->aod_status) {
+			panel->aod_status = 0;
+			pr_info("send AOD OFF commd start\n");
+			if (aod_real_flag == true) {
+				pr_info("send DSI_CMD_SET_AOD_OFF\n");
+				rc = dsi_panel_tx_cmd_set(panel,
+							DSI_CMD_SET_AOD_OFF);
+			}
+			if (aod_real_flag == false) {
+				pr_info("send DSI_CMD_SET_AOD_OFF_NEW\n");
+				rc = dsi_panel_tx_cmd_set(panel,
+						DSI_CMD_SET_AOD_OFF_NEW);
+				/*
+				if (panel->srgb_mode)
+					dsi_panel_set_srgb_mode(panel,
+						panel->srgb_mode);
+
+				if (panel->dci_p3_mode)
+					dsi_panel_set_dci_p3_mode(panel,
+						panel->dci_p3_mode);
+
+				if (panel->night_mode)
+					dsi_panel_set_night_mode(panel,
+						panel->night_mode);
+
+				if (panel->adaption_mode)
+					dsi_panel_set_adaption_mode(panel,
+						panel->adaption_mode);
+				*/
+
+				rc = dsi_panel_update_backlight(panel,
+						panel->bl_config.bl_level);
+			}
+			pr_info("send AOD OFF commd end\n");
+			aod_complete = false;
+		}
+	}
+	panel->aod_curr_mode = level;
+	pr_err("AOD MODE = %d\n", level);
+	return rc;
+}
+int dsi_panel_send_dsi_panel_command(struct dsi_panel *panel)
+{
+	int rc = 0;
+	int count;
+	struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+	mode = panel->cur_mode;
+	mutex_lock(&panel->panel_lock);
+
+	count = mode->priv_info->cmd_sets[DSI_CMD_SET_PANEL_COMMAND].count;
+	if (!count) {
+		pr_err("This panel does not support DSI_CMD_SET_PANEL_COMMAND\n");
+		goto error;
+	}
+	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PANEL_COMMAND);
+	if (rc)
+		pr_err("Failed to send dsi panel command\n");
+	pr_err("Send DSI_CMD_SET_PANEL_COMMAND cmds.\n");
+
+error:
+	mutex_unlock(&panel->panel_lock);
+	return rc;
+}
+int dsi_panel_update_cmd_sets_sub(struct dsi_panel_cmd_set *cmd,
+					enum dsi_cmd_set_type type, const char *data, unsigned int length)
+{
+	int i = 0;
+	int rc = 0;
+	u32 packet_count = 0;
+
+	if (!data) {
+		pr_err("%s commands not defined\n", cmd_set_prop_map[type]);
+		rc = -ENOTSUPP;
+		goto error;
+	}
+
+	pr_debug("type=%d, name=%s, length=%d\n", type,
+		cmd_set_prop_map[type], length);
+
+	print_hex_dump_debug("", DUMP_PREFIX_NONE,
+		       8, 1, data, length, false);
+
+	for (i = 0; i < length; i++)
+		pr_debug("data[%d]=%02X", i, data[i]);
+
+	rc = dsi_panel_get_cmd_pkt_count(data, length, &packet_count);
+	if (rc) {
+		pr_err("commands failed, rc=%d\n", rc);
+		goto error;
+	}
+	pr_debug("[%s] packet-count=%d, %d\n", cmd_set_prop_map[type],
+		packet_count, length);
+
+	for (i = 0; i < cmd->count; i++)
+		kfree(cmd->cmds[i].msg.tx_buf);
+
+	kfree(cmd->cmds);
+	cmd->cmds = NULL;
+	pr_debug("Free tx_buf and dsi_cmd_desc struct pointers done.");
+
+	rc = dsi_panel_alloc_cmd_packets(cmd, packet_count);
+	if (rc) {
+		pr_err("failed to allocate cmd packets, rc=%d\n", rc);
+		goto error;
+	}
+
+	rc = dsi_panel_create_cmd_packets(data, length, packet_count,
+					  cmd->cmds);
+	if (rc) {
+		pr_err("failed to create cmd packets, rc=%d\n", rc);
+		goto error_free_mem;
+	}
+
+	return rc;
+
+error_free_mem:
+	kfree(cmd->cmds);
+	cmd->cmds = NULL;
+
+error:
+	return rc;
+
+}
+int dsi_panel_update_dsi_seed_command(struct dsi_cmd_desc *cmds,
+					enum dsi_cmd_set_type type, const char *data)
+{
+	int i = 0;
+	int rc = 0;
+	u8 *payload;
+
+	if (!data) {
+		pr_err("%s commands not defined\n", cmd_set_prop_map[type]);
+		rc = -ENOTSUPP;
+		goto error;
+	}
+
+	payload = (u8 *)cmds[3].msg.tx_buf;
+	for (i = 0; i < 0x16; i++)
+		payload[i] = data[i];
+
+error:
+	return rc;
+}
+int dsi_panel_send_dsi_seed_command(struct dsi_panel *panel)
+{
+	int rc = 0;
+	int count;
+	struct dsi_display_mode *mode;
+
+	if (!panel || !panel->cur_mode) {
+		pr_err("Invalid params\n");
+		return -EINVAL;
+	}
+	mode = panel->cur_mode;
+
+	count = mode->priv_info->cmd_sets[DSI_CMD_SET_SEED_COMMAND].count;
+	if (!count) {
+		pr_err("This panel does not support DSI_CMD_SET_SEED_COMMAND\n");
+		goto error;
+	}
+	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_SEED_COMMAND);
+	if (rc)
+		pr_err("Failed to send dsi seed command\n");
+//	pr_err("Send DSI_CMD_SET_SEED_COMMAND cmds.\n");
+
+error:
 	return rc;
 }

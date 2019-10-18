@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -111,14 +111,13 @@ typedef int (*CAM_IRQ_HANDLER_TOP_HALF)(uint32_t evt_id,
 typedef int (*CAM_IRQ_HANDLER_BOTTOM_HALF)(void *handler_priv,
 	void *evt_payload_priv);
 
-typedef void (*CAM_IRQ_BOTTOM_HALF_ENQUEUE_FUNC)(void *bottom_half,
-	void *bh_cmd, void *handler_priv, void *evt_payload_priv,
+typedef int (*CAM_IRQ_BOTTOM_HALF_ENQUEUE_FUNC)(void *bh_cmd,
+	void *handler_priv, void *evt_payload_priv,
 	CAM_IRQ_HANDLER_BOTTOM_HALF);
-
-typedef int (*CAM_IRQ_GET_TASKLET_PAYLOAD_FUNC)(void *bottom_half,
+typedef int (*CAM_IRQ_GET_TASKLET_PAYLOAD_FUNC)(void *bh,
 	void **bh_cmd);
 
-typedef void (*CAM_IRQ_PUT_TASKLET_PAYLOAD_FUNC)(void *bottom_half,
+typedef int (*CAM_IRQ_PUT_TASKLET_PAYLOAD_FUNC)(void *bh,
 	void **bh_cmd);
 
 struct cam_irq_bh_api {

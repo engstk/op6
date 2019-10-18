@@ -2088,6 +2088,8 @@ static int ext4_add_entry(handle_t *handle, struct dentry *dentry,
 			goto out;
 
 		if (blocks == 1 && !dx_fallback &&
+			current->group_leader &&
+			!current->group_leader->inode_index_disabled &&
 		    ext4_has_feature_dir_index(sb)) {
 			retval = make_indexed_dir(handle, &fname, dir,
 						  inode, bh);

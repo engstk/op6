@@ -108,6 +108,11 @@ static void hub_release(struct kref *kref);
 static int usb_reset_and_verify_device(struct usb_device *udev);
 static int hub_port_disable(struct usb_hub *hub, int port1, int set_state);
 
+/*2018/03/19 handle xiaomi typec headset dsp crash issue*/
+unsigned int connected_usb_idVendor;
+unsigned int connected_usb_idProduct;
+unsigned int connected_usb_devnum = 0xff;
+
 static inline char *portspeed(struct usb_hub *hub, int portstatus)
 {
 	if (hub_is_superspeedplus(hub->hdev))
@@ -2130,6 +2135,15 @@ void usb_disconnect(struct usb_device **pdev)
 	dev_info(&udev->dev, "USB disconnect, device number %d\n",
 			udev->devnum);
 
+/*2018/03/19 handle xiaomi typec headset dsp crash issue*/
+	if (connected_usb_devnum == udev->devnum) {
+		dev_info(&udev->dev, "xiaomi headset removed, devnum %d\n",
+		udev->devnum);
+		connected_usb_idVendor = 0;
+		connected_usb_idProduct = 0;
+		connected_usb_devnum = 0xff;
+	}
+
 	/*
 	 * Ensure that the pm runtime code knows that the USB device
 	 * is in the process of being disconnected.
@@ -2456,6 +2470,18 @@ int usb_new_device(struct usb_device *udev)
 	/* export the usbdev device-node for libusb */
 	udev->dev.devt = MKDEV(USB_DEVICE_MAJOR,
 			(((udev->bus->busnum-1) * 128) + (udev->devnum-1)));
+
+/*2018/03/19 handle xiaomi typec headset dsp crash issue*/
+	if ((le16_to_cpu(udev->descriptor.idVendor == 0x2717)) &&
+		(le16_to_cpu(udev->descriptor.idProduct == 0x3801))) {
+		connected_usb_idVendor =
+		le16_to_cpu(udev->descriptor.idVendor);
+		connected_usb_idProduct =
+		le16_to_cpu(udev->descriptor.idProduct);
+		connected_usb_devnum = udev->devnum;
+		dev_info(&udev->dev, "xiaomi headset identified,devnum %d\n",
+		udev->devnum);
+	}
 
 	/* Tell the world! */
 	announce_device(udev);
@@ -4343,6 +4369,10 @@ static void hub_set_initial_usb2_lpm_policy(struct usb_device *udev)
 
 	if (hub)
 		connect_type = hub->ports[udev->portnum - 1]->connect_type;
+
+/* david.liu@bsp, 20171113 USB patches porting */
+	if (!udev->bos)
+		return;
 
 	if ((udev->bos->ext_cap->bmAttributes & cpu_to_le32(USB_BESL_SUPPORT)) ||
 			connect_type == USB_PORT_CONNECT_TYPE_HARD_WIRED) {

@@ -262,6 +262,11 @@ void xhci_ring_cmd_db(struct xhci_hcd *xhci)
 
 static bool xhci_mod_cmd_timer(struct xhci_hcd *xhci, unsigned long delay)
 {
+/*2018/03/19 handle xiaomi typec headset dsp crash issue*/
+	if ((connected_usb_idVendor == 0x2717) &&
+		(connected_usb_idProduct == 0x3801)) {
+		delay = 500;
+	}
 	return mod_delayed_work(system_wq, &xhci->cmd_timer, delay);
 }
 
@@ -1290,6 +1295,15 @@ void xhci_handle_command_timeout(struct work_struct *work)
 		xhci->cmd_ring_state = CMD_RING_STATE_ABORTED;
 		xhci_dbg(xhci, "Command timeout\n");
 		ret = xhci_abort_cmd_ring(xhci, flags);
+/*2017/03/19 handle xiaomi typec headset dsp crash issue*/
+		if ((ret == -1) && (connected_usb_idVendor == 0x2717) &&
+			(connected_usb_idProduct == 0x3801)) {
+			xhci_err(xhci, "Abort command ring failed reset usb device\n");
+			xhci_cleanup_command_queue(xhci);
+			spin_unlock_irqrestore(&xhci->lock, flags);
+			kick_usbpd_vbus_sm();
+			return;
+		}
 		if (unlikely(ret == -ESHUTDOWN)) {
 			xhci_err(xhci, "Abort command ring failed\n");
 			xhci_cleanup_command_queue(xhci);
@@ -2743,6 +2757,11 @@ irqreturn_t xhci_irq(struct usb_hcd *hcd)
 	status = readl(&xhci->op_regs->status);
 	if (status == 0xffffffff)
 		goto hw_died;
+
+/* david.liu@bsp, 20171121 Abort suspend when interrupt is pending */
+	if (status & STS_HCE) {
+		xhci_warn(xhci, "WARNING: Host controller Error\n");
+	}
 
 	if (!(status & STS_EINT)) {
 		spin_unlock(&xhci->lock);

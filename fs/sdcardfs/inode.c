@@ -21,6 +21,7 @@
 #include "sdcardfs.h"
 #include <linux/fs_struct.h>
 #include <linux/ratelimit.h>
+atomic64_t unexist_tag = ATOMIC64_INIT(0);
 
 const struct cred *override_fsids(struct sdcardfs_sb_info *sbi,
 		struct sdcardfs_inode_data *data)
@@ -58,6 +59,17 @@ void revert_fsids(const struct cred *old_cred)
 	put_cred(cur_cred);
 }
 
+/*Curtis, 2018/04/25 reset non-exist dcache*/
+static void sdcardfs_settag(void)
+{
+	atomic64_inc(&unexist_tag);
+}
+
+static long long sdcardfs_gettag(void)
+{
+	return atomic64_read(&unexist_tag);
+}
+
 static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 			 umode_t mode, bool want_excl)
 {
@@ -81,6 +93,7 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 	if (!saved_cred)
 		return -ENOMEM;
 
+	sdcardfs_settag();
 	sdcardfs_get_lower_path(dentry, &lower_path);
 	lower_dentry = lower_path.dentry;
 	lower_dentry_mnt = lower_path.mnt;
@@ -227,6 +240,7 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 	if (!saved_cred)
 		return -ENOMEM;
 
+	sdcardfs_settag();
 	/* check disk space */
 	parent_dentry = dget_parent(dentry);
 	if (!check_min_free_space(parent_dentry, 0, 1)) {
@@ -420,6 +434,7 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (!saved_cred)
 		return -ENOMEM;
 
+	sdcardfs_settag();
 	sdcardfs_get_real_lower(old_dentry, &lower_old_path);
 	sdcardfs_get_lower_path(new_dentry, &lower_new_path);
 	lower_old_dentry = lower_old_path.dentry;
@@ -807,6 +822,15 @@ const struct inode_operations sdcardfs_dir_iops = {
 	.setattr	= sdcardfs_setattr_wrn,
 	.setattr2	= sdcardfs_setattr,
 	.getattr	= sdcardfs_getattr,
+	.settag		= sdcardfs_settag,
+	.gettag		= sdcardfs_gettag,
+	/* XXX Following operations are implemented,
+	 *     but FUSE(sdcard) or FAT does not support them
+	 *     These methods are *NOT* perfectly tested.
+	.symlink	= sdcardfs_symlink,
+	.link		= sdcardfs_link,
+	.mknod		= sdcardfs_mknod,
+	 */
 };
 
 const struct inode_operations sdcardfs_main_iops = {

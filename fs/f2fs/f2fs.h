@@ -23,6 +23,7 @@
 #include <linux/bio.h>
 #include <linux/blkdev.h>
 #include <linux/quotaops.h>
+#include <linux/list.h>
 #include <crypto/hash.h>
 #include <linux/overflow.h>
 
@@ -3743,6 +3744,47 @@ extern void f2fs_build_fault_attr(struct f2fs_sb_info *sbi, unsigned int rate,
 #else
 #define f2fs_build_fault_attr(sbi, rate, type)		do { } while (0)
 #endif
+
+//f2fs debug use
+static inline void f2fs_find_node_path(struct inode *tmp_inode)
+{
+	struct dentry *sample_dentry, *temp_p;
+	struct hlist_node *tmp_list;
+	char *temp;
+	char *new;
+	int malloc_size;
+
+	sample_dentry = NULL;
+	tmp_list = NULL;
+
+	hlist_for_each(tmp_list, (struct hlist_head *)(&(tmp_inode->i_dentry)))
+	{
+		sample_dentry =
+			hlist_entry(tmp_list, struct dentry, d_u.d_alias);
+	}
+
+	temp_p = sample_dentry;
+	temp = kmalloc(strlen(temp_p->d_iname), GFP_KERNEL);
+	strlcpy(temp, temp_p->d_iname, strlen(temp)+1);
+	temp_p = temp_p->d_parent;
+
+	while (temp_p->d_iname[0] != '/') {
+		malloc_size = strlen(temp_p->d_iname)+strlen(temp)+1;
+		new =
+			kmalloc(malloc_size, GFP_KERNEL);
+		strlcpy(new, temp_p->d_iname, malloc_size);
+		strlcat(new, "/", malloc_size+1);
+		strlcat(new, temp, malloc_size+1);
+		kfree(temp);
+		temp = kmalloc(malloc_size, GFP_KERNEL);
+		strlcpy(temp, new, malloc_size+1);
+		kfree(new);
+		temp_p = temp_p->d_parent;
+	}
+		f2fs_msg(F2FS_I_SB(tmp_inode)->sb,
+			KERN_WARNING, "[F2FS_debug]path %s", temp);
+		kfree(temp);
+}
 
 static inline bool is_journalled_quota(struct f2fs_sb_info *sbi)
 {

@@ -1008,8 +1008,8 @@ static int handle_uaudio_stream_req(void *req_h, void *req)
 	direction = req_msg->usb_token & SND_PCM_STREAM_DIRECTION;
 	pcm_dev_num = (req_msg->usb_token & SND_PCM_DEV_NUM_MASK) >> 8;
 	pcm_card_num = (req_msg->usb_token & SND_PCM_CARD_NUM_MASK) >> 16;
-
-	pr_debug("%s:card#:%d dev#:%d dir:%d en:%d fmt:%d rate:%d #ch:%d\n",
+	/*mutimedia ,open to debug usb audio,20180710*/
+	pr_info("%s:card#:%d dev#:%d dir:%d en:%d fmt:%d rate:%d #ch:%d\n",
 		__func__, pcm_card_num, pcm_dev_num, direction, req_msg->enable,
 		req_msg->audio_format, req_msg->bit_rate,
 		req_msg->number_of_ch);

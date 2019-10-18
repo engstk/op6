@@ -33,6 +33,9 @@
 	snd_934x: sound-tavil {
 		compatible = "qcom,sdm845-asoc-snd-tavil";
 		qcom,model = "sdm845-tavil-snd-card";
+		/*MM.Audio, 2019/07/13, add for screen record headset mic path*/
+		qcom,afe-rxtx-lb = <1>;
+		/*add end*/
 		qcom,ext-disp-audio-rx;
 		qcom,wcn-btfm;
 		qcom,mi2s-audio-intf;
@@ -68,7 +71,10 @@
 				<&dai_sec_tdm_rx_0>, <&dai_sec_tdm_tx_0>,
 				<&dai_tert_tdm_rx_0>, <&dai_tert_tdm_tx_0>,
 				<&dai_quat_tdm_rx_0>, <&dai_quat_tdm_tx_0>,
-				<&dai_quat_tdm_rx_1>;
+				<&dai_quat_tdm_rx_1>,
+				/*MM.Audio, 2019/07/13, add for screen record headset mic path*/
+				<&afe_loopback_tx>;
+				/*add end*/
 		asoc-cpu-names = "msm-dai-q6-hdmi.8",  "msm-dai-q6-dp.24608",
 				"msm-dai-q6-mi2s.0", "msm-dai-q6-mi2s.1",
 				"msm-dai-q6-mi2s.2", "msm-dai-q6-mi2s.3",
@@ -91,7 +97,12 @@
 				"msm-dai-q6-tdm.36880", "msm-dai-q6-tdm.36881",
 				"msm-dai-q6-tdm.36896", "msm-dai-q6-tdm.36897",
 				"msm-dai-q6-tdm.36912", "msm-dai-q6-tdm.36913",
-				"msm-dai-q6-tdm.36914";
+				"msm-dai-q6-tdm.36914",
+				/*MM.Audio, 2019/07/13, add for screen record headset mic path*/
+				"msm-dai-q6-dev.24577";
+				/*add end*/
+/*suzhiguang, temp add here */
+		op,smartpa ="max98927";
 	};
 };
 

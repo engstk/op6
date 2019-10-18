@@ -22,10 +22,12 @@
 #include "sdm845-sde-display.dtsi"
 #include "sdm845-mtp.dtsi"
 #include "sdm845-audio-overlay.dtsi"
+#include "enchilada.dtsi"
+#include "enchilada-t0.dtsi"
 
 / {
-	model = "Qualcomm Technologies, Inc. SDM845 v2 MTP";
+	model = "Qualcomm Technologies, Inc. SDM845 v2 MTP default";
 	compatible = "qcom,sdm845-mtp", "qcom,sdm845", "qcom,mtp";
 	qcom,msm-id = <321 0x20000>;
-	qcom,board-id = <8 0>;
+	qcom,board-id = <8 0 0 0>;
 };

@@ -109,9 +109,6 @@
 	};
 };
 
-&ssc_sensors {
-	status = "disabled";
-};
 
 &tlmm {
 	cam_sensor_tof_active: cam_sensor_tof_active {

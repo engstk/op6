@@ -22,6 +22,7 @@ gensrcs {
 
 cc_library_headers {
     name: "qseecom-kernel-headers",
+    recovery_available: true,
     generated_headers: ["qseecom-kernel-includes"],
     export_generated_headers: ["qseecom-kernel-includes"],
 }

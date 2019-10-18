@@ -1403,6 +1403,8 @@ static int spi_geni_probe(struct platform_device *pdev)
 		goto spi_geni_probe_err;
 	}
 
+        pinctrl_select_state(rsc->geni_pinctrl, rsc->geni_gpio_sleep);
+
 	rsc->se_clk = devm_clk_get(&pdev->dev, "se-clk");
 	if (IS_ERR(rsc->se_clk)) {
 		ret = PTR_ERR(rsc->se_clk);

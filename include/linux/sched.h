@@ -888,6 +888,12 @@ struct signal_struct {
 	 * oom
 	 */
 	bool oom_flag_origin;
+#ifdef CONFIG_MEMPLUS
+	spinlock_t reclaim_state_lock;
+	unsigned long reclaim_timeout;
+	int swapin_should_readahead_m;
+	int memplus_type;
+#endif
 	short oom_score_adj;		/* OOM kill score adjustment */
 	short oom_score_adj_min;	/* OOM kill score adjustment min value.
 					 * Only settable by CAP_SYS_RESOURCE. */
@@ -1678,6 +1684,23 @@ struct tlbflush_unmap_batch {
 	bool writable;
 };
 
+/*Ted, 20180425, non-exist dcache*/
+#define FILE_MAP_NUM            0x20
+#define FILE_MAP_MAX_INDEX	0x1F
+#define NEDF_PATH_MAX		504
+struct nedf {
+	size_t len;
+	char pathname[NEDF_PATH_MAX];
+};
+
+struct nedf_node {
+	u64 nf_tag;
+	struct nedf *nf;
+	uint16_t nf_cnt;
+	uint16_t nf_index;
+	bool is_valid;
+};
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -1691,6 +1714,15 @@ struct task_struct {
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
+	//huruihuan add for kill task in D status
+	unsigned int kill_flag;
+	struct timespec ttu;
+	int compensate_time;
+	int compensate_need;
+	unsigned int inode_index_disabled;
+
+	//Display, add for fd leak debug
+	bool dump_fd_leak;
 
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
@@ -1766,6 +1798,12 @@ struct task_struct {
 #endif
 
 	struct list_head tasks;
+
+#ifdef CONFIG_ADJ_CHAIN
+	struct list_head adj_chain_tasks;
+	u32 adj_chain_status;
+#endif
+
 #ifdef CONFIG_SMP
 	struct plist_node pushable_tasks;
 	struct rb_node pushable_dl_tasks;
@@ -2199,6 +2237,19 @@ struct task_struct {
 	/* A live task holds one reference. */
 	atomic_t stack_refcount;
 #endif
+	/* Curtis, 20180109, opchain*/
+	u64 utask_tag;
+	u64 utask_tag_base;
+	int etask_claim;
+	int claim_cpu;
+	bool utask_slave;
+	/* Ted, 20180425, non-exist dcache*/
+	struct nedf_node *nn;
+
+#ifdef CONFIG_SMART_BOOST
+	int hot_count;
+#endif
+
 /* CPU-specific state of this task */
 	struct thread_struct thread;
 /*
@@ -3021,8 +3072,6 @@ extern void sched_exit(struct task_struct *p);
 #else
 static inline void sched_exit(struct task_struct *p) { }
 #endif
-
-
 extern void proc_caches_init(void);
 extern void flush_signals(struct task_struct *);
 extern void ignore_signals(struct task_struct *);

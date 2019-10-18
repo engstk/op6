@@ -373,7 +373,8 @@
 			pcie1_clkreq_default: pcie1_clkreq_default {
 				mux {
 					pins = "gpio103";
-					function = "pci_e1";
+					//function = "pci_e1";
+					function = "gpio";
 				};
 
 				config {
@@ -2597,8 +2598,19 @@
 					bias-pull-up;
 				};
 			};
-		};
+			qupv3_se10_i2c_reset: qupv3_se10_i2c_reset {
+				mux {
+					pins = "gpio55", "gpio56";
+					function = "gpio";
+				};
 
+				config {
+					pins = "gpio55", "gpio56";
+					drive-strength = <2>;
+					bias-pull-down;
+				};
+			};
+		};
 		qupv3_se10_2uart_pins: qupv3_se10_2uart_pins {
 			qupv3_se10_2uart_active: qupv3_se10_2uart_active {
 				mux {

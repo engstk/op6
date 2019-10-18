@@ -1090,6 +1090,7 @@ error_m2m_init:
 	if (ctx->file) {
 		v4l2_fh_del(&ctx->fh);
 		v4l2_fh_exit(&ctx->fh);
+		ctx->file->private_data = NULL;
 	}
 	mutex_unlock(&rot_dev->lock);
 error_lock:
@@ -1138,6 +1139,7 @@ static int sde_rotator_ctx_release(struct sde_rotator_ctx *ctx,
 			v4l2_m2m_streamoff(file, ctx->fh.m2m_ctx,
 				V4L2_BUF_TYPE_VIDEO_CAPTURE);
 		}
+		ctx->file->private_data = NULL;
 	}
 	mutex_unlock(&rot_dev->lock);
 	SDEDEV_DBG(rot_dev->dev, "release submit work s:%d\n", session_id);

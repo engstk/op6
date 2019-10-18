@@ -3768,6 +3768,7 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 				* sizeof(struct cam_isp_bw_vote));
 			return -EINVAL;
 		}
+
 		CAM_DBG(CAM_ISP, "AB L:%lld R:%lld usage_type %d",
 			bw_config_ab->left_pix_vote_ab,
 			bw_config_ab->right_pix_vote_ab,

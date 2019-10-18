@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,17 +15,75 @@
 #include "cam_sensor_soc.h"
 #include "cam_sensor_core.h"
 
+struct cam_sensor_i2c_reg_setting_array {
+	struct cam_sensor_i2c_reg_array reg_setting[512];
+	unsigned short size;
+	enum camera_sensor_i2c_type addr_type;
+	enum camera_sensor_i2c_type data_type;
+	unsigned short delay;
+};
+
+struct cam_sensor_settings {
+    struct cam_sensor_i2c_reg_setting_array imx519_setting;
+    struct cam_sensor_i2c_reg_setting_array imx376k_setting;
+    struct cam_sensor_i2c_reg_setting_array imx371_setting;
+};
+
+struct cam_sensor_settings sensor_settings = {
+#include "CAM_SENSOR_SETTINGS.h"
+};
+
 static long cam_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
 {
 	int rc = 0;
 	struct cam_sensor_ctrl_t *s_ctrl =
 		v4l2_get_subdevdata(sd);
+	struct cam_sensor_i2c_reg_setting sensor_setting;
 
 	switch (cmd) {
 	case VIDIOC_CAM_CONTROL:
 		rc = cam_sensor_driver_cmd(s_ctrl, arg);
 		break;
+	case VIDIOC_CAM_FTM_POWNER_DOWN:
+		CAM_INFO(CAM_SENSOR, "FTM power down");
+		return cam_sensor_power_down(s_ctrl);
+		break;
+	case VIDIOC_CAM_FTM_POWNER_UP:
+		CAM_INFO(CAM_SENSOR, "FTM power up, sensor id 0x%x", s_ctrl->sensordata->slave_info.sensor_id);
+		rc = cam_sensor_power_up(s_ctrl);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR, "ftm power up failed!");
+			break;
+		}
+
+        if (s_ctrl->sensordata->slave_info.sensor_id == 0x519) {
+            sensor_setting.reg_setting = sensor_settings.imx519_setting.reg_setting;
+            sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+            sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+            sensor_setting.size = sensor_settings.imx519_setting.size;
+            sensor_setting.delay = sensor_settings.imx519_setting.delay;
+        } else if(s_ctrl->sensordata->slave_info.sensor_id == 0x376) {
+            sensor_setting.reg_setting = sensor_settings.imx376k_setting.reg_setting;
+            sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+            sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+            sensor_setting.size = sensor_settings.imx376k_setting.size;
+            sensor_setting.delay = sensor_settings.imx376k_setting.delay;
+        } else if(s_ctrl->sensordata->slave_info.sensor_id == 0x371) {
+            sensor_setting.reg_setting = sensor_settings.imx371_setting.reg_setting;
+            sensor_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+            sensor_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+            sensor_setting.size = sensor_settings.imx371_setting.size;
+            sensor_setting.delay = sensor_settings.imx371_setting.delay;
+        }
+        rc = camera_io_dev_write(&(s_ctrl->io_master_info), &sensor_setting);
+
+        if (rc < 0) {
+            CAM_ERR(CAM_SENSOR, "FTM Failed to write sensor setting");
+        } else {
+            CAM_ERR(CAM_SENSOR, "FTM successfully to write sensor setting");
+        }
+        break;
 	default:
 		CAM_ERR(CAM_SENSOR, "Invalid ioctl cmd: %d", cmd);
 		rc = -EINVAL;
@@ -339,7 +397,6 @@ static struct platform_driver cam_sensor_platform_driver = {
 		.name = "qcom,camera",
 		.owner = THIS_MODULE,
 		.of_match_table = cam_sensor_driver_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.remove = cam_sensor_platform_remove,
 };

@@ -497,7 +497,9 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 	drive = (ctl_reg >> g->drv_bit) & 7;
 	pull = (ctl_reg >> g->pull_bit) & 3;
 
-	seq_printf(s, " %-8s: %-3s %d", g->name, is_out ? "out" : "in", func);
+	seq_printf(s, " %-8s: %-3s fun%d", g->name, is_out ? "out" : "in", func);
+	if (gpio <= 149)//the ship real gpio
+		seq_printf(s, " %s", chip->get(chip, offset) ? "hi":"lo");
 	seq_printf(s, " %dmA", msm_regval_to_drive(drive));
 	seq_printf(s, " %s", pulls[pull]);
 }
@@ -508,6 +510,9 @@ static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 	unsigned i;
 
 	for (i = 0; i < chip->ngpio; i++, gpio++) {
+		if( gpio ==0 || gpio ==1 || gpio ==2 || gpio == 3 || gpio ==81 || gpio ==82 || gpio ==83 || gpio == 84)
+		continue;
+		/*#endif */
 		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
 		seq_puts(s, "\n");
 	}

@@ -102,6 +102,7 @@ struct dsi_backlight_config {
 
 	u32 bl_min_level;
 	u32 bl_max_level;
+	u32 bl_def_val;
 	u32 brightness_max_level;
 	u32 bl_level;
 	u32 bl_scale;
@@ -113,7 +114,7 @@ struct dsi_backlight_config {
 	u32 pwm_pmic_bank;
 	u32 pwm_period_usecs;
 	int pwm_gpio;
-
+    bool bl_high2bit;
 	/* WLED params */
 	struct led_trigger *wled;
 	struct backlight_device *bd;
@@ -131,6 +132,8 @@ struct dsi_panel_reset_config {
 	int reset_gpio;
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
+    int vci_gpio;
+	int poc_gpio;
 	u32 mode_sel_state;
 };
 
@@ -190,7 +193,38 @@ struct dsi_panel {
 	struct dsi_pinctrl_info pinctrl;
 	struct drm_panel_hdr_properties hdr_props;
 	struct drm_panel_esd_config esd_config;
-
+	int panel_year;
+	int panel_mon;
+	int panel_day;
+	int panel_hour;
+	int panel_min;
+	int panel_year_index;
+	int panel_mon_index;
+	int panel_day_index;
+	int panel_hour_index;
+	int panel_min_index;
+	int acl_mode;
+	int acl_cmd_index;
+	int acl_mode_index;
+	int hbm_mode;
+	int aod_mode;
+	int aod_mode_test;
+	int aod_status;
+	int aod_curr_mode;
+	int aod_disable;
+	int naive_display_p3_mode;
+	int naive_display_wide_color_mode;
+	int naive_display_srgb_color_mode;
+	int naive_display_loading_effect_mode;
+	int naive_display_customer_srgb_mode;
+	int naive_display_customer_p3_mode;
+	int status_value;
+	int panel_mismatch_check;
+	int panel_mismatch;
+	int hbm_backlight;
+	bool is_hbm_enabled;
+	int op_force_screenfp;
+	bool dim_status;
 	bool lp11_init;
 	bool ulps_enabled;
 	bool ulps_suspend_enabled;
@@ -299,10 +333,24 @@ void dsi_dsc_pclk_param_calc(struct msm_display_dsc_info *dsc, int intf_width);
 struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
 				struct device_node *of_node,
 				int topology_override);
-
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel,
 				struct device_node *of_node);
-
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
+int dsi_panel_set_acl_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_hbm_mode(struct dsi_panel *panel, int level);
+int dsi_panel_op_set_hbm_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_aod_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_display_p3_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_display_wide_color_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_native_display_srgb_color_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_customer_srgb_mode(struct dsi_panel *panel, int level);
+int dsi_panel_set_customer_p3_mode(struct dsi_panel *panel, int level);
+int dsi_panel_update_dsi_seed_command(struct dsi_cmd_desc *cmds, enum dsi_cmd_set_type type, const char *data);
+int dsi_panel_send_dsi_seed_command(struct dsi_panel *panel);
+int dsi_panel_send_dsi_panel_command(struct dsi_panel *panel);
+int dsi_panel_update_cmd_sets_sub(struct dsi_panel_cmd_set *cmd,
+					enum dsi_cmd_set_type type, const char *data, unsigned int length);
+
+
 
 #endif /* _DSI_PANEL_H_ */

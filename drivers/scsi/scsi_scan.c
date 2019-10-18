@@ -795,8 +795,9 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	 * total, since scsi_probe_lun() initializes inq_result with 0s.
 	 */
 	sdev->inquiry = kmemdup(inq_result,
-				max_t(size_t, sdev->inquiry_len, 36),
+				max_t(size_t, sdev->inquiry_len, 40),
 				GFP_KERNEL);
+	*(sdev->inquiry + 40) = 0;
 	if (sdev->inquiry == NULL)
 		return SCSI_SCAN_NO_RESPONSE;
 

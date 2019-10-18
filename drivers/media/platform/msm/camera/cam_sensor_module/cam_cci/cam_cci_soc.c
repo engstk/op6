@@ -45,6 +45,7 @@ int cam_cci_init(struct v4l2_subdev *sd,
 
 	CAM_DBG(CAM_CCI, "Base address %pK", base);
 
+	mutex_lock(&cci_dev->ref_count_mutex);
 	if (cci_dev->ref_count++) {
 		CAM_DBG(CAM_CCI, "ref_count %d", cci_dev->ref_count);
 		master = c_ctrl->cci_info->cci_i2c_master;
@@ -53,11 +54,11 @@ int cam_cci_init(struct v4l2_subdev *sd,
 			mutex_lock(&cci_dev->cci_master_info[master].mutex);
 			flush_workqueue(cci_dev->write_wq[master]);
 			/* Re-initialize the completion */
-			reinit_completion(
-			&cci_dev->cci_master_info[master].reset_complete);
+			reinit_completion(&cci_dev->
+				cci_master_info[master].reset_complete);
 			for (i = 0; i < NUM_QUEUES; i++)
-				reinit_completion(
-				&cci_dev->cci_master_info[master].report_q[i]);
+				reinit_completion(&cci_dev->
+					cci_master_info[master].report_q[i]);
 			/* Set reset pending flag to TRUE */
 			cci_dev->cci_master_info[master].reset_pending = TRUE;
 			/* Set proper mask to RESET CMD address */
@@ -69,15 +70,18 @@ int cam_cci_init(struct v4l2_subdev *sd,
 					base + CCI_RESET_CMD_ADDR);
 			/* wait for reset done irq */
 			rc = wait_for_completion_timeout(
-			&cci_dev->cci_master_info[master].reset_complete,
+				&cci_dev->cci_master_info[master].
+				reset_complete,
 				CCI_TIMEOUT);
 			if (rc <= 0)
 				CAM_ERR(CAM_CCI, "wait failed %d", rc);
 			mutex_unlock(&cci_dev->cci_master_info[master].mutex);
 		}
+		mutex_unlock(&cci_dev->ref_count_mutex);
 		return 0;
 	}
 
+	mutex_unlock(&cci_dev->ref_count_mutex);
 	ahb_vote.type = CAM_VOTE_ABSOLUTE;
 	ahb_vote.vote.level = CAM_SVS_VOTE;
 	axi_vote.compressed_bw = CAM_CPAS_DEFAULT_AXI_BW;
@@ -93,8 +97,8 @@ int cam_cci_init(struct v4l2_subdev *sd,
 	/* Re-initialize the completion */
 	reinit_completion(&cci_dev->cci_master_info[master].reset_complete);
 	for (i = 0; i < NUM_QUEUES; i++)
-		reinit_completion(
-			&cci_dev->cci_master_info[master].report_q[i]);
+		reinit_completion(&cci_dev->cci_master_info[master].
+			report_q[i]);
 
 	/* Enable Regulators and IRQ*/
 	rc = cam_soc_util_enable_platform_resource(soc_info, true,
@@ -115,15 +119,19 @@ int cam_cci_init(struct v4l2_subdev *sd,
 	for (i = 0; i < NUM_MASTERS; i++) {
 		for (j = 0; j < NUM_QUEUES; j++) {
 			if (j == QUEUE_0)
-				cci_dev->cci_i2c_queue_info[i][j].max_queue_size
-					= CCI_I2C_QUEUE_0_SIZE;
+				cci_dev->cci_i2c_queue_info[i][j].
+					max_queue_size =
+						CCI_I2C_QUEUE_0_SIZE;
 			else
-				cci_dev->cci_i2c_queue_info[i][j].max_queue_size
-					= CCI_I2C_QUEUE_1_SIZE;
+				cci_dev->cci_i2c_queue_info[i][j].
+					max_queue_size =
+						CCI_I2C_QUEUE_1_SIZE;
 
-			CAM_DBG(CAM_CCI, "CCI Master[%d] :: Q0 : %d Q1 : %d", i,
-			cci_dev->cci_i2c_queue_info[i][j].max_queue_size,
-			cci_dev->cci_i2c_queue_info[i][j].max_queue_size);
+			CAM_DBG(CAM_CCI, "CCI Master[%d] :: Q0 : %d Q1 : %d", i
+				, cci_dev->cci_i2c_queue_info[i][j].
+					max_queue_size,
+				cci_dev->cci_i2c_queue_info[i][j].
+					max_queue_size);
 		}
 	}
 
@@ -146,10 +154,6 @@ int cam_cci_init(struct v4l2_subdev *sd,
 		base + CCI_IRQ_MASK_0_ADDR);
 	cam_io_w_mb(CCI_IRQ_MASK_0_RMSK,
 		base + CCI_IRQ_CLEAR_0_ADDR);
-	cam_io_w_mb(CCI_IRQ_MASK_1_RMSK,
-		base + CCI_IRQ_MASK_1_ADDR);
-	cam_io_w_mb(CCI_IRQ_MASK_1_RMSK,
-		base + CCI_IRQ_CLEAR_1_ADDR);
 	cam_io_w_mb(0x1, base + CCI_IRQ_GLOBAL_CLEAR_CMD_ADDR);
 
 	for (i = 0; i < MASTER_MAX; i++) {
@@ -161,13 +165,6 @@ int cam_cci_init(struct v4l2_subdev *sd,
 			flush_workqueue(cci_dev->write_wq[i]);
 		}
 	}
-
-	/* Set RD FIFO threshold for M0 & M1 */
-	cam_io_w_mb(CCI_I2C_RD_THRESHOLD_VALUE,
-		base + CCI_I2C_M0_RD_THRESHOLD_ADDR);
-	cam_io_w_mb(CCI_I2C_RD_THRESHOLD_VALUE,
-		base + CCI_I2C_M1_RD_THRESHOLD_ADDR);
-
 	cci_dev->cci_state = CCI_STATE_ENABLED;
 
 	return 0;
@@ -176,7 +173,9 @@ reset_complete_failed:
 	cam_soc_util_disable_platform_resource(soc_info, 1, 1);
 
 platform_enable_failed:
+	mutex_lock(&cci_dev->ref_count_mutex);
 	cci_dev->ref_count--;
+	mutex_unlock(&cci_dev->ref_count_mutex);
 	cam_cpas_stop(cci_dev->cpas_handle);
 
 	return rc;
@@ -197,20 +196,17 @@ static void cam_cci_init_cci_params(struct cci_device *new_cci_dev)
 	for (i = 0; i < NUM_MASTERS; i++) {
 		new_cci_dev->cci_master_info[i].status = 0;
 		mutex_init(&new_cci_dev->cci_master_info[i].mutex);
-		init_completion(
-			&new_cci_dev->cci_master_info[i].reset_complete);
-		init_completion(
-			&new_cci_dev->cci_master_info[i].th_complete);
+		init_completion(&new_cci_dev->
+			cci_master_info[i].reset_complete);
 
 		for (j = 0; j < NUM_QUEUES; j++) {
 			mutex_init(&new_cci_dev->cci_master_info[i].mutex_q[j]);
-			init_completion(
-				&new_cci_dev->cci_master_info[i].report_q[j]);
+			init_completion(&new_cci_dev->
+				cci_master_info[i].report_q[j]);
 			spin_lock_init(
 				&new_cci_dev->cci_master_info[i].lock_q[j]);
 		}
 	}
-	spin_lock_init(&new_cci_dev->lock_status);
 }
 
 static void cam_cci_init_default_clk_params(struct cci_device *cci_dev,
@@ -376,15 +372,20 @@ int cam_cci_soc_release(struct cci_device *cci_dev)
 	struct cam_hw_soc_info *soc_info =
 		&cci_dev->soc_info;
 
+	mutex_lock(&cci_dev->ref_count_mutex);
 	if (!cci_dev->ref_count || cci_dev->cci_state != CCI_STATE_ENABLED) {
 		CAM_ERR(CAM_CCI, "invalid ref count %d / cci state %d",
 			cci_dev->ref_count, cci_dev->cci_state);
+		mutex_unlock(&cci_dev->ref_count_mutex);
 		return -EINVAL;
 	}
 	if (--cci_dev->ref_count) {
 		CAM_DBG(CAM_CCI, "ref_count Exit %d", cci_dev->ref_count);
+		mutex_unlock(&cci_dev->ref_count_mutex);
 		return 0;
 	}
+	mutex_unlock(&cci_dev->ref_count_mutex);
+
 	for (i = 0; i < MASTER_MAX; i++)
 		if (cci_dev->write_wq[i])
 			flush_workqueue(cci_dev->write_wq[i]);

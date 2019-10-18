@@ -203,6 +203,7 @@ config BRIDGE_NETFILTER
 
 	  If unsure, say N.
 
+
 source "net/netfilter/Kconfig"
 source "net/ipv4/netfilter/Kconfig"
 source "net/ipv6/netfilter/Kconfig"
