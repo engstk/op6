@@ -145,6 +145,9 @@
 #define LPASS_BE_QUAT_TDM_TX_6 "QUAT_TDM_TX_6"
 #define LPASS_BE_QUAT_TDM_RX_7 "QUAT_TDM_RX_7"
 #define LPASS_BE_QUAT_TDM_TX_7 "QUAT_TDM_TX_7"
+//MM.Audio, 2019/07/13, add for screen record headset mic path
+#define LPASS_BE_AFE_LOOPBACK_TX "AFE_LOOPBACK_TX"
+//end add
 #define LPASS_BE_QUIN_TDM_RX_0 "QUIN_TDM_RX_0"
 #define LPASS_BE_QUIN_TDM_TX_0 "QUIN_TDM_TX_0"
 #define LPASS_BE_QUIN_TDM_RX_1 "QUIN_TDM_RX_1"
@@ -399,6 +402,9 @@ enum {
 	MSM_BACKEND_DAI_INT5_MI2S_TX,
 	MSM_BACKEND_DAI_INT6_MI2S_RX,
 	MSM_BACKEND_DAI_INT6_MI2S_TX,
+//MM.Audio, 2019/07/13, add for screen record headset mic path
+	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
+//end add
 	MSM_BACKEND_DAI_MAX,
 };
 

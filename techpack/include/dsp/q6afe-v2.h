@@ -224,6 +224,9 @@ enum {
 	IDX_AFE_PORT_ID_QUINARY_TDM_TX_6,
 	IDX_AFE_PORT_ID_QUINARY_TDM_RX_7,
 	IDX_AFE_PORT_ID_QUINARY_TDM_TX_7,
+//MM.Audio, 2019/07/13, add for screen record headset mic path
+	IDX_AFE_LOOPBACK_TX,
+//end add
 	AFE_MAX_PORTS
 };
 

@@ -185,4 +185,7 @@ int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 			int session_type,
 			struct msm_pcm_channel_mixer *ch_mixer,
 			int channel_index);
+//MM.Audio, 2019/07/13, add for screen record headset mic path
+void adm_set_session_type(int port_id, int session_type);
+//end add
 #endif /* __Q6_ADM_V2_H__ */

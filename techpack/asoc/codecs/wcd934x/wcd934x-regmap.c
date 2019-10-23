@@ -373,7 +373,8 @@ static const struct reg_default wcd934x_defaults[] = {
 	{ WCD934X_INTR_LEVEL2,                             0x94 },
 	{ WCD934X_INTR_LEVEL3,                             0x80 },
 	{ WCD934X_INTR_BYPASS0,                            0x00 },
-	{ WCD934X_INTR_BYPASS1,                            0x00 },
+	/* Bypass "Elect remove irq" and "Elect insert irq" */
+	{ WCD934X_INTR_BYPASS1,                            0x12 },
 	{ WCD934X_INTR_BYPASS2,                            0x00 },
 	{ WCD934X_INTR_BYPASS3,                            0x00 },
 	{ WCD934X_INTR_SET0,                               0x00 },

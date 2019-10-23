@@ -4211,6 +4211,11 @@ static void tavil_codec_set_tx_hold(struct snd_soc_codec *codec,
 	case WCD934X_ANA_AMIC1:
 	case WCD934X_ANA_AMIC2:
 		snd_soc_update_bits(codec, WCD934X_ANA_AMIC2, mask, val);
+//suzhiguang,sleep 150ms to avoid mic pop.
+        if(amic_reg == WCD934X_ANA_AMIC2) {
+            pr_err("begin to sleep 150 ms\n");
+            usleep_range(150*1000, 150*1010);
+        }
 		break;
 	case WCD934X_ANA_AMIC3:
 	case WCD934X_ANA_AMIC4:

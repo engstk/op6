@@ -38,3 +38,12 @@ wcd-core-objs	+= wcd934x/wcd934x-tables.o
 
 obj-$(CONFIG_WCD9XXX_CODEC_CORE) += wcd-core.o
 obj-$(CONFIG_SND_SOC_MSM_HDMI_CODEC_RX) += msm_hdmi_codec_rx.o
+#suzhiguang@MultiMediaService,2018/03/12,add smart pa
+obj-y += max/max98927.o
+obj-y += tfa9874/tfa98xx.o
+obj-y += tfa9874/tfa_container.o
+obj-y += tfa9874/tfa_dsp.o
+obj-y += tfa9874/tfa_init.o
+
+#suzhiguang@MultiMediaService,add for fsa
+obj-y += fsa4840/fsa4840.o
