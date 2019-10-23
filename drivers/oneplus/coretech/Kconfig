@@ -1,0 +1,35 @@
+config OPCHAIN
+	default n
+	bool "Oneplus CoreTech helper, used for opchain module"
+
+config DEFRAG_HELPER
+	default n
+	bool "Oneplus CoreTech helper, used for defrag module"
+
+config CRPL_HELPER
+	default n
+	bool "Oneplus CoreTech helper, used for crpl module"
+
+config ADJ_CHAIN
+	default n
+	bool "Chain task adj for victim select"
+	help
+	 To chain task adj for any purpose
+
+config HOUSTON
+	default n
+	bool "houston rocket play your temperature guard"
+	help
+	 Realtime temperature monitor
+
+config MEMPLUS
+	default n
+	bool "memory+ feature"
+	help
+	 Memory+ feature
+
+config SMART_BOOST
+        bool "support smart boost feature"
+        default n
+        help
+         Smart Boost feature
