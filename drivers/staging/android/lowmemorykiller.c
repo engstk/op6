@@ -1427,6 +1427,7 @@ quick_select_fast:
 		}
 
 		task_lock(selected);
+		get_task_struct(selected);
 		send_sig(SIGKILL, selected, 0);
 		if (selected->mm) {
 			task_set_lmk_waiting(selected);
@@ -1482,7 +1483,6 @@ quick_select_fast:
 		lowmem_deathpending_timeout = jiffies + HZ;
 		rem += selected_tasksize;
 		rcu_read_unlock();
-		get_task_struct(selected);
 		/* give the system time to free up the memory */
 		msleep_interruptible(20);
 		trace_almk_shrink(selected_tasksize, ret,
