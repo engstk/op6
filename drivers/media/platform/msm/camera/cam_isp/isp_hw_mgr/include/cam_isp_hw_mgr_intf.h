@@ -60,13 +60,29 @@ enum cam_isp_hw_stop_cmd {
 };
 
 /**
- * struct cam_isp_stop_hw_method - hardware stop method
+ * struct cam_isp_stop_args - hardware stop arguments
  *
  * @hw_stop_cmd:               Hardware stop command type information
+ * @stop_only                  Send stop only to hw drivers. No Deinit to be
+ *                             done.
  *
  */
-struct cam_isp_stop_hw_method {
+struct cam_isp_stop_args {
 	enum cam_isp_hw_stop_cmd      hw_stop_cmd;
+	bool                          stop_only;
+};
+
+/**
+ * struct cam_isp_start_args - isp hardware start arguments
+ *
+ * @config_args:               Hardware configuration commands.
+ * @start_only                 Send start only to hw drivers. No init to
+ *                             be done.
+ *
+ */
+struct cam_isp_start_args {
+	struct cam_hw_config_args     hw_config;
+	bool                          start_only;
 };
 
 /**
@@ -180,21 +196,21 @@ enum cam_isp_hw_mgr_command {
 	CAM_ISP_HW_MGR_CMD_IS_RDI_ONLY_CONTEXT,
 	CAM_ISP_HW_MGR_CMD_PAUSE_HW,
 	CAM_ISP_HW_MGR_CMD_RESUME_HW,
+	CAM_ISP_HW_MGR_CMD_SOF_DEBUG,
 	CAM_ISP_HW_MGR_CMD_MAX,
 };
 
 /**
  * struct cam_isp_hw_cmd_args - Payload for hw manager command
  *
- * @ctxt_to_hw_map:        HW context from the acquire
  * @cmd_type               HW command type
  * @get_context            Get context type information
  */
 struct cam_isp_hw_cmd_args {
-	void                               *ctxt_to_hw_map;
-	uint32_t                            cmd_type;
+	uint32_t                              cmd_type;
 	union {
 		uint32_t                      is_rdi_only_context;
+		uint32_t                      sof_irq_enable;
 	} u;
 };
 
@@ -207,9 +223,9 @@ struct cam_isp_hw_cmd_args {
  * @of_node:            Device node input
  * @hw_mgr:             Input/output structure for the ISP hardware manager
  *                          initialization
- *
+ * @iommu_hdl:          Iommu handle to be returned
  */
 int cam_isp_hw_mgr_init(struct device_node *of_node,
-	struct cam_hw_mgr_intf *hw_mgr);
+	struct cam_hw_mgr_intf *hw_mgr, int *iommu_hdl);
 
 #endif /* __CAM_ISP_HW_MGR_INTF_H__ */

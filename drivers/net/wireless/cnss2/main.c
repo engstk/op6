@@ -426,6 +426,7 @@ static int cnss_fw_ready_hdlr(struct cnss_plat_data *plat_priv)
 
 	del_timer(&plat_priv->fw_boot_timer);
 	set_bit(CNSS_FW_READY, &plat_priv->driver_state);
+	clear_bit(CNSS_DEV_ERR_NOTIFY, &plat_priv->driver_state);
 
 	if (test_bit(CNSS_FW_BOOT_RECOVERY, &plat_priv->driver_state)) {
 		clear_bit(CNSS_FW_BOOT_RECOVERY, &plat_priv->driver_state);
@@ -462,6 +463,15 @@ out:
 	return ret;
 }
 
+static int cnss_cal_update_hdlr(struct cnss_plat_data *plat_priv)
+{
+	/* QCN7605 store the cal data sent by FW to calDB memory area
+	 * get out of this after complete data is uploaded. FW is expected
+	 * to send cal done
+	 */
+	return 0;
+}
+
 static char *cnss_driver_event_to_str(enum cnss_driver_event_type type)
 {
 	switch (type) {
@@ -479,6 +489,10 @@ static char *cnss_driver_event_to_str(enum cnss_driver_event_type type)
 		return "COLD_BOOT_CAL_START";
 	case CNSS_DRIVER_EVENT_COLD_BOOT_CAL_DONE:
 		return "COLD_BOOT_CAL_DONE";
+	case CNSS_DRIVER_EVENT_CAL_UPDATE:
+		return "COLD_BOOT_CAL_DATA_UPDATE";
+	case CNSS_DRIVER_EVENT_CAL_DOWNLOAD:
+		return "COLD_BOOT_CAL_DATA_DOWNLOAD";
 	case CNSS_DRIVER_EVENT_REGISTER_DRIVER:
 		return "REGISTER_DRIVER";
 	case CNSS_DRIVER_EVENT_UNREGISTER_DRIVER:
@@ -630,6 +644,18 @@ int cnss_power_down(struct device *dev)
 				      CNSS_EVENT_SYNC, NULL);
 }
 EXPORT_SYMBOL(cnss_power_down);
+
+int cnss_idle_restart(struct device *dev)
+{
+	return 0;
+}
+EXPORT_SYMBOL(cnss_idle_restart);
+
+int cnss_idle_shutdown(struct device *dev)
+{
+	return 0;
+}
+EXPORT_SYMBOL(cnss_idle_shutdown);
 
 static int cnss_get_resources(struct cnss_plat_data *plat_priv)
 {
@@ -900,7 +926,6 @@ static int cnss_do_recovery(struct cnss_plat_data *plat_priv,
 			goto self_recovery;
 		break;
 	case CNSS_REASON_RDDM:
-		clear_bit(CNSS_DEV_ERR_NOTIFY, &plat_priv->driver_state);
 		cnss_bus_collect_dump_info(plat_priv, false);
 		break;
 	case CNSS_REASON_DEFAULT:
@@ -994,6 +1019,8 @@ void cnss_schedule_recovery(struct device *dev,
 	struct cnss_recovery_data *data;
 	int gfp = GFP_KERNEL;
 
+	cnss_bus_update_status(plat_priv, CNSS_FW_DOWN);
+
 	if (in_interrupt() || irqs_disabled())
 		gfp = GFP_ATOMIC;
 
@@ -1035,23 +1062,97 @@ int cnss_force_fw_assert(struct device *dev)
 }
 EXPORT_SYMBOL(cnss_force_fw_assert);
 
+int cnss_force_collect_rddm(struct device *dev)
+{
+	struct cnss_plat_data *plat_priv = cnss_bus_dev_to_plat_priv(dev);
+	int ret = 0;
+
+	if (!plat_priv) {
+		cnss_pr_err("plat_priv is NULL\n");
+		return -ENODEV;
+	}
+
+	if (plat_priv->device_id == QCA6174_DEVICE_ID) {
+		cnss_pr_info("Force collect rddm is not supported\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (test_bit(CNSS_DRIVER_RECOVERY, &plat_priv->driver_state)) {
+		cnss_pr_info("Recovery is already in progress, ignore forced collect rddm\n");
+		return 0;
+	}
+
+	cnss_driver_event_post(plat_priv,
+			       CNSS_DRIVER_EVENT_FORCE_FW_ASSERT,
+			       0, NULL);
+
+	reinit_completion(&plat_priv->rddm_complete);
+	ret = wait_for_completion_timeout
+		(&plat_priv->rddm_complete,
+		 msecs_to_jiffies(CNSS_RDDM_TIMEOUT_MS));
+	if (!ret)
+		ret = -ETIMEDOUT;
+
+	return ret;
+}
+EXPORT_SYMBOL(cnss_force_collect_rddm);
+
+static int cnss_wlfw_server_arrive_hdlr(struct cnss_plat_data *plat_priv)
+{
+	int ret;
+
+	ret = cnss_wlfw_server_arrive(plat_priv);
+	if (ret)
+		goto out;
+
+	if (!cnss_bus_req_mem_ind_valid(plat_priv)) {
+		ret = cnss_wlfw_tgt_cap_send_sync(plat_priv);
+		if (ret)
+			goto out;
+
+		ret = cnss_wlfw_bdf_dnld_send_sync(plat_priv);
+		if (ret)
+			goto out;
+		/*cnss driver sends  meta data report and waits for FW_READY*/
+		if (cnss_bus_dev_cal_rep_valid(plat_priv))
+			ret = cnss_wlfw_cal_report_send_sync(plat_priv);
+	}
+out:
+	return ret;
+}
+
 static int cnss_cold_boot_cal_start_hdlr(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
 
-	set_bit(CNSS_COLD_BOOT_CAL, &plat_priv->driver_state);
-	ret = cnss_bus_dev_powerup(plat_priv);
-	if (ret)
-		clear_bit(CNSS_COLD_BOOT_CAL, &plat_priv->driver_state);
+	if (test_bit(CNSS_FW_READY, &plat_priv->driver_state) ||
+	    test_bit(CNSS_DRIVER_LOADING, &plat_priv->driver_state) ||
+	    test_bit(CNSS_DRIVER_PROBED, &plat_priv->driver_state)) {
+		cnss_pr_dbg("Device is already active, ignore calibration\n");
+		goto out;
+	}
 
+	set_bit(CNSS_COLD_BOOT_CAL, &plat_priv->driver_state);
+	reinit_completion(&plat_priv->cal_complete);
+	ret = cnss_bus_dev_powerup(plat_priv);
+	if (ret) {
+		complete(&plat_priv->cal_complete);
+		clear_bit(CNSS_COLD_BOOT_CAL, &plat_priv->driver_state);
+	}
+
+out:
 	return ret;
 }
 
 static int cnss_cold_boot_cal_done_hdlr(struct cnss_plat_data *plat_priv)
 {
+	if (!test_bit(CNSS_COLD_BOOT_CAL, &plat_priv->driver_state))
+		return 0;
+
 	plat_priv->cal_done = true;
 	cnss_wlfw_wlan_mode_send_sync(plat_priv, CNSS_OFF);
 	cnss_bus_dev_shutdown(plat_priv);
+	complete(&plat_priv->cal_complete);
 	clear_bit(CNSS_COLD_BOOT_CAL, &plat_priv->driver_state);
 
 	return 0;
@@ -1099,7 +1200,7 @@ static void cnss_driver_event_work(struct work_struct *work)
 
 		switch (event->type) {
 		case CNSS_DRIVER_EVENT_SERVER_ARRIVE:
-			ret = cnss_wlfw_server_arrive(plat_priv);
+			ret = cnss_wlfw_server_arrive_hdlr(plat_priv);
 			break;
 		case CNSS_DRIVER_EVENT_SERVER_EXIT:
 			ret = cnss_wlfw_server_exit(plat_priv);
@@ -1118,6 +1219,9 @@ static void cnss_driver_event_work(struct work_struct *work)
 			break;
 		case CNSS_DRIVER_EVENT_COLD_BOOT_CAL_START:
 			ret = cnss_cold_boot_cal_start_hdlr(plat_priv);
+			break;
+		case CNSS_DRIVER_EVENT_CAL_UPDATE:
+			ret = cnss_cal_update_hdlr(plat_priv);
 			break;
 		case CNSS_DRIVER_EVENT_COLD_BOOT_CAL_DONE:
 			ret = cnss_cold_boot_cal_done_hdlr(plat_priv);
@@ -1388,6 +1492,10 @@ int cnss_register_ramdump(struct cnss_plat_data *plat_priv)
 	case QCA6390_DEVICE_ID:
 		ret = cnss_register_ramdump_v2(plat_priv);
 		break;
+	case QCN7605_COMPOSITE_DEVICE_ID:
+	case QCN7605_STANDALONE_DEVICE_ID:
+		break;
+
 	default:
 		cnss_pr_err("Unknown device ID: 0x%lx\n", plat_priv->device_id);
 		ret = -ENODEV;
@@ -1407,6 +1515,9 @@ void cnss_unregister_ramdump(struct cnss_plat_data *plat_priv)
 	case QCA6390_EMULATION_DEVICE_ID:
 	case QCA6390_DEVICE_ID:
 		cnss_unregister_ramdump_v2(plat_priv);
+		break;
+	case QCN7605_COMPOSITE_DEVICE_ID:
+	case QCN7605_STANDALONE_DEVICE_ID:
 		break;
 	default:
 		cnss_pr_err("Unknown device ID: 0x%lx\n", plat_priv->device_id);
@@ -1537,6 +1648,38 @@ static void cnss_event_work_deinit(struct cnss_plat_data *plat_priv)
 	destroy_workqueue(plat_priv->event_wq);
 }
 
+static int cnss_misc_init(struct cnss_plat_data *plat_priv)
+{
+	int ret;
+
+	setup_timer(&plat_priv->fw_boot_timer, cnss_bus_fw_boot_timeout_hdlr,
+		    (unsigned long)plat_priv);
+
+	register_pm_notifier(&cnss_pm_notifier);
+
+	ret = device_init_wakeup(&plat_priv->plat_dev->dev, true);
+	if (ret)
+		cnss_pr_err("Failed to init platform device wakeup source, err = %d\n",
+			    ret);
+
+	init_completion(&plat_priv->power_up_complete);
+	init_completion(&plat_priv->cal_complete);
+	init_completion(&plat_priv->rddm_complete);
+	mutex_init(&plat_priv->dev_lock);
+
+	return 0;
+}
+
+static void cnss_misc_deinit(struct cnss_plat_data *plat_priv)
+{
+	complete_all(&plat_priv->rddm_complete);
+	complete_all(&plat_priv->cal_complete);
+	complete_all(&plat_priv->power_up_complete);
+	device_init_wakeup(&plat_priv->plat_dev->dev, false);
+	unregister_pm_notifier(&cnss_pm_notifier);
+	del_timer(&plat_priv->fw_boot_timer);
+}
+
 static const struct platform_device_id cnss_platform_id_table[] = {
 	{ .name = "qca6174", .driver_data = QCA6174_DEVICE_ID, },
 	{ .name = "qca6290", .driver_data = QCA6290_DEVICE_ID, },
@@ -1630,23 +1773,16 @@ static int cnss_probe(struct platform_device *plat_dev)
 	if (ret)
 		goto deinit_qmi;
 
-	setup_timer(&plat_priv->fw_boot_timer, cnss_bus_fw_boot_timeout_hdlr,
-		    (unsigned long)plat_priv);
-
-	register_pm_notifier(&cnss_pm_notifier);
-
-	ret = device_init_wakeup(&plat_dev->dev, true);
+	ret = cnss_misc_init(plat_priv);
 	if (ret)
-		cnss_pr_err("Failed to init platform device wakeup source, err = %d\n",
-			    ret);
-
-	init_completion(&plat_priv->power_up_complete);
-	mutex_init(&plat_priv->dev_lock);
+		goto destroy_debugfs;
 
 	cnss_pr_info("Platform driver probed successfully.\n");
 
 	return 0;
 
+destroy_debugfs:
+	cnss_debugfs_destroy(plat_priv);
 deinit_qmi:
 	cnss_qmi_deinit(plat_priv);
 deinit_event_work:
@@ -1676,10 +1812,7 @@ static int cnss_remove(struct platform_device *plat_dev)
 {
 	struct cnss_plat_data *plat_priv = platform_get_drvdata(plat_dev);
 
-	complete_all(&plat_priv->power_up_complete);
-	device_init_wakeup(&plat_dev->dev, false);
-	unregister_pm_notifier(&cnss_pm_notifier);
-	del_timer(&plat_priv->fw_boot_timer);
+	cnss_misc_deinit(plat_priv);
 	cnss_debugfs_destroy(plat_priv);
 	cnss_qmi_deinit(plat_priv);
 	cnss_event_work_deinit(plat_priv);

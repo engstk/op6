@@ -23,6 +23,7 @@ void lkdtm_ATOMIC_UNDERFLOW(void);
 void lkdtm_ATOMIC_OVERFLOW(void);
 void lkdtm_CORRUPT_LIST_ADD(void);
 void lkdtm_CORRUPT_LIST_DEL(void);
+void lkdtm_CORRUPT_USER_DS(void);
 
 /* lkdtm_heap.c */
 void lkdtm_OVERWRITE_ALLOCATION(void);
@@ -42,7 +43,9 @@ void lkdtm_EXEC_KMALLOC(void);
 void lkdtm_EXEC_VMALLOC(void);
 void lkdtm_EXEC_RODATA(void);
 void lkdtm_EXEC_USERSPACE(void);
+void lkdtm_EXEC_NULL(void);
 void lkdtm_ACCESS_USERSPACE(void);
+void lkdtm_ACCESS_NULL(void);
 
 /* lkdtm_rodata.c */
 void lkdtm_rodata_do_nothing(void);

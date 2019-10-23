@@ -427,9 +427,7 @@ header-y += stat.h
 header-y += stddef.h
 header-y += string.h
 header-y += suspend_ioctls.h
-header-y += sync.h
 header-y += swab.h
-header-y += sw_sync.h
 header-y += synclink.h
 header-y += sync_file.h
 header-y += sysctl.h
@@ -517,3 +515,8 @@ header-y += msm-core-interface.h
 header-y += msm_rotator.h
 header-y += bgcom_interface.h
 header-y += nfc/
+
+ifneq ($(VSERVICES_SUPPORT), "")
+include include/linux/Kbuild.vservices
+endif
+header-y += okl4-link-shbuf.h

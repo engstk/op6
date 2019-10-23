@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1667,7 +1667,7 @@ static void ipa3_cleanup_wlan_rx_common_cache(void)
 		&ipa3_ctx->wc_memb.wlan_comm_desc_list, link) {
 		list_del(&rx_pkt->link);
 		dma_unmap_single(ipa3_ctx->pdev, rx_pkt->data.dma_addr,
-				IPA_WLAN_COMM_RX_POOL_LOW, DMA_FROM_DEVICE);
+				IPA_WLAN_RX_BUFF_SZ, DMA_FROM_DEVICE);
 		dev_kfree_skb_any(rx_pkt->data.skb);
 		kmem_cache_free(ipa3_ctx->rx_pkt_wrapper_cache, rx_pkt);
 		ipa3_ctx->wc_memb.wlan_comm_free_cnt--;
@@ -2496,8 +2496,7 @@ static int ipa3_wan_rx_pyld_hdlr(struct sk_buff *skb,
 
 		IPA_STATS_INC_CNT(ipa3_ctx->stats.rx_pkts);
 		if (status.endp_dest_idx >= ipa3_ctx->ipa_num_pipes ||
-			status.endp_src_idx >= ipa3_ctx->ipa_num_pipes ||
-			status.pkt_len > IPA_GENERIC_AGGR_BYTE_LIMIT * 1024) {
+			status.endp_src_idx >= ipa3_ctx->ipa_num_pipes) {
 			IPAERR("status fields invalid\n");
 			WARN_ON(1);
 			goto bail;
@@ -2610,11 +2609,8 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 	metadata = status.metadata;
 	ucp = status.ucp;
 	ep = &ipa3_ctx->ep[src_pipe];
-	if (unlikely(src_pipe >= ipa3_ctx->ipa_num_pipes ||
-		!ep->valid ||
-		!ep->client_notify)) {
-		IPAERR("drop pipe=%d ep_valid=%d client_notify=%p\n",
-		  src_pipe, ep->valid, ep->client_notify);
+	if (unlikely(src_pipe >= ipa3_ctx->ipa_num_pipes)) {
+		IPAERR("drop pipe=%d\n", src_pipe);
 		dev_kfree_skb_any(rx_skb);
 		return;
 	}
@@ -2636,7 +2632,12 @@ void ipa3_lan_rx_cb(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 			metadata, *(u32 *)rx_skb->cb);
 	IPADBG_LOW("ucp: %d\n", *(u8 *)(rx_skb->cb + 4));
 
-	ep->client_notify(ep->priv, IPA_RECEIVE, (unsigned long)(rx_skb));
+	if (likely((!atomic_read(&ep->disconnect_in_progress)) &&
+				ep->valid && ep->client_notify))
+		ep->client_notify(ep->priv, IPA_RECEIVE,
+				(unsigned long)(rx_skb));
+	else
+		dev_kfree_skb_any(rx_skb);
 }
 
 static void ipa3_recycle_rx_wrapper(struct ipa3_rx_pkt_wrapper *rx_pkt)

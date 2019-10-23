@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -258,14 +258,9 @@ int msm_comm_ctrl_deinit(struct msm_vidc_inst *inst)
 	return 0;
 }
 
-static inline bool is_non_realtime_session(struct msm_vidc_inst *inst)
+static inline bool is_realtime_session(struct msm_vidc_inst *inst)
 {
-	int rc = 0;
-	struct v4l2_control ctrl = {
-		.id = V4L2_CID_MPEG_VIDC_VIDEO_PRIORITY
-	};
-	rc = msm_comm_g_ctrl(inst, &ctrl);
-	return (!rc && ctrl.value);
+	return !!(inst->flags & VIDC_REALTIME);
 }
 
 enum multi_stream msm_comm_get_stream_output_mode(struct msm_vidc_inst *inst)
@@ -297,17 +292,15 @@ static int msm_comm_get_mbs_per_frame(struct msm_vidc_inst *inst)
 
 static int msm_comm_get_mbs_per_sec(struct msm_vidc_inst *inst)
 {
-	int rc;
 	u32 fps;
-	struct v4l2_control ctrl;
 	int mb_per_frame;
+	u32 oper_rate;
 
 	mb_per_frame = msm_comm_get_mbs_per_frame(inst);
+	oper_rate = inst->prop.operating_rate;
 
-	ctrl.id = V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE;
-	rc = msm_comm_g_ctrl(inst, &ctrl);
-	if (!rc && ctrl.value) {
-		fps = (ctrl.value >> 16) ? ctrl.value >> 16 : 1;
+	if (oper_rate) {
+		fps = (oper_rate >> 16) ? oper_rate >> 16 : 1;
 		/*
 		 * Check if operating rate is less than fps.
 		 * If Yes, then use fps to scale the clocks
@@ -354,7 +347,7 @@ int msm_comm_get_inst_load(struct msm_vidc_inst *inst,
 	 * ----------------|----------------------|------------------------|
 	 */
 
-	if (is_non_realtime_session(inst) &&
+	if (is_realtime_session(inst) &&
 		(quirks & LOAD_CALC_IGNORE_NON_REALTIME_LOAD)) {
 		if (!inst->prop.fps) {
 			dprintk(VIDC_INFO, "instance:%pK fps = 0\n", inst);
@@ -535,7 +528,7 @@ static int msm_comm_vote_bus(struct msm_vidc_core *core)
 
 	list_for_each_entry(inst, &core->instances, list) {
 		int codec = 0, yuv = 0;
-		struct v4l2_control ctrl;
+		u32 oper_rate;
 
 		codec = inst->session_type == MSM_VIDC_DECODER ?
 			inst->fmts[OUTPUT_PORT].fourcc :
@@ -552,11 +545,11 @@ static int msm_comm_vote_bus(struct msm_vidc_core *core)
 		vote_data[i].height = max(inst->prop.height[CAPTURE_PORT],
 			inst->prop.height[OUTPUT_PORT]);
 
-		ctrl.id = V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE;
-		rc = msm_comm_g_ctrl(inst, &ctrl);
-		if (!rc && ctrl.value)
-			vote_data[i].fps = (ctrl.value >> 16) ?
-				ctrl.value >> 16 : 1;
+		oper_rate = inst->prop.operating_rate;
+
+		if (oper_rate)
+			vote_data[i].fps = (oper_rate >> 16) ?
+				oper_rate >> 16 : 1;
 		else
 			vote_data[i].fps = inst->prop.fps;
 
@@ -1645,11 +1638,11 @@ static void msm_comm_clean_notify_client(struct msm_vidc_core *core)
 	list_for_each_entry(inst, &core->instances, list) {
 		mutex_lock(&inst->lock);
 		inst->state = MSM_VIDC_CORE_INVALID;
-		mutex_unlock(&inst->lock);
 		dprintk(VIDC_WARN,
 			"%s Send sys error for inst %pK\n", __func__, inst);
 		msm_vidc_queue_v4l2_event(inst,
 				V4L2_EVENT_MSM_VIDC_SYS_ERROR);
+		mutex_unlock(&inst->lock);
 	}
 	mutex_unlock(&core->lock);
 }
@@ -1774,6 +1767,27 @@ static struct vb2_buffer *get_vb_from_device_addr(struct buf_queue *bufq,
 	return vb;
 }
 
+static bool is_eos_buffer(struct msm_vidc_inst *inst, u32 device_addr)
+{
+	struct eos_buf *temp, *next;
+	bool found = false;
+
+	mutex_lock(&inst->eosbufs.lock);
+	list_for_each_entry_safe(temp, next, &inst->eosbufs.list, list) {
+		if (temp->smem.device_addr == device_addr) {
+			found = true;
+			list_del(&temp->list);
+			msm_comm_smem_free(inst, &temp->smem);
+			kfree(temp);
+			break;
+		}
+	}
+	mutex_unlock(&inst->eosbufs.lock);
+
+	return found;
+}
+
+
 static void handle_ebd(enum hal_command_response cmd, void *data)
 {
 	struct msm_vidc_cb_data_done *response = data;
@@ -1808,6 +1822,13 @@ static void handle_ebd(enum hal_command_response cmd, void *data)
 			response->clnt_data)
 			dprintk(VIDC_INFO, "Client data != bufaddr\n");
 		empty_buf_done = (struct vidc_hal_ebd *)&response->input_done;
+		/* If this is internal EOS buffer, handle it in driver */
+		if (is_eos_buffer(inst, empty_buf_done->packet_buffer)) {
+			dprintk(VIDC_DBG, "Received EOS buffer %pK\n",
+				(void *)empty_buf_done->packet_buffer);
+			goto exit;
+		}
+
 		if (empty_buf_done) {
 			if (empty_buf_done->status == VIDC_ERR_NOT_SUPPORTED) {
 				dprintk(VIDC_INFO,
@@ -1844,7 +1865,7 @@ static void handle_ebd(enum hal_command_response cmd, void *data)
 		mutex_unlock(&inst->bufq[OUTPUT_PORT].lock);
 		msm_vidc_debugfs_update(inst, MSM_VIDC_DEBUGFS_EVENT_EBD);
 	}
-
+exit:
 	put_inst(inst);
 }
 
@@ -3502,7 +3523,6 @@ int msm_vidc_comm_cmd(void *instance, union msm_v4l2_cmd *cmd)
 		flags = dec->flags;
 	}
 
-
 	switch (which_cmd) {
 	case V4L2_QCOM_CMD_FLUSH:
 		if (core->state != VIDC_CORE_INVALID &&
@@ -3552,6 +3572,61 @@ int msm_vidc_comm_cmd(void *instance, union msm_v4l2_cmd *cmd)
 		}
 		break;
 	}
+	case V4L2_DEC_CMD_STOP:
+	{
+		struct vidc_frame_data data = {0};
+		struct hfi_device *hdev = NULL;
+		struct eos_buf *binfo = NULL;
+		u32 smem_flags = 0;
+
+		if (inst->state != MSM_VIDC_START_DONE) {
+			dprintk(VIDC_DBG,
+				"Inst = %pK is not ready for EOS\n", inst);
+			rc = -EINVAL;
+			break;
+		}
+		if (inst->session_type != MSM_VIDC_DECODER) {
+			dprintk(VIDC_DBG,
+				"Non-Decoder session. DEC_STOP is not valid\n");
+			rc = -EINVAL;
+			break;
+		}
+
+		binfo = kzalloc(sizeof(*binfo), GFP_KERNEL);
+		if (!binfo) {
+			dprintk(VIDC_ERR, "%s: Out of memory\n", __func__);
+			rc = -ENOMEM;
+			break;
+		}
+
+		if (inst->flags & VIDC_SECURE)
+			smem_flags |= SMEM_SECURE;
+
+		msm_comm_smem_alloc(inst,
+			SZ_4K, 1, smem_flags, HAL_BUFFER_INPUT, 0);
+
+		mutex_lock(&inst->eosbufs.lock);
+		list_add_tail(&binfo->list, &inst->eosbufs.list);
+		mutex_unlock(&inst->eosbufs.lock);
+
+		data.alloc_len = binfo->smem.size;
+		data.device_addr = binfo->smem.device_addr;
+		data.clnt_data = data.device_addr;
+		data.buffer_type = HAL_BUFFER_INPUT;
+		data.filled_len = 0;
+		data.offset = 0;
+		data.flags = HAL_BUFFERFLAG_EOS;
+		data.timestamp = LLONG_MAX;
+		data.extradata_addr = data.device_addr;
+		data.extradata_size = 0;
+		dprintk(VIDC_DBG, "Queueing EOS buffer %pK\n",
+			(void *)data.device_addr);
+		hdev = inst->core->device;
+
+		rc = call_hfi_op(hdev, session_etb, inst->session, &data);
+		break;
+	}
+
 	default:
 		dprintk(VIDC_ERR, "Unknown Command %d\n", which_cmd);
 		rc = -ENOTSUPP;
@@ -4266,6 +4341,26 @@ int msm_comm_release_scratch_buffers(struct msm_vidc_inst *inst,
 exit:
 	mutex_unlock(&inst->scratchbufs.lock);
 	return rc;
+}
+
+void msm_comm_release_eos_buffers(struct msm_vidc_inst *inst)
+{
+	struct eos_buf *buf, *next;
+
+	if (!inst) {
+		dprintk(VIDC_ERR,
+			"Invalid instance pointer = %pK\n", inst);
+		return;
+	}
+
+	mutex_lock(&inst->eosbufs.lock);
+	list_for_each_entry_safe(buf, next, &inst->eosbufs.list, list) {
+		list_del(&buf->list);
+		kfree(buf);
+	}
+
+	INIT_LIST_HEAD(&inst->eosbufs.list);
+	mutex_unlock(&inst->eosbufs.lock);
 }
 
 int msm_comm_release_persist_buffers(struct msm_vidc_inst *inst)

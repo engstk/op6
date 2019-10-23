@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -64,7 +64,7 @@ static const char * const clocks[] = {
 	"ahb_clk"
 };
 
-static unsigned int ib_votes[KGSL_MAX_BUSLEVELS];
+static unsigned long ib_votes[KGSL_MAX_BUSLEVELS];
 static int last_vote_buslevel;
 static int max_vote_buslevel;
 
@@ -127,7 +127,7 @@ static void _record_pwrevent(struct kgsl_device *device,
 /**
  * kgsl_get_bw() - Return latest msm bus IB vote
  */
-static unsigned int kgsl_get_bw(void)
+static unsigned long kgsl_get_bw(void)
 {
 	return ib_votes[last_vote_buslevel];
 }
@@ -141,8 +141,8 @@ static unsigned int kgsl_get_bw(void)
 static void _ab_buslevel_update(struct kgsl_pwrctrl *pwr,
 				unsigned long *ab)
 {
-	unsigned int ib = ib_votes[last_vote_buslevel];
-	unsigned int max_bw = ib_votes[max_vote_buslevel];
+	unsigned long ib = ib_votes[last_vote_buslevel];
+	unsigned long max_bw = ib_votes[max_vote_buslevel];
 
 	if (!ab)
 		return;
@@ -1462,28 +1462,23 @@ static ssize_t kgsl_pwrctrl_temp_show(struct device *dev,
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
 	struct thermal_zone_device *thermal_dev;
-	int ret, temperature = 0;
+	int i, max_temp = 0;
 
 	if (device == NULL)
-		goto done;
+		return 0;
 
 	pwr = &device->pwrctrl;
 
-	if (!pwr->tzone_name)
-		goto done;
+	for (i = 0; i < KGSL_MAX_TZONE_NAMES; i++) {
+		int temp = 0;
 
-	thermal_dev = thermal_zone_get_zone_by_name((char *)pwr->tzone_name);
-	if (thermal_dev == NULL)
-		goto done;
+		thermal_dev = thermal_zone_get_zone_by_name(
+				pwr->tzone_names[i]);
+		if (!(thermal_zone_get_temp(thermal_dev, &temp)))
+			max_temp = max_t(int, temp, max_temp);
+	}
 
-	ret = thermal_zone_get_temp(thermal_dev, &temperature);
-	if (ret)
-		goto done;
-
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			temperature);
-done:
-	return 0;
+	return scnprintf(buf, PAGE_SIZE, "%d\n", max_temp);
 }
 
 static ssize_t kgsl_pwrctrl_pwrscale_store(struct device *dev,
@@ -2414,8 +2409,9 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 	kgsl_pwrctrl_vbif_init();
 
 	/* temperature sensor name */
-	of_property_read_string(pdev->dev.of_node, "qcom,tzone-name",
-		&pwr->tzone_name);
+
+	of_property_read_string_array(pdev->dev.of_node, "tzone-names",
+		pwr->tzone_names, KGSL_MAX_TZONE_NAMES);
 
 	return result;
 
@@ -2760,6 +2756,12 @@ _aware(struct kgsl_device *device)
 		status = gmu_start(device);
 		break;
 	case KGSL_STATE_INIT:
+		/* if GMU already in FAULT */
+		if (kgsl_gmu_isenabled(device) &&
+			test_bit(GMU_FAULT, &gmu->flags)) {
+			status = -EINVAL;
+			break;
+		}
 		status = kgsl_pwrctrl_enable(device);
 		break;
 	/* The following 3 cases shouldn't occur, but don't panic. */

@@ -39,8 +39,9 @@ int fscrypt_file_open(struct inode *inode, struct file *filp)
 	dir = dget_parent(file_dentry(filp));
 	if (IS_ENCRYPTED(d_inode(dir)) &&
 	    !fscrypt_has_permitted_context(d_inode(dir), inode)) {
-		pr_warn_ratelimited("fscrypt: inconsistent encryption contexts: %lu/%lu",
-				    d_inode(dir)->i_ino, inode->i_ino);
+		fscrypt_warn(inode->i_sb,
+			     "inconsistent encryption contexts: %lu/%lu",
+			     d_inode(dir)->i_ino, inode->i_ino);
 		err = -EPERM;
 	}
 	dput(dir);
@@ -57,7 +58,7 @@ int __fscrypt_prepare_link(struct inode *inode, struct inode *dir)
 		return err;
 
 	if (!fscrypt_has_permitted_context(dir, inode))
-		return -EPERM;
+		return -EXDEV;
 
 	return 0;
 }
@@ -81,13 +82,13 @@ int __fscrypt_prepare_rename(struct inode *old_dir, struct dentry *old_dentry,
 		if (IS_ENCRYPTED(new_dir) &&
 		    !fscrypt_has_permitted_context(new_dir,
 						   d_inode(old_dentry)))
-			return -EPERM;
+			return -EXDEV;
 
 		if ((flags & RENAME_EXCHANGE) &&
 		    IS_ENCRYPTED(old_dir) &&
 		    !fscrypt_has_permitted_context(old_dir,
 						   d_inode(new_dentry)))
-			return -EPERM;
+			return -EXDEV;
 	}
 	return 0;
 }

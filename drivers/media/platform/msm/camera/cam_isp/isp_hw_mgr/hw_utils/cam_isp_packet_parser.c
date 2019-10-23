@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -105,7 +105,7 @@ static int cam_isp_update_dual_config(
 	struct cam_isp_hw_dual_isp_update_args      dual_isp_update_args;
 	uint32_t                                    outport_id;
 	uint32_t                                    ports_plane_idx;
-	size_t                                      len = 0;
+	size_t                                      len = 0, remain_len = 0;
 	uint32_t                                   *cpu_addr;
 	uint32_t                                    i, j;
 
@@ -117,9 +117,22 @@ static int cam_isp_update_dual_config(
 	if (rc)
 		return rc;
 
+	if ((len < sizeof(struct cam_isp_dual_config)) ||
+		(cmd_desc->offset >=
+		(len - sizeof(struct cam_isp_dual_config)))) {
+		CAM_ERR(CAM_UTIL, "not enough buffer provided");
+		return -EINVAL;
+	}
+	remain_len = len - cmd_desc->offset;
 	cpu_addr += (cmd_desc->offset / 4);
 	dual_config = (struct cam_isp_dual_config *)cpu_addr;
 
+	if ((dual_config->num_ports *
+		sizeof(struct cam_isp_dual_stripe_config)) >
+		(remain_len - offsetof(struct cam_isp_dual_config, stripes))) {
+		CAM_ERR(CAM_UTIL, "not enough buffer for all the dual configs");
+		return -EINVAL;
+	}
 	for (i = 0; i < dual_config->num_ports; i++) {
 
 		if (i >= CAM_ISP_IFE_OUT_RES_MAX) {
@@ -434,7 +447,7 @@ int cam_isp_add_io_buffers(
 	bool                                  fill_fence)
 {
 	int rc = 0;
-	uint64_t                            io_addr[CAM_PACKET_MAX_PLANES];
+	dma_addr_t                          io_addr[CAM_PACKET_MAX_PLANES];
 	struct cam_buf_io_cfg              *io_cfg;
 	struct cam_isp_resource_node       *res;
 	struct cam_ife_hw_mgr_res          *hw_mgr_res;
@@ -457,6 +470,7 @@ int cam_isp_add_io_buffers(
 	num_out_buf = 0;
 	num_in_buf  = 0;
 	io_cfg_used_bytes = 0;
+	prepare->pf_data->packet = prepare->packet;
 
 	/* Max one hw entries required for each base */
 	if (prepare->num_hw_update_entries + 1 >=
@@ -469,11 +483,12 @@ int cam_isp_add_io_buffers(
 
 	for (i = 0; i < prepare->packet->num_io_configs; i++) {
 		CAM_DBG(CAM_ISP, "======= io config idx %d ============", i);
-		CAM_DBG(CAM_ISP, "i %d resource_type:%d fence:%d",
-			i, io_cfg[i].resource_type, io_cfg[i].fence);
-		CAM_DBG(CAM_ISP, "format: %d", io_cfg[i].format);
-		CAM_DBG(CAM_ISP, "direction %d",
+		CAM_DBG(CAM_REQ,
+			"i %d req_id %llu resource_type:%d fence:%d direction %d",
+			i, prepare->packet->header.request_id,
+			io_cfg[i].resource_type, io_cfg[i].fence,
 			io_cfg[i].direction);
+		CAM_DBG(CAM_ISP, "format: %d", io_cfg[i].format);
 
 		if (io_cfg[i].direction == CAM_BUF_OUTPUT) {
 			res_id_out = io_cfg[i].resource_type & 0xFF;
@@ -591,13 +606,6 @@ int cam_isp_add_io_buffers(
 						"no io addr for plane%d",
 						plane_id);
 					rc = -ENOMEM;
-					return rc;
-				}
-
-				if (io_addr[plane_id] >> 32) {
-					CAM_ERR(CAM_ISP,
-						"Invalid mapped address");
-					rc = -EINVAL;
 					return rc;
 				}
 

@@ -8,6 +8,7 @@
 #include <linux/kasan-checks.h>
 #include <linux/thread_info.h>
 #include <linux/string.h>
+#include <linux/sched.h>
 #include <asm/asm.h>
 #include <asm/page.h>
 #include <asm/smap.h>
@@ -31,7 +32,12 @@
 
 #define get_ds()	(KERNEL_DS)
 #define get_fs()	(current->thread.addr_limit)
-#define set_fs(x)	(current->thread.addr_limit = (x))
+static inline void set_fs(mm_segment_t fs)
+{
+	current->thread.addr_limit = fs;
+	/* On user-mode return, check fs is correct */
+	set_thread_flag(TIF_FSCHECK);
+}
 
 #define segment_eq(a, b)	((a).seg == (b).seg)
 
@@ -292,8 +298,7 @@ do {									\
 		__put_user_asm(x, ptr, retval, "l", "k", "ir", errret);	\
 		break;							\
 	case 8:								\
-		__put_user_asm_u64((__typeof__(*ptr))(x), ptr, retval,	\
-				   errret);				\
+		__put_user_asm_u64(x, ptr, retval, errret);		\
 		break;							\
 	default:							\
 		__put_user_bad();					\
@@ -427,8 +432,10 @@ do {									\
 #define __put_user_nocheck(x, ptr, size)			\
 ({								\
 	int __pu_err;						\
+	__typeof__(*(ptr)) __pu_val;				\
+	__pu_val = x;						\
 	__uaccess_begin();					\
-	__put_user_size((x), (ptr), (size), __pu_err, -EFAULT);	\
+	__put_user_size(__pu_val, (ptr), (size), __pu_err, -EFAULT);\
 	__uaccess_end();					\
 	__builtin_expect(__pu_err, 0);				\
 })

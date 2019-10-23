@@ -44,6 +44,7 @@
 			interrupt-names = "eoc-int-en-set";
 			qcom,adc-vdd-reference = <1875>;
 			qcom,adc-full-scale-code = <0x70e4>;
+			qcom,pmic-revid = <&pmi632_revid>;
 
 			chan@0 {
 				label = "ref_gnd";
@@ -624,6 +625,7 @@
 			interrupt-names = "sc-irq";
 
 			qcom,pmic-revid = <&pmi632_revid>;
+			qcom,voltage-step-ramp;
 
 			lcdb_ldo_vreg: ldo {
 				label = "ldo";
@@ -637,6 +639,13 @@
 				regulator-name = "lcdb_ncp";
 				regulator-min-microvolt = <4000000>;
 				regulator-max-microvolt = <6000000>;
+			};
+
+			lcdb_bst_vreg: bst {
+				label = "bst";
+				regulator-name = "lcdb_bst";
+				regulator-min-microvolt = <4700000>;
+				regulator-max-microvolt = <6275000>;
 			};
 		};
 

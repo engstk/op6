@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -45,6 +45,7 @@
 			"csiphy0_clk",
 			"csi0phytimer_clk_src",
 			"csi0phytimer_clk";
+		src-clock-name = "csi0phytimer_clk_src";
 		clock-cntl-level = "svs", "turbo";
 		clock-rates =
 			<0 0 0 0 320000000 0 269333333 0>,
@@ -80,6 +81,7 @@
 			"csiphy1_clk",
 			"csi1phytimer_clk_src",
 			"csi1phytimer_clk";
+		src-clock-name = "csi1phytimer_clk_src";
 		clock-cntl-level = "svs", "turbo";
 		clock-rates =
 			<0 0 0 0 320000000 0 269333333 0>,
@@ -116,6 +118,7 @@
 			"csiphy2_clk",
 			"csi2phytimer_clk_src",
 			"csi2phytimer_clk";
+		src-clock-name = "csi2phytimer_clk_src";
 		clock-cntl-level = "svs", "turbo";
 		clock-rates =
 			<0 0 0 0 320000000 0 269333333 0>,
@@ -291,10 +294,10 @@
 				};
 
 				iova-mem-region-shared {
-					/* Shared region is 100MB long */
+					/* Shared region is 150MB long */
 					iova-region-name = "shared";
 					iova-region-start = <0x7400000>;
-					iova-region-len = <0x6400000>;
+					iova-region-len = <0x9600000>;
 					iova-region-id = <0x1>;
 					status = "ok";
 				};
@@ -302,7 +305,7 @@
 				iova-mem-region-secondary-heap {
 					/* Secondary heap region is 1MB long */
 					iova-region-name = "secheap";
-					iova-region-start = <0xd800000>;
+					iova-region-start = <0x10A00000>;
 					iova-region-len = <0x100000>;
 					iova-region-id = <0x4>;
 					status = "ok";
@@ -311,8 +314,8 @@
 				iova-mem-region-io {
 					/* IO region is approximately 3 GB */
 					iova-region-name = "io";
-					iova-region-start = <0xda00000>;
-					iova-region-len = <0xd2500000>;
+					iova-region-start = <0x10C00000>;
+					iova-region-len = <0xCF300000>;
 					iova-region-id = <0x3>;
 					status = "ok";
 				};
@@ -320,7 +323,7 @@
 				iova-mem-qdss-region {
 					/* qdss region is approximately 1MB */
 					iova-region-name = "qdss";
-					iova-region-start = <0xd900000>;
+					iova-region-start = <0x10B00000>;
 					iova-region-len = <0x100000>;
 					iova-region-id = <0x5>;
 					qdss-phy-addr = <0x16790000>;
@@ -621,6 +624,7 @@
 			<0 0 0 0 0 0 538000000 0 0 0 600000000 0 0>;
 		clock-cntl-level = "svs", "turbo";
 		src-clock-name = "ife_csid_clk_src";
+		clock-control-debugfs = "true";
 		status = "ok";
 	};
 
@@ -659,6 +663,7 @@
 			<0 0 0 0 0 0 600000000 0 0>;
 		clock-cntl-level = "svs", "svs_l1", "turbo";
 		src-clock-name = "ife_clk_src";
+		clock-control-debugfs = "true";
 		clock-names-option =  "ife_dsp_clk";
 		clocks-option = <&clock_camcc CAM_CC_IFE_0_DSP_CLK>;
 		clock-rates-option = <600000000>;
@@ -707,6 +712,7 @@
 			<0 0 0 0 0 0 538000000 0 0 0 600000000 0 0>;
 		clock-cntl-level = "svs", "turbo";
 		src-clock-name = "ife_csid_clk_src";
+		clock-control-debugfs = "true";
 		status = "ok";
 	};
 
@@ -745,6 +751,7 @@
 			<0 0 0 0 0 0 600000000 0 0>;
 		clock-cntl-level = "svs", "svs_l1", "turbo";
 		src-clock-name = "ife_clk_src";
+		clock-control-debugfs = "true";
 		clock-names-option =  "ife_dsp_clk";
 		clocks-option = <&clock_camcc CAM_CC_IFE_1_DSP_CLK>;
 		clock-rates-option = <600000000>;
@@ -790,6 +797,7 @@
 			<0 0 0 0 0 0 538000000 0 0 0 600000000 0>;
 		clock-cntl-level = "svs", "turbo";
 		src-clock-name = "ife_csid_clk_src";
+		clock-control-debugfs = "true";
 		status = "ok";
 	};
 
@@ -825,6 +833,7 @@
 			<0 0 0 0 0 0 600000000 0>;
 		clock-cntl-level = "svs", "svs_l1", "turbo";
 		src-clock-name = "ife_clk_src";
+		clock-control-debugfs = "true";
 		status = "ok";
 	};
 
@@ -892,6 +901,7 @@
 			"ipe_0_clk",
 			"ipe_0_clk_src";
 		src-clock-name = "ipe_0_clk_src";
+		clock-control-debugfs = "true";
 		clocks = <&clock_camcc CAM_CC_IPE_0_AHB_CLK>,
 				<&clock_camcc CAM_CC_IPE_0_AREG_CLK>,
 				<&clock_camcc CAM_CC_IPE_0_AXI_CLK>,
@@ -922,6 +932,7 @@
 			"ipe_1_clk",
 			"ipe_1_clk_src";
 		src-clock-name = "ipe_1_clk_src";
+		clock-control-debugfs = "true";
 		clocks = <&clock_camcc CAM_CC_IPE_1_AHB_CLK>,
 				<&clock_camcc CAM_CC_IPE_1_AREG_CLK>,
 				<&clock_camcc CAM_CC_IPE_1_AXI_CLK>,
@@ -952,6 +963,7 @@
 			"bps_clk",
 			"bps_clk_src";
 		src-clock-name = "bps_clk_src";
+		clock-control-debugfs = "true";
 		clocks = <&clock_camcc CAM_CC_BPS_AHB_CLK>,
 				<&clock_camcc CAM_CC_BPS_AREG_CLK>,
 				<&clock_camcc CAM_CC_BPS_AXI_CLK>,
@@ -1074,6 +1086,7 @@
 			<&clock_camcc CAM_CC_FD_CORE_CLK>,
 			<&clock_camcc CAM_CC_FD_CORE_UAR_CLK>;
 		src-clock-name = "fd_core_clk_src";
+		clock-control-debugfs = "true";
 		clock-cntl-level = "svs", "svs_l1", "turbo";
 		clock-rates =
 			<0 0 0 0 0 400000000 0 0>,

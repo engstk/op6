@@ -27,6 +27,7 @@
 #include <linux/stm.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
+#include <linux/vmalloc.h>
 #include "stm.h"
 
 #include <uapi/linux/stm.h>
@@ -226,8 +227,8 @@ stm_output_disclaim(struct stm_device *stm, struct stm_output *output)
 	bitmap_release_region(&master->chan_map[0], output->channel,
 			      ilog2(output->nr_chans));
 
-	output->nr_chans = 0;
 	master->nr_free += output->nr_chans;
+	output->nr_chans = 0;
 }
 
 /*
@@ -252,6 +253,9 @@ static int find_free_channels(unsigned long *bitmap, unsigned int start,
 			;
 		if (i == width)
 			return pos;
+
+		/* step over [pos..pos+i) to continue search */
+		pos += i;
 	}
 
 	return -1;
@@ -564,7 +568,7 @@ static int stm_char_policy_set_ioctl(struct stm_file *stmf, void __user *arg)
 {
 	struct stm_device *stm = stmf->stm;
 	struct stp_policy_id *id;
-	int ret = -EINVAL;
+	int ret = -EINVAL, wlimit = 1;
 	u32 size;
 
 	if (stmf->output.nr_chans)
@@ -592,8 +596,10 @@ static int stm_char_policy_set_ioctl(struct stm_file *stmf, void __user *arg)
 	if (id->__reserved_0 || id->__reserved_1)
 		goto err_free;
 
-	if (id->width < 1 ||
-	    id->width > PAGE_SIZE / stm->data->sw_mmiosz)
+	if (stm->data->sw_mmiosz)
+		wlimit = PAGE_SIZE / stm->data->sw_mmiosz;
+
+	if (id->width < 1 || id->width > wlimit)
 		goto err_free;
 
 	ret = stm_file_assign(stmf, id->id, id->width);
@@ -689,7 +695,7 @@ static void stm_device_release(struct device *dev)
 {
 	struct stm_device *stm = to_stm_device(dev);
 
-	kfree(stm);
+	vfree(stm);
 }
 
 int stm_register_device(struct device *parent, struct stm_data *stm_data,
@@ -706,7 +712,7 @@ int stm_register_device(struct device *parent, struct stm_data *stm_data,
 		return -EINVAL;
 
 	nmasters = stm_data->sw_end - stm_data->sw_start + 1;
-	stm = kzalloc(sizeof(*stm) + nmasters * sizeof(void *), GFP_KERNEL);
+	stm = vzalloc(sizeof(*stm) + nmasters * sizeof(void *));
 	if (!stm)
 		return -ENOMEM;
 
@@ -759,7 +765,7 @@ err_device:
 	/* matches device_initialize() above */
 	put_device(&stm->dev);
 err_free:
-	kfree(stm);
+	vfree(stm);
 
 	return err;
 }

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1206,6 +1206,7 @@ void *msm_vidc_open(int core_id, int session_type)
 	INIT_MSM_VIDC_LIST(&inst->pending_getpropq);
 	INIT_MSM_VIDC_LIST(&inst->outputbufs);
 	INIT_MSM_VIDC_LIST(&inst->registeredbufs);
+	INIT_MSM_VIDC_LIST(&inst->eosbufs);
 
 	kref_init(&inst->kref);
 
@@ -1278,13 +1279,12 @@ void *msm_vidc_open(int core_id, int session_type)
 
 	return inst;
 fail_init:
+	mutex_lock(&core->lock);
 	v4l2_fh_del(&inst->event_handler);
 	v4l2_fh_exit(&inst->event_handler);
-	vb2_queue_release(&inst->bufq[OUTPUT_PORT].vb2_bufq);
-
-	mutex_lock(&core->lock);
 	list_del(&inst->list);
 	mutex_unlock(&core->lock);
+	vb2_queue_release(&inst->bufq[OUTPUT_PORT].vb2_bufq);
 
 fail_bufq_output:
 	vb2_queue_release(&inst->bufq[CAPTURE_PORT].vb2_bufq);
@@ -1292,6 +1292,7 @@ fail_bufq_capture:
 	msm_comm_ctrl_deinit(inst);
 	msm_smem_delete_client(inst->mem_client);
 fail_mem_client:
+	DEINIT_MSM_VIDC_LIST(&inst->eosbufs);
 	kfree(inst);
 	inst = NULL;
 err_invalid_core:
@@ -1322,6 +1323,8 @@ static void cleanup_instance(struct msm_vidc_inst *inst)
 			dprintk(VIDC_ERR,
 				"Failed to release persist buffers\n");
 		}
+
+		msm_comm_release_eos_buffers(inst);
 
 		if (msm_comm_release_output_buffers(inst)) {
 			dprintk(VIDC_ERR,
@@ -1363,6 +1366,8 @@ int msm_vidc_destroy(struct msm_vidc_inst *inst)
 
 	for (i = 0; i < MAX_PORT_NUM; i++)
 		vb2_queue_release(&inst->bufq[i].vb2_bufq);
+
+	DEINIT_MSM_VIDC_LIST(&inst->eosbufs);
 
 	mutex_destroy(&inst->sync_lock);
 	mutex_destroy(&inst->bufq[CAPTURE_PORT].lock);

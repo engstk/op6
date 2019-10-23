@@ -113,14 +113,19 @@
  * @type:       integer (intval)
  * @value:      0 (USB/USB2) or 1 (USB3)
  * @default:    0 (USB/USB2)
+ * -EXTCON_PROP_USB_PD_CONTRACT
+ * @type:	integer (intval)
+ * @value:	0 (bus powered) or 1 (self powered)
+ * @default:	0 (bus powered)
  *
  */
 #define EXTCON_PROP_USB_VBUS		0
 #define EXTCON_PROP_USB_TYPEC_POLARITY	1
 #define EXTCON_PROP_USB_SS		2
+#define EXTCON_PROP_USB_PD_CONTRACT	3
 
 #define EXTCON_PROP_USB_MIN		0
-#define EXTCON_PROP_USB_MAX		2
+#define EXTCON_PROP_USB_MAX		3
 #define EXTCON_PROP_USB_CNT	(EXTCON_PROP_USB_MAX - EXTCON_PROP_USB_MIN + 1)
 
 /* Properties of EXTCON_TYPE_CHG. */
@@ -312,7 +317,7 @@ extern struct extcon_dev *extcon_get_edev_by_phandle(struct device *dev,
 extern const char *extcon_get_edev_name(struct extcon_dev *edev);
 
 extern int extcon_blocking_sync(struct extcon_dev *edev, unsigned int id,
-							bool val);
+							u8 val);
 #else /* CONFIG_EXTCON */
 static inline int extcon_dev_register(struct extcon_dev *edev)
 {

@@ -29,6 +29,7 @@
 #include "msm_camera_io_util.h"
 #include "cam_hw_ops.h"
 #include "cam_soc_api.h"
+#include <media/adsp-shmem-device.h>
 
 #ifdef CONFIG_MSM_ISPIF_V1
 #include "msm_ispif_hwreg_v1.h"
@@ -212,32 +213,34 @@ static long msm_ispif_cmd_ext(struct v4l2_subdev *sd,
 	long rc = 0;
 	struct ispif_device *ispif =
 		(struct ispif_device *)v4l2_get_subdevdata(sd);
-	struct ispif_cfg_data_ext pcdata;
+	struct ispif_cfg_data_ext pcdata = {0};
 	struct msm_ispif_param_data_ext *params = NULL;
+
+	if (is_compat_task()) {
 #ifdef CONFIG_COMPAT
-	struct ispif_cfg_data_ext_32 *pcdata32 =
-		(struct ispif_cfg_data_ext_32 *)arg;
+		struct ispif_cfg_data_ext_32 *pcdata32 =
+			(struct ispif_cfg_data_ext_32 *)arg;
 
-	if (pcdata32 == NULL) {
-		pr_err("Invalid params passed from user\n");
-		return -EINVAL;
-	}
-	pcdata.cfg_type  = pcdata32->cfg_type;
-	pcdata.size = pcdata32->size;
-	pcdata.data = compat_ptr(pcdata32->data);
-
-#else
-	struct ispif_cfg_data_ext *pcdata64 =
+		if (pcdata32 == NULL) {
+			pr_err("Invalid params passed from user\n");
+			return -EINVAL;
+		}
+		pcdata.cfg_type  = pcdata32->cfg_type;
+		pcdata.size = pcdata32->size;
+		pcdata.data = compat_ptr(pcdata32->data);
+#endif
+	} else {
+		struct ispif_cfg_data_ext *pcdata64 =
 		(struct ispif_cfg_data_ext *)arg;
 
-	if (pcdata64 == NULL) {
-		pr_err("Invalid params passed from user\n");
-		return -EINVAL;
+		if (pcdata64 == NULL) {
+			pr_err("Invalid params passed from user\n");
+			return -EINVAL;
+		}
+		pcdata.cfg_type  = pcdata64->cfg_type;
+		pcdata.size = pcdata64->size;
+		pcdata.data = pcdata64->data;
 	}
-	pcdata.cfg_type  = pcdata64->cfg_type;
-	pcdata.size = pcdata64->size;
-	pcdata.data = pcdata64->data;
-#endif
 	if (pcdata.size != sizeof(struct msm_ispif_param_data_ext)) {
 		pr_err("%s: payload size mismatch\n", __func__);
 		return -EINVAL;
@@ -444,6 +447,13 @@ static int msm_ispif_reset_hw(struct ispif_device *ispif)
 	memset(ispif->stereo_configured, 0, sizeof(ispif->stereo_configured));
 	atomic_set(&ispif->reset_trig[VFE0], 1);
 	/* initiate reset of ISPIF */
+
+
+	if (adsp_shmem_get_state() != CAMERA_STATUS_END) {
+		pr_info("%s camera is in use by aDSP\n", __func__);
+		return rc;
+	}
+
 	msm_camera_io_w(ISPIF_RST_CMD_MASK,
 				ispif->base + ISPIF_RST_CMD_ADDR);
 

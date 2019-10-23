@@ -22,6 +22,7 @@
 #include <linux/spmi.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <linux/err.h>
 #include <linux/delay.h>
 #include <linux/leds-qpnp-wled.h>
@@ -420,6 +421,7 @@ struct qpnp_wled {
 	bool			prev_state;
 	bool			stepper_en;
 	bool			ovp_irq_disabled;
+	bool			secure_mode;
 	bool			auto_calib_enabled;
 	bool			auto_calib_done;
 	bool			module_dis_perm;
@@ -936,6 +938,46 @@ static ssize_t qpnp_wled_ramp_step_store(struct device *dev,
 	return count;
 }
 
+/* sysfs function for irqs enable/disable */
+static ssize_t qpnp_wled_irq_control(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	struct qpnp_wled *wled = dev_get_drvdata(dev);
+	int val, rc;
+
+	rc = kstrtouint(buf, 0, &val);
+	if (rc < 0)
+		return rc;
+
+	if (val != 0 && val != 1)
+		return count;
+
+	mutex_lock(&wled->lock);
+	/* Disable irqs */
+	if (val == 1 && !wled->secure_mode) {
+		if (wled->ovp_irq > 0)
+			disable_irq(wled->ovp_irq);
+
+		if (wled->sc_irq > 0)
+			disable_irq(wled->sc_irq);
+
+		wled->secure_mode = true;
+	} else if (val == 0 && wled->secure_mode) {
+		if (wled->ovp_irq > 0)
+			enable_irq(wled->ovp_irq);
+
+		if (wled->sc_irq > 0)
+			enable_irq(wled->sc_irq);
+
+		wled->secure_mode = false;
+	}
+
+	mutex_unlock(&wled->lock);
+
+	return count;
+}
+
 /* sysfs show function for dim mode */
 static ssize_t qpnp_wled_dim_mode_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1055,6 +1097,7 @@ static struct device_attribute qpnp_wled_attrs[] = {
 	__ATTR(ramp_ms, 0664, qpnp_wled_ramp_ms_show, qpnp_wled_ramp_ms_store),
 	__ATTR(ramp_step, 0664, qpnp_wled_ramp_step_show,
 		qpnp_wled_ramp_step_store),
+	__ATTR(secure_mode, 0664, NULL, qpnp_wled_irq_control),
 };
 
 /* worker for setting wled brightness */
@@ -1066,6 +1109,12 @@ static void qpnp_wled_work(struct work_struct *work)
 	wled = container_of(work, struct qpnp_wled, work);
 
 	mutex_lock(&wled->lock);
+
+	if (wled->secure_mode) {
+		pr_debug("Can not set brightness in secure_mode\n ");
+		goto unlock_mutex;
+	}
+
 	level = wled->cdev.brightness;
 
 	if (wled->brt_map_table) {
@@ -2041,22 +2090,26 @@ static int qpnp_wled_config(struct qpnp_wled *wled)
 		return rc;
 
 	/* Configure the HYBRID THRESHOLD register */
-	if (wled->hyb_thres < QPNP_WLED_HYB_THRES_MIN)
-		wled->hyb_thres = QPNP_WLED_HYB_THRES_MIN;
-	else if (wled->hyb_thres > QPNP_WLED_HYB_THRES_MAX)
-		wled->hyb_thres = QPNP_WLED_HYB_THRES_MAX;
+	if (wled->dim_mode == QPNP_WLED_DIM_HYBRID) {
+		if (wled->hyb_thres < QPNP_WLED_HYB_THRES_MIN)
+			wled->hyb_thres = QPNP_WLED_HYB_THRES_MIN;
+		else if (wled->hyb_thres > QPNP_WLED_HYB_THRES_MAX)
+			wled->hyb_thres = QPNP_WLED_HYB_THRES_MAX;
 
-	rc = qpnp_wled_read_reg(wled, QPNP_WLED_HYB_THRES_REG(wled->sink_base),
-			&reg);
-	if (rc < 0)
-		return rc;
-	reg &= QPNP_WLED_HYB_THRES_MASK;
-	temp = fls(wled->hyb_thres / QPNP_WLED_HYB_THRES_MIN) - 1;
-	reg |= temp;
-	rc = qpnp_wled_write_reg(wled, QPNP_WLED_HYB_THRES_REG(wled->sink_base),
-			reg);
-	if (rc)
-		return rc;
+		rc = qpnp_wled_read_reg(wled,
+				QPNP_WLED_HYB_THRES_REG(wled->sink_base),
+				&reg);
+		if (rc < 0)
+			return rc;
+		reg &= QPNP_WLED_HYB_THRES_MASK;
+		temp = fls(wled->hyb_thres / QPNP_WLED_HYB_THRES_MIN) - 1;
+		reg |= temp;
+		rc = qpnp_wled_write_reg(wled,
+				QPNP_WLED_HYB_THRES_REG(wled->sink_base),
+				reg);
+		if (rc)
+			return rc;
+	}
 
 	/* Configure TEST5 register */
 	if (wled->dim_mode == QPNP_WLED_DIM_DIGITAL) {
@@ -2162,6 +2215,7 @@ static int qpnp_wled_config(struct qpnp_wled *wled)
 
 	/* setup ovp and sc irqs */
 	if (wled->ovp_irq >= 0) {
+		irq_set_status_flags(wled->ovp_irq, IRQ_DISABLE_UNLAZY);
 		rc = devm_request_threaded_irq(&wled->pdev->dev, wled->ovp_irq,
 				NULL, qpnp_wled_ovp_irq_handler, IRQF_ONESHOT,
 				"qpnp_wled_ovp_irq", wled);
@@ -2182,6 +2236,7 @@ static int qpnp_wled_config(struct qpnp_wled *wled)
 
 	if (wled->sc_irq >= 0) {
 		wled->sc_cnt = 0;
+		irq_set_status_flags(wled->sc_irq, IRQ_DISABLE_UNLAZY);
 		rc = devm_request_threaded_irq(&wled->pdev->dev, wled->sc_irq,
 				NULL, qpnp_wled_sc_irq_handler, IRQF_ONESHOT,
 				"qpnp_wled_sc_irq", wled);
@@ -2591,9 +2646,10 @@ static int qpnp_wled_parse_dt(struct qpnp_wled *wled)
 	else
 		wled->max_strings = QPNP_WLED_MAX_STRINGS;
 
+	temp_val = 0;
 	prop = of_find_property(pdev->dev.of_node,
 			"qcom,led-strings-list", &temp_val);
-	if (!prop || !temp_val || temp_val > QPNP_WLED_MAX_STRINGS) {
+	if (!prop || temp_val > QPNP_WLED_MAX_STRINGS) {
 		dev_err(&pdev->dev, "Invalid strings info, use default");
 		wled->num_strings = wled->max_strings;
 		for (i = 0; i < wled->num_strings; i++)

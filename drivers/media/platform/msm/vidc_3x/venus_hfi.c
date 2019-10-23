@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, 2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,7 @@
 #define FIRMWARE_SIZE			0X00A00000
 #define REG_ADDR_OFFSET_BITMASK	0x000FFFFF
 #define QDSS_IOVA_START 0x80001000
+#define MIN_PAYLOAD_SIZE 3
 
 static struct hal_device_data hal_ctxt;
 
@@ -1587,7 +1588,7 @@ static int __iface_cmdq_write_relaxed(struct venus_hfi_device *device,
 	__strict_check(device);
 
 	if (!__core_in_valid_state(device)) {
-		dprintk(VIDC_DBG, "%s - fw not in init state\n", __func__);
+		dprintk(VIDC_ERR, "%s - fw not in init state\n", __func__);
 		result = -EINVAL;
 		goto err_q_null;
 	}
@@ -3337,8 +3338,6 @@ static void __process_sys_error(struct venus_hfi_device *device)
 {
 	struct hfi_sfr_struct *vsfr = NULL;
 
-	__set_state(device, VENUS_STATE_DEINIT);
-
 	/* Once SYS_ERROR received from HW, it is safe to halt the AXI.
 	 * With SYS_ERROR, Venus FW may have crashed and HW might be
 	 * active and causing unnecessary transactions. Hence it is
@@ -3382,11 +3381,35 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 		local_packet = true;
 	}
 
+#define SKIP_INVALID_PKT(pkt_size, payload_size, pkt_hdr_size) ({ \
+		if (pkt_size < pkt_hdr_size || \
+			payload_size < MIN_PAYLOAD_SIZE || \
+			payload_size > \
+			(pkt_size - pkt_hdr_size + sizeof(u8))) { \
+			dprintk(VIDC_ERR, \
+				"%s: invalid msg size - %d\n", \
+				__func__, pkt->msg_size); \
+			continue; \
+		} \
+	})
+
 	while (!__iface_dbgq_read(device, packet)) {
-		struct hfi_msg_sys_coverage_packet *pkt =
-			(struct hfi_msg_sys_coverage_packet *) packet;
+		struct hfi_packet_header *pkt =
+			(struct hfi_packet_header *) packet;
+
+		if (pkt->size < sizeof(struct hfi_packet_header)) {
+			dprintk(VIDC_ERR, "Invalid pkt size - %s\n",
+				__func__);
+			continue;
+		}
+
 		if (pkt->packet_type == HFI_MSG_SYS_COV) {
+			struct hfi_msg_sys_coverage_packet *pkt =
+				(struct hfi_msg_sys_coverage_packet *) packet;
 			int stm_size = 0;
+
+			SKIP_INVALID_PKT(pkt->size,
+				pkt->msg_size, sizeof(*pkt));
 
 			stm_size = stm_log_inv_ts(0, 0,
 				pkt->rg_msg_data, pkt->msg_size);
@@ -3394,12 +3417,19 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 				dprintk(VIDC_ERR,
 					"In %s, stm_log returned size of 0\n",
 					__func__);
-		} else {
+
+		} else if (pkt->packet_type == HFI_MSG_SYS_DEBUG) {
 			struct hfi_msg_sys_debug_packet *pkt =
 				(struct hfi_msg_sys_debug_packet *) packet;
+
+			SKIP_INVALID_PKT(pkt->size,
+				pkt->msg_size, sizeof(*pkt));
+
+			pkt->rg_msg_data[pkt->msg_size-1] = '\0';
 			dprintk(VIDC_FW, "%s", pkt->rg_msg_data);
 		}
 	}
+#undef SKIP_INVALID_PKT
 
 	if (local_packet)
 		kfree(packet);
@@ -3581,6 +3611,9 @@ static int __response_handler(struct venus_hfi_device *device)
 					"Too many packets in message queue to handle at once, deferring read\n");
 			break;
 		}
+		/* do not read packets after sys error packet */
+		if (info->response_type == HAL_SYS_ERROR)
+			break;
 	}
 
 	if (requeue_pm_work && device->res->sw_power_collapsible) {
@@ -3644,6 +3677,12 @@ err_no_work:
 		i < num_responses; ++i) {
 		struct msm_vidc_cb_info *r = &device->response_pkt[i];
 
+		if (!__core_in_valid_state(device)) {
+			dprintk(VIDC_ERR,
+				"Ignore responses from %d to %d as device is in invalid state",
+				(i + 1), num_responses);
+			break;
+		}
 		device->callback(r->response_type, &r->response);
 	}
 

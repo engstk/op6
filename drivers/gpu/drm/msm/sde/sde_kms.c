@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -924,6 +924,12 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
 		SDE_ERROR("failed to enable power resource %d\n", rc);
 		SDE_EVT32(rc, SDE_EVTLOG_ERROR);
 		return;
+	}
+
+	if (sde_kms->first_kickoff) {
+		sde_power_scale_reg_bus(&priv->phandle, sde_kms->core_client,
+			VOTE_INDEX_HIGH, false);
+		sde_kms->first_kickoff = false;
 	}
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
@@ -2658,7 +2664,15 @@ static int sde_kms_cont_splash_config(struct msm_kms *kms)
 		SDE_DEBUG("info.is_connected = %s, info.is_primary = %s\n",
 			((info.is_connected) ? "true" : "false"),
 			((info.is_primary) ? "true" : "false"));
-		break;
+
+		/**
+		 * Since we are supporting one DSI for splash, use the display
+		 * which is marked as primary.
+		 */
+		if (!info.is_primary)
+			continue;
+		else
+			break;
 	}
 
 	if (!encoder) {
@@ -3083,8 +3097,10 @@ static void sde_kms_handle_power_event(u32 event_type, void *usr)
 	if (event_type == SDE_POWER_EVENT_POST_ENABLE) {
 		sde_irq_update(msm_kms, true);
 		sde_vbif_init_memtypes(sde_kms);
+		sde_kms->first_kickoff = true;
 	} else if (event_type == SDE_POWER_EVENT_PRE_DISABLE) {
 		sde_irq_update(msm_kms, false);
+		sde_kms->first_kickoff = false;
 	}
 }
 
@@ -3275,6 +3291,13 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 	if (rc)
 		SDE_DEBUG("sde splash data fetch failed: %d\n", rc);
 
+	for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++) {
+		priv->phandle.data_bus_handle[i].ab_rt =
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_AB_QUOTA;
+		priv->phandle.data_bus_handle[i].ib_rt =
+			SDE_POWER_HANDLE_CONT_SPLASH_BUS_IB_QUOTA;
+	}
+
 	rc = sde_power_resource_enable(&priv->phandle, sde_kms->core_client,
 		true);
 	if (rc) {
@@ -3404,6 +3427,8 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 	dev->mode_config.max_height = sde_kms->catalog->max_display_height;
 
 	mutex_init(&sde_kms->secure_transition_lock);
+	mutex_init(&sde_kms->vblank_ctl_global_lock);
+
 	atomic_set(&sde_kms->detach_sec_cb, 0);
 	atomic_set(&sde_kms->detach_all_cb, 0);
 

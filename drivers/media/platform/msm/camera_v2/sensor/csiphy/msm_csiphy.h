@@ -83,8 +83,6 @@ struct csiphy_reg_snps_parms_t {
 	struct csiphy_reg_t mipi_csiphy_irq_mask_ctrl_lane_0;
 	struct csiphy_reg_t mipi_csiphy_irq_mask_ctrl_lane_clk_0;
 	struct csiphy_reg_t mipi_csiphy_rx_sys_7_00;
-	struct csiphy_reg_t mipi_csiphy_rx_sys_9_00;
-	struct csiphy_reg_t mipi_csiphy_rx_startup_ovr_0_00;
 	struct csiphy_reg_t mipi_csiphy_rx_startup_ovr_1_00;
 	struct csiphy_reg_t mipi_csiphy_rx_startup_ovr_2_00;
 	struct csiphy_reg_t mipi_csiphy_rx_startup_ovr_3_00;
@@ -99,6 +97,10 @@ struct csiphy_reg_snps_parms_t {
 	struct csiphy_reg_t mipi_csiphy_rx_lane_0_7_00;
 	struct csiphy_reg_t mipi_csiphy_rx_lane_1_7_00;
 	struct csiphy_reg_t mipi_csiphy_rx_clk_lane_7_00;
+	struct csiphy_reg_t mipi_csiphy_rx_lane0_ddl_2_00;
+	struct csiphy_reg_t mipi_csiphy_rx_lane0_ddl_3_00;
+	struct csiphy_reg_t mipi_csiphy_rx_lane_1_10_00;
+	struct csiphy_reg_t mipi_csiphy_rx_lane_1_11_00;
 };
 
 struct csiphy_reg_3ph_parms_t {

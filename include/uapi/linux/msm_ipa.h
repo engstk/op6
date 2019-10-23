@@ -36,6 +36,11 @@
 #define IPA_DFLT_RT_TBL_NAME "ipa_dflt_rt"
 
 /**
+ * name for default value of invalid protocol of NAT
+ */
+#define IPAHAL_NAT_INVALID_PROTOCOL   0xFF
+
+/**
  * commands supported by IPA driver
  */
 #define IPA_IOCTL_ADD_HDR                       0
@@ -100,6 +105,10 @@
 #define IPA_IOCTL_GET_VLAN_MODE                 58
 #define IPA_IOCTL_ADD_BRIDGE_VLAN_MAPPING       59
 #define IPA_IOCTL_DEL_BRIDGE_VLAN_MAPPING       60
+#define IPA_IOCTL_GSB_CONNECT                   61
+#define IPA_IOCTL_GSB_DISCONNECT                62
+
+
 
 /**
  * max size of the header to be inserted
@@ -172,11 +181,13 @@
 #define IPA_FLT_TCP_SYN_L2TP		(1ul << 24)
 #define IPA_FLT_L2TP_INNER_IP_TYPE  (1ul << 25)
 #define IPA_FLT_L2TP_INNER_IPV4_DST_ADDR (1ul << 26)
+#define IPA_FLT_IS_PURE_ACK		(1ul << 27)
 
 /**
  * maximal number of NAT PDNs in the PDN config table
  */
 #define IPA_MAX_PDN_NUM 5
+#define IPA_ADPL_MHI_OVER_PCIE
 
 /**
  * enum ipa_client_type - names for the various IPA "clients"
@@ -296,11 +307,30 @@ enum ipa_client_type {
 	IPA_CLIENT_TEST4_PROD			= 70,
 	IPA_CLIENT_TEST4_CONS			= 71,
 
-	/* RESERVERD PROD				= 72, */
-	IPA_CLIENT_DUMMY_CONS			= 73
+	/* RESERVERD PROD		            = 72, */
+	IPA_CLIENT_DUMMY_CONS                      = 73,
+
+	/* RESERVERD PROD                            = 74, */
+	IPA_CLIENT_MHI_DPL_CONS                 = 75,
+	/* RESERVED PROD                             = 76, */
+	IPA_CLIENT_DUMMY_CONS1			= 77,
+
+	IPA_CLIENT_WIGIG_PROD			= 78,
+	IPA_CLIENT_WIGIG1_CONS			= 79,
+
+	/* RESERVERD PROD			     = 80, */
+	IPA_CLIENT_WIGIG2_CONS			= 81,
+
+	/* RESERVERD PROD			     = 82, */
+	IPA_CLIENT_WIGIG3_CONS			= 83,
+
+	/* RESERVERD PROD			     = 84, */
+	IPA_CLIENT_WIGIG4_CONS			= 85,
 };
 
-#define IPA_CLIENT_MAX (IPA_CLIENT_DUMMY_CONS + 1)
+#define IPA_CLIENT_DUMMY_CONS IPA_CLIENT_DUMMY_CONS1
+#define IPA_CLIENT_WIGIG4_CONS IPA_CLIENT_WIGIG4_CONS
+#define IPA_CLIENT_MAX (IPA_CLIENT_WIGIG4_CONS + 1)
 
 #define IPA_CLIENT_IS_APPS_CONS(client) \
 	((client) == IPA_CLIENT_APPS_LAN_CONS || \
@@ -366,11 +396,14 @@ enum ipa_client_type {
 	(client) == IPA_CLIENT_MEMCPY_DMA_ASYNC_PROD)
 
 #define IPA_CLIENT_IS_MHI_CONS(client) \
-	((client) == IPA_CLIENT_MHI_CONS)
+	((client) == IPA_CLIENT_MHI_CONS || \
+	(client) == IPA_CLIENT_MHI_DPL_CONS)
+
 
 #define IPA_CLIENT_IS_MHI(client) \
 	((client) == IPA_CLIENT_MHI_CONS || \
-	(client) == IPA_CLIENT_MHI_PROD)
+	(client) == IPA_CLIENT_MHI_PROD || \
+	(client) == IPA_CLIENT_MHI_DPL_CONS)
 
 #define IPA_CLIENT_IS_TEST_PROD(client) \
 	((client) == IPA_CLIENT_TEST_PROD || \
@@ -520,7 +553,24 @@ enum ipa_vlan_bridge_event {
 	BRIDGE_VLAN_MAPPING_MAX
 };
 
-#define IPA_EVENT_MAX_NUM (BRIDGE_VLAN_MAPPING_MAX)
+enum ipa_wlan_fw_ssr_event {
+	WLAN_FWR_SSR_BEFORE_SHUTDOWN = BRIDGE_VLAN_MAPPING_MAX,
+	IPA_WLAN_FW_SSR_EVENT_MAX
+#define IPA_WLAN_FW_SSR_EVENT_MAX IPA_WLAN_FW_SSR_EVENT_MAX
+};
+
+enum ipa_gsb_event {
+	IPA_GSB_CONNECT = IPA_WLAN_FW_SSR_EVENT_MAX,
+	IPA_GSB_DISCONNECT,
+	IPA_GSB_EVENT_MAX,
+#define IPA_GSB_EVENT_MAX IPA_GSB_EVENT_MAX
+};
+
+#define WIGIG_CLIENT_CONNECT (IPA_GSB_EVENT_MAX)
+#define WIGIG_FST_SWITCH (WIGIG_CLIENT_CONNECT + 1)
+#define WIGIG_EVENT_MAX (WIGIG_FST_SWITCH + 1)
+
+#define IPA_EVENT_MAX_NUM (WIGIG_EVENT_MAX)
 #define IPA_EVENT_MAX ((int)IPA_EVENT_MAX_NUM)
 
 /**
@@ -580,6 +630,9 @@ enum ipa_rm_resource_name {
  * @IPA_HW_v3_5: IPA hardware version 3.5
  * @IPA_HW_v3_5_1: IPA hardware version 3.5.1
  * @IPA_HW_v4_0: IPA hardware version 4.0
+ * @IPA_HW_v4_1: IPA hardware version 4.1
+ * @IPA_HW_v4_2: IPA hardware version 4.2
+ * @IPA_HW_v4_5: IPA hardware version 4.5
  */
 enum ipa_hw_type {
 	IPA_HW_None = 0,
@@ -595,10 +648,16 @@ enum ipa_hw_type {
 	IPA_HW_v3_5 = 12,
 	IPA_HW_v3_5_1 = 13,
 	IPA_HW_v4_0 = 14,
+	IPA_HW_v4_1 = 15,
+	IPA_HW_v4_2 = 16,
+	IPA_HW_v4_5 = 17,
 };
-#define IPA_HW_MAX (IPA_HW_v4_0 + 1)
+#define IPA_HW_MAX (IPA_HW_v4_5 + 1)
 
 #define IPA_HW_v4_0 IPA_HW_v4_0
+#define IPA_HW_v4_1 IPA_HW_v4_1
+#define IPA_HW_v4_2 IPA_HW_v4_2
+#define IPA_HW_v4_5 IPA_HW_v4_5
 
 /**
  * struct ipa_rule_attrib - attributes of a routing/filtering
@@ -1676,6 +1735,14 @@ struct ipa_ioc_l2tp_vlan_mapping_info {
 };
 
 /**
+ * struct ipa_ioc_gsb_info - connect/disconnect
+ * @name: interface name
+ */
+struct ipa_ioc_gsb_info {
+	char name[IPA_RESOURCE_NAME_MAX];
+};
+
+/**
  * struct ipa_msg_meta - Format of the message meta-data.
  * @msg_type: the type of the message
  * @rsvd: reserved bits for future use.
@@ -1713,6 +1780,23 @@ struct ipa_wlan_msg {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint8_t mac_addr[IPA_MAC_ADDR_SIZE];
 };
+
+/**
+ * struct ipa_wigig_msg- To hold information about wigig event
+ * @name: name of the wigig interface
+ * @client_mac_addr: the relevant wigig client mac address
+ * @ipa_client: TX pipe associated with the wigig client in case of connect
+ * @to_wigig: FST switch direction wlan->wigig?
+ */
+struct ipa_wigig_msg {
+	char name[IPA_RESOURCE_NAME_MAX];
+	uint8_t client_mac_addr[IPA_MAC_ADDR_SIZE];
+	union {
+		enum ipa_client_type ipa_client;
+		uint8_t to_wigig;
+	} u;
+};
+#define feature_ipa_wigig_msg 1
 
 /**
  * enum ipa_wlan_hdr_attrib_type - attribute type
@@ -1811,16 +1895,20 @@ enum ipacm_client_enum {
 	IPACM_CLIENT_MAX
 };
 
+#define IPACM_SUPPORT_OF_LAN_STATS_FOR_ODU_CLIENTS
+
 enum ipacm_per_client_device_type {
 	IPACM_CLIENT_DEVICE_TYPE_USB = 0,
 	IPACM_CLIENT_DEVICE_TYPE_WLAN = 1,
-	IPACM_CLIENT_DEVICE_TYPE_ETH = 2
+	IPACM_CLIENT_DEVICE_TYPE_ETH = 2,
+	IPACM_CLIENT_DEVICE_TYPE_ODU = 3,
+	IPACM_CLIENT_DEVICE_MAX
 };
 
 /**
  * max number of device types supported.
  */
-#define IPACM_MAX_CLIENT_DEVICE_TYPES 3
+#define IPACM_MAX_CLIENT_DEVICE_TYPES IPACM_CLIENT_DEVICE_MAX
 
 /**
  * @lanIface - Name of the lan interface
@@ -2086,6 +2174,14 @@ struct ipa_ioc_bridge_vlan_mapping_info {
 #define IPA_IOC_DEL_BRIDGE_VLAN_MAPPING _IOWR(IPA_IOC_MAGIC, \
 				IPA_IOCTL_DEL_BRIDGE_VLAN_MAPPING, \
 				struct ipa_ioc_bridge_vlan_mapping_info)
+
+#define IPA_IOC_GSB_CONNECT _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GSB_CONNECT, \
+				struct ipa_ioc_gsb_info)
+
+#define IPA_IOC_GSB_DISCONNECT _IOWR(IPA_IOC_MAGIC, \
+				IPA_IOCTL_GSB_DISCONNECT, \
+				struct ipa_ioc_gsb_info)
 
 /*
  * unique magic number of the Tethering bridge ioctls

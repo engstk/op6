@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  * Copyright (C) 2007 Google Incorporated
  *
  * This software is licensed under the terms of the GNU General Public
@@ -916,17 +916,6 @@ u64 mdp3_get_panic_lut_cfg(u32 panel_width)
 	return panic_config;
 }
 
-int mdp3_enable_panic_ctrl(void)
-{
-	int rc = 0;
-
-	if (MDP3_REG_READ(MDP3_PANIC_ROBUST_CTRL) == 0) {
-		pr_err("%s: Enable Panic Control\n", __func__);
-		MDP3_REG_WRITE(MDP3_PANIC_ROBUST_CTRL, BIT(0));
-	}
-	return rc;
-}
-
 int mdp3_qos_remapper_setup(struct mdss_panel_data *panel)
 {
 	int rc = 0;
@@ -1354,6 +1343,8 @@ int mdp3_put_img(struct mdp3_img_data *data, int client)
 			pr_err("invalid ion client\n");
 			return -ENOMEM;
 		}
+		MDSS_XLOG(data->srcp_dma_buf, data->addr, data->len, client,
+				data->mapped, data->skip_detach);
 		if (data->mapped) {
 			if (client == MDP3_CLIENT_PPP ||
 						client == MDP3_CLIENT_DMA_P)
@@ -1519,6 +1510,13 @@ done:
 	} else {
 		mdp3_put_img(data, client);
 		return -EINVAL;
+	}
+	if (img->flags & MDP_MEMORY_ID_TYPE_FB) {
+		MDSS_XLOG(img->memory_id, data->addr, data->len, fb_num);
+	} else if (iclient) {
+		MDSS_XLOG(img->memory_id, data->srcp_dma_buf, data->addr,
+				data->len, client, data->mapped,
+				data->skip_detach);
 	}
 	return ret;
 
@@ -1812,7 +1810,8 @@ static int mdp3_continuous_splash_on(struct mdss_panel_data *pdata)
 		pr_err("invalid bus handle %d\n", bus_handle->handle);
 		return -EINVAL;
 	}
-	mdp3_calc_dma_res(panel_info, &mdp_clk_rate, &ab, &ib, panel_info->bpp);
+	mdp3_calc_dma_res(panel_info, &mdp_clk_rate, &ab,
+					&ib, MAX_BPP_SUPPORTED);
 
 	mdp3_clk_set_rate(MDP3_CLK_VSYNC, MDP_VSYNC_CLK_RATE,
 			MDP3_CLIENT_DMA_P);
@@ -1968,6 +1967,8 @@ static int mdp3_debug_init(struct platform_device *pdev)
 	int rc;
 	struct mdss_data_type *mdata;
 	struct mdss_debug_data *mdd;
+	struct mdss_debug_base *mdp_dbg_blk = NULL;
+	struct mdss_debug_base *vbif_dbg_blk = NULL;
 
 	mdata = devm_kzalloc(&pdev->dev, sizeof(*mdata), GFP_KERNEL);
 	if (!mdata)
@@ -1984,6 +1985,7 @@ static int mdp3_debug_init(struct platform_device *pdev)
 
 	mdata->debug_inf.debug_enable_clock = mdp3_debug_enable_clock;
 	mdata->mdp_rev = mdp3_res->mdp_rev;
+	mdata->pdev = pdev;
 
 	rc = mdss_debugfs_init(mdata);
 	if (rc)
@@ -1996,8 +1998,27 @@ static int mdp3_debug_init(struct platform_device *pdev)
 	debugfs_create_file("stat", 0644, mdd->root, mdp3_res,
 				&mdp3_debug_dump_stats_fops);
 
-	rc = mdss_debug_register_base(NULL, mdp3_res->mdp_base,
-					mdp3_res->mdp_reg_size, NULL);
+	/* MDP Debug base registration */
+	rc = mdss_debug_register_base("mdp", mdp3_res->mdp_base,
+					mdp3_res->mdp_reg_size, &mdp_dbg_blk);
+	if (rc)
+		return rc;
+
+	mdss_debug_register_dump_range(pdev, mdp_dbg_blk, "qcom,regs-dump-mdp",
+		"qcom,regs-dump-names-mdp", "qcom,regs-dump-xin-id-mdp");
+
+
+	/* VBIF Debug base registration */
+	if (mdp3_res->vbif_base) {
+		rc = mdss_debug_register_base("vbif", mdp3_res->vbif_base,
+					mdp3_res->vbif_reg_size, &vbif_dbg_blk);
+		if (rc)
+			return rc;
+
+		mdss_debug_register_dump_range(pdev, vbif_dbg_blk,
+			 "qcom,regs-dump-vbif", "qcom,regs-dump-names-vbif",
+						 "qcom,regs-dump-xin-id-vbif");
+	}
 
 	return rc;
 }

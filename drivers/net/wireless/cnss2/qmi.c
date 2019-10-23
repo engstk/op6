@@ -23,8 +23,17 @@
 #define WLFW_SERVICE_INS_ID_V01		1
 #define WLFW_CLIENT_ID			0x4b4e454c
 #define MAX_BDF_FILE_NAME		11
-#define DEFAULT_BDF_FILE_NAME		"bdwlan.elf"
-#define BDF_FILE_NAME_PREFIX		"bdwlan.e"
+#define ELF_BDF_FILE_NAME		"bdwlan.elf"
+#define ELF_BDF_FILE_NAME_PREFIX	"bdwlan.e"
+#define BIN_BDF_FILE_NAME		"bdwlan.bin"
+#define BIN_BDF_FILE_NAME_PREFIX	"bdwlan.b"
+#define DUMMY_BDF_FILE_NAME		"bdwlan.dmy"
+
+enum cnss_bdf_type {
+	CNSS_BDF_BIN,
+	CNSS_BDF_ELF,
+	CNSS_BDF_DUMMY = 255,
+};
 
 #ifdef CONFIG_CNSS2_DEBUG
 static unsigned int qmi_timeout = 10000;
@@ -40,16 +49,11 @@ static bool daemon_support;
 module_param(daemon_support, bool, 0600);
 MODULE_PARM_DESC(daemon_support, "User space has cnss-daemon support or not");
 
-static bool bdf_bypass;
+static unsigned int bdf_type = CNSS_BDF_ELF;
 #ifdef CONFIG_CNSS2_DEBUG
-module_param(bdf_bypass, bool, 0600);
-MODULE_PARM_DESC(bdf_bypass, "If BDF is not found, send dummy BDF to FW");
+module_param(bdf_type, uint, 0600);
+MODULE_PARM_DESC(bdf_type, "Type of board data file to be downloaded");
 #endif
-
-enum cnss_bdf_type {
-	CNSS_BDF_BIN,
-	CNSS_BDF_ELF,
-};
 
 static char *cnss_qmi_mode_to_str(enum cnss_driver_mode mode)
 {
@@ -238,6 +242,12 @@ static int cnss_wlfw_ind_register_send_sync(struct cnss_plat_data *plat_priv)
 	req.fw_init_done_enable = 1;
 	req.pin_connect_result_enable_valid = 1;
 	req.pin_connect_result_enable = 1;
+	req.cal_done_enable_valid = 1;
+	req.cal_done_enable = 1;
+	req.initiate_cal_download_enable_valid = 1;
+	req.initiate_cal_download_enable = 1;
+	req.initiate_cal_update_enable_valid = 1;
+	req.initiate_cal_update_enable = 1;
 
 	req_desc.max_msg_len = WLFW_IND_REGISTER_REQ_MSG_V01_MAX_MSG_LEN;
 	req_desc.msg_id = QMI_WLFW_IND_REGISTER_REQ_V01;
@@ -267,6 +277,13 @@ static int cnss_wlfw_ind_register_send_sync(struct cnss_plat_data *plat_priv)
 out:
 	CNSS_ASSERT(0);
 	return ret;
+}
+
+static int cnss_qmi_initiate_cal_update_ind_hdlr(
+					 struct cnss_plat_data *plat_priv,
+					 void *msg, unsigned int msg_len)
+{
+	return 0;
 }
 
 static int cnss_wlfw_request_mem_ind_hdlr(struct cnss_plat_data *plat_priv,
@@ -515,18 +532,33 @@ int cnss_wlfw_bdf_dnld_send_sync(struct cnss_plat_data *plat_priv)
 		goto out;
 	}
 
-	if (plat_priv->board_info.board_id == 0xFF)
-		snprintf(filename, sizeof(filename), DEFAULT_BDF_FILE_NAME);
-	else
-		snprintf(filename, sizeof(filename),
-			 BDF_FILE_NAME_PREFIX "%02x",
-			 plat_priv->board_info.board_id);
-
-	if (bdf_bypass) {
-		cnss_pr_info("bdf_bypass is enabled, sending dummy BDF\n");
-		temp = filename;
+	switch (bdf_type) {
+	case CNSS_BDF_ELF:
+		if (plat_priv->board_info.board_id == 0xFF)
+			snprintf(filename, sizeof(filename), ELF_BDF_FILE_NAME);
+		else
+			snprintf(filename, sizeof(filename),
+				 ELF_BDF_FILE_NAME_PREFIX "%02x",
+				 plat_priv->board_info.board_id);
+		break;
+	case CNSS_BDF_BIN:
+		if (plat_priv->board_info.board_id == 0xFF)
+			snprintf(filename, sizeof(filename), BIN_BDF_FILE_NAME);
+		else
+			snprintf(filename, sizeof(filename),
+				 BIN_BDF_FILE_NAME_PREFIX "%02x",
+				 plat_priv->board_info.board_id);
+		break;
+	case CNSS_BDF_DUMMY:
+		cnss_pr_dbg("CNSS_BDF_DUMMY is set, sending dummy BDF\n");
+		snprintf(filename, sizeof(filename), DUMMY_BDF_FILE_NAME);
+		temp = DUMMY_BDF_FILE_NAME;
 		remaining = MAX_BDF_FILE_NAME;
 		goto bypass_bdf;
+	default:
+		cnss_pr_err("Invalid BDF type: %d\n", bdf_type);
+		ret = -EINVAL;
+		goto err_req_fw;
 	}
 
 	ret = request_firmware(&fw_entry, filename, &plat_priv->plat_dev->dev);
@@ -561,7 +593,7 @@ bypass_bdf:
 		req->data_valid = 1;
 		req->end_valid = 1;
 		req->bdf_type_valid = 1;
-		req->bdf_type = CNSS_BDF_ELF;
+		req->bdf_type = bdf_type;
 
 		if (remaining > QMI_WLFW_MAX_DATA_SIZE_V01) {
 			req->data_len = QMI_WLFW_MAX_DATA_SIZE_V01;
@@ -594,7 +626,7 @@ bypass_bdf:
 	}
 
 err_send:
-	if (!bdf_bypass)
+	if (bdf_type != CNSS_BDF_DUMMY)
 		release_firmware(fw_entry);
 err_req_fw:
 	kfree(req);
@@ -999,6 +1031,11 @@ out:
 	return ret;
 }
 
+int cnss_wlfw_cal_report_send_sync(struct cnss_plat_data *plat_priv)
+{
+	return 0;
+}
+
 static void cnss_wlfw_clnt_ind(struct qmi_handle *handle,
 			       unsigned int msg_id, void *msg,
 			       unsigned int msg_len, void *ind_cb_priv)
@@ -1034,6 +1071,14 @@ static void cnss_wlfw_clnt_ind(struct qmi_handle *handle,
 		break;
 	case QMI_WLFW_PIN_CONNECT_RESULT_IND_V01:
 		cnss_qmi_pin_result_ind_hdlr(plat_priv, msg, msg_len);
+		break;
+	case QMI_WLFW_CAL_DONE_IND_V01:
+		cnss_driver_event_post(plat_priv,
+				       CNSS_DRIVER_EVENT_COLD_BOOT_CAL_DONE,
+				       0, NULL);
+		break;
+	case QMI_WLFW_INITIATE_CAL_UPDATE_IND_V01:
+		cnss_qmi_initiate_cal_update_ind_hdlr(plat_priv, msg, msg_len);
 		break;
 	default:
 		cnss_pr_err("Invalid QMI WLFW indication, msg_id: 0x%x\n",

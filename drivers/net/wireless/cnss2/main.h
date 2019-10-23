@@ -26,6 +26,7 @@
 #define MAX_NO_OF_MAC_ADDR		4
 #define QMI_WLFW_MAX_TIMESTAMP_LEN	32
 #define QMI_WLFW_MAX_NUM_MEM_SEG	32
+#define CNSS_RDDM_TIMEOUT_MS		20000
 
 #define CNSS_EVENT_SYNC   BIT(0)
 #define CNSS_EVENT_UNINTERRUPTIBLE BIT(1)
@@ -35,6 +36,7 @@
 enum cnss_dev_bus_type {
 	CNSS_BUS_NONE = -1,
 	CNSS_BUS_PCI,
+	CNSS_BUS_USB,
 };
 
 struct cnss_vreg_info {
@@ -159,6 +161,8 @@ enum cnss_driver_event_type {
 	CNSS_DRIVER_EVENT_FORCE_FW_ASSERT,
 	CNSS_DRIVER_EVENT_POWER_UP,
 	CNSS_DRIVER_EVENT_POWER_DOWN,
+	CNSS_DRIVER_EVENT_CAL_UPDATE,
+	CNSS_DRIVER_EVENT_CAL_DOWNLOAD,
 	CNSS_DRIVER_EVENT_MAX,
 };
 
@@ -243,6 +247,7 @@ struct cnss_plat_data {
 	atomic_t pm_count;
 	struct timer_list fw_boot_timer;
 	struct completion power_up_complete;
+	struct completion cal_complete;
 	struct mutex dev_lock; /* mutex for register access through debugfs */
 	u32 diag_reg_read_addr;
 	u32 diag_reg_read_mem_type;
@@ -250,6 +255,7 @@ struct cnss_plat_data {
 	u8 *diag_reg_read_buf;
 	bool cal_done;
 	char firmware_name[13];
+	struct completion rddm_complete;
 };
 
 struct cnss_plat_data *cnss_get_plat_priv(struct platform_device *plat_dev);
@@ -267,5 +273,7 @@ void cnss_unregister_subsys(struct cnss_plat_data *plat_priv);
 int cnss_register_ramdump(struct cnss_plat_data *plat_priv);
 void cnss_unregister_ramdump(struct cnss_plat_data *plat_priv);
 void cnss_set_pin_connect_status(struct cnss_plat_data *plat_priv);
-
+u32 cnss_get_wake_msi(struct cnss_plat_data *plat_priv);
+bool *cnss_get_qmi_bypass(void);
+bool is_qcn7605_device(u16 device_id);
 #endif /* _CNSS_MAIN_H */

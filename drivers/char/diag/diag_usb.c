@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, 2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, 2018-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -219,13 +219,6 @@ static void usb_connect_work_fn(struct work_struct *work)
  */
 static void usb_disconnect(struct diag_usb_info *ch)
 {
-	if (!ch)
-		return;
-
-	if (!atomic_read(&ch->connected) &&
-		driver->usb_connected && diag_mask_param())
-		diag_clear_masks(0);
-
 	if (ch && ch->ops && ch->ops->close)
 		ch->ops->close(ch->ctxt, DIAG_USB_MODE);
 }
@@ -234,6 +227,14 @@ static void usb_disconnect_work_fn(struct work_struct *work)
 {
 	struct diag_usb_info *ch = container_of(work, struct diag_usb_info,
 						disconnect_work);
+
+	if (!ch)
+		return;
+
+	if (!atomic_read(&ch->connected) &&
+		driver->usb_connected && diag_mask_param())
+		diag_clear_masks(0);
+
 	usb_disconnect(ch);
 }
 
@@ -324,8 +325,8 @@ static void diag_usb_write_done(struct diag_usb_info *ch,
 		DIAG_LOG(DIAG_DEBUG_MUX, "partial write_done ref %d\n",
 			 atomic_read(&entry->ref_count));
 		diag_ws_on_copy_complete(DIAG_WS_MUX);
-		spin_unlock_irqrestore(&ch->write_lock, flags);
 		diagmem_free(driver, req, ch->mempool);
+		spin_unlock_irqrestore(&ch->write_lock, flags);
 		return;
 	}
 	DIAG_LOG(DIAG_DEBUG_MUX, "full write_done, ctxt: %d\n",
@@ -343,8 +344,8 @@ static void diag_usb_write_done(struct diag_usb_info *ch,
 	buf = NULL;
 	len = 0;
 	ctxt = 0;
-	spin_unlock_irqrestore(&ch->write_lock, flags);
 	diagmem_free(driver, req, ch->mempool);
+	spin_unlock_irqrestore(&ch->write_lock, flags);
 }
 
 static void diag_usb_notifier(void *priv, unsigned int event,

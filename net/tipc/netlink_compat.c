@@ -87,6 +87,11 @@ static int tipc_skb_tailroom(struct sk_buff *skb)
 	return limit;
 }
 
+static inline int TLV_GET_DATA_LEN(struct tlv_desc *tlv)
+{
+	return TLV_GET_LEN(tlv) - TLV_SPACE(0);
+}
+
 static int tipc_add_tlv(struct sk_buff *skb, u16 type, void *data, u16 len)
 {
 	struct tlv_desc *tlv = (struct tlv_desc *)skb_tail_pointer(skb);
@@ -164,6 +169,11 @@ static struct sk_buff *tipc_get_err_tlv(char *str)
 		tipc_add_tlv(buf, TIPC_TLV_ERROR_STRING, str, str_len);
 
 	return buf;
+}
+
+static inline bool string_is_valid(char *s, int len)
+{
+	return memchr(s, '\0', len) ? true : false;
 }
 
 static int __tipc_nl_compat_dumpit(struct tipc_nl_compat_cmd_dump *cmd,
@@ -252,8 +262,14 @@ static int tipc_nl_compat_dumpit(struct tipc_nl_compat_cmd_dump *cmd,
 	if (msg->rep_type)
 		tipc_tlv_init(msg->rep, msg->rep_type);
 
-	if (cmd->header)
-		(*cmd->header)(msg);
+	if (cmd->header) {
+		err = (*cmd->header)(msg);
+		if (err) {
+			kfree_skb(msg->rep);
+			msg->rep = NULL;
+			return err;
+		}
+	}
 
 	arg = nlmsg_new(0, GFP_KERNEL);
 	if (!arg) {
@@ -370,12 +386,22 @@ static int tipc_nl_compat_bearer_enable(struct tipc_nl_compat_cmd_doit *cmd,
 	struct nlattr *prop;
 	struct nlattr *bearer;
 	struct tipc_bearer_config *b;
+	int len;
 
 	b = (struct tipc_bearer_config *)TLV_DATA(msg->req);
 
 	bearer = nla_nest_start(skb, TIPC_NLA_BEARER);
 	if (!bearer)
 		return -EMSGSIZE;
+
+	len = TLV_GET_DATA_LEN(msg->req);
+	len -= offsetof(struct tipc_bearer_config, name);
+	if (len <= 0)
+		return -EINVAL;
+
+	len = min_t(int, len, TIPC_MAX_BEARER_NAME);
+	if (!string_is_valid(b->name, len))
+		return -EINVAL;
 
 	if (nla_put_string(skb, TIPC_NLA_BEARER_NAME, b->name))
 		return -EMSGSIZE;
@@ -402,12 +428,17 @@ static int tipc_nl_compat_bearer_disable(struct tipc_nl_compat_cmd_doit *cmd,
 {
 	char *name;
 	struct nlattr *bearer;
+	int len;
 
 	name = (char *)TLV_DATA(msg->req);
 
 	bearer = nla_nest_start(skb, TIPC_NLA_BEARER);
 	if (!bearer)
 		return -EMSGSIZE;
+
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_BEARER_NAME);
+	if (!string_is_valid(name, len))
+		return -EINVAL;
 
 	if (nla_put_string(skb, TIPC_NLA_BEARER_NAME, name))
 		return -EMSGSIZE;
@@ -469,6 +500,7 @@ static int tipc_nl_compat_link_stat_dump(struct tipc_nl_compat_msg *msg,
 	struct nlattr *prop[TIPC_NLA_PROP_MAX + 1];
 	struct nlattr *stats[TIPC_NLA_STATS_MAX + 1];
 	int err;
+	int len;
 
 	if (!attrs[TIPC_NLA_LINK])
 		return -EINVAL;
@@ -495,6 +527,11 @@ static int tipc_nl_compat_link_stat_dump(struct tipc_nl_compat_msg *msg,
 		return err;
 
 	name = (char *)TLV_DATA(msg->req);
+
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_LINK_NAME);
+	if (!string_is_valid(name, len))
+		return -EINVAL;
+
 	if (strcmp(name, nla_data(link[TIPC_NLA_LINK_NAME])) != 0)
 		return 0;
 
@@ -635,12 +672,17 @@ static int tipc_nl_compat_media_set(struct sk_buff *skb,
 	struct nlattr *prop;
 	struct nlattr *media;
 	struct tipc_link_config *lc;
+	int len;
 
 	lc = (struct tipc_link_config *)TLV_DATA(msg->req);
 
 	media = nla_nest_start(skb, TIPC_NLA_MEDIA);
 	if (!media)
 		return -EMSGSIZE;
+
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_MEDIA_NAME);
+	if (!string_is_valid(lc->name, len))
+		return -EINVAL;
 
 	if (nla_put_string(skb, TIPC_NLA_MEDIA_NAME, lc->name))
 		return -EMSGSIZE;
@@ -662,12 +704,17 @@ static int tipc_nl_compat_bearer_set(struct sk_buff *skb,
 	struct nlattr *prop;
 	struct nlattr *bearer;
 	struct tipc_link_config *lc;
+	int len;
 
 	lc = (struct tipc_link_config *)TLV_DATA(msg->req);
 
 	bearer = nla_nest_start(skb, TIPC_NLA_BEARER);
 	if (!bearer)
 		return -EMSGSIZE;
+
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_MEDIA_NAME);
+	if (!string_is_valid(lc->name, len))
+		return -EINVAL;
 
 	if (nla_put_string(skb, TIPC_NLA_BEARER_NAME, lc->name))
 		return -EMSGSIZE;
@@ -717,8 +764,18 @@ static int tipc_nl_compat_link_set(struct tipc_nl_compat_cmd_doit *cmd,
 	struct tipc_link_config *lc;
 	struct tipc_bearer *bearer;
 	struct tipc_media *media;
+	int len;
 
 	lc = (struct tipc_link_config *)TLV_DATA(msg->req);
+
+	len = TLV_GET_DATA_LEN(msg->req);
+	len -= offsetof(struct tipc_link_config, name);
+	if (len <= 0)
+		return -EINVAL;
+
+	len = min_t(int, len, TIPC_MAX_LINK_NAME);
+	if (!string_is_valid(lc->name, len))
+		return -EINVAL;
 
 	media = tipc_media_find(lc->name);
 	if (media) {
@@ -741,12 +798,17 @@ static int tipc_nl_compat_link_reset_stats(struct tipc_nl_compat_cmd_doit *cmd,
 {
 	char *name;
 	struct nlattr *link;
+	int len;
 
 	name = (char *)TLV_DATA(msg->req);
 
 	link = nla_nest_start(skb, TIPC_NLA_LINK);
 	if (!link)
 		return -EMSGSIZE;
+
+	len = min_t(int, TLV_GET_DATA_LEN(msg->req), TIPC_MAX_LINK_NAME);
+	if (!string_is_valid(name, len))
+		return -EINVAL;
 
 	if (nla_put_string(skb, TIPC_NLA_LINK_NAME, name))
 		return -EMSGSIZE;
@@ -769,6 +831,8 @@ static int tipc_nl_compat_name_table_dump_header(struct tipc_nl_compat_msg *msg)
 	};
 
 	ntq = (struct tipc_name_table_query *)TLV_DATA(msg->req);
+	if (TLV_GET_DATA_LEN(msg->req) < sizeof(struct tipc_name_table_query))
+		return -EINVAL;
 
 	depth = ntohl(ntq->depth);
 
@@ -1192,7 +1256,7 @@ static int tipc_nl_compat_recv(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	len = nlmsg_attrlen(req_nlh, GENL_HDRLEN + TIPC_GENL_HDRLEN);
-	if (len && !TLV_OK(msg.req, len)) {
+	if (!len || !TLV_OK(msg.req, len)) {
 		msg.rep = tipc_get_err_tlv(TIPC_CFG_NOT_SUPPORTED);
 		err = -EOPNOTSUPP;
 		goto send;

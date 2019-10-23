@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,8 @@
 &soc {
 	tlmm: pinctrl@03400000 {
 		compatible = "qcom,sdm845-pinctrl";
-		reg = <0x03400000 0xc00000>;
+		reg = <0x03400000 0xc00000>, <0x179900F0 0x60>;
+		reg-names = "pinctrl_regs", "spi_cfg_regs";
 		interrupts = <0 208 0>;
 		gpio-controller;
 		#gpio-cells = <2>;
@@ -338,6 +339,32 @@
 					pins = "gpio37";
 					drive-strength = <2>;
 					bias-pull-up;
+				};
+			};
+
+			pcie0_3v3_on: pcie0_3v3_on {
+				mux {
+					pins = "gpio90";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio90";
+					drive_strength = <2>;
+					bias-disable;
+					output-high;
+				};
+			};
+
+			pcie0_1v5_on: pcie0_1v5_on {
+				mux {
+					pins = "gpio90";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio90";
+					drive_strength = <2>;
+					bias-disable;
+					output-high;
 				};
 			};
 		};
@@ -3380,7 +3407,6 @@
 			};
 		};
 
-
 		trigout_a: trigout_a {
 			mux {
 				pins = "gpio90";
@@ -3537,6 +3563,15 @@
 		};
 	};
 
+	led_bt {
+		led_bt_default: led_bt_default {
+			pins = "gpio5";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+
 	key_vol_up {
 		key_vol_up_default: key_vol_up_default {
 			pins = "gpio6";
@@ -3567,9 +3602,27 @@
 		};
 	};
 
+	led_wifi {
+		led_wifi_default: led_wifi_default {
+			pins = "gpio9";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+
 	camera_dvdd_en {
 		camera_dvdd_en_default: camera_dvdd_en_default {
 			pins = "gpio9";
+			function = "normal";
+			power-source = <0>;
+			output-low;
+		};
+	};
+
+	camera_rear_avdd_en {
+		camera_rear_avdd_en_default: camera_rear_avdd_en_default {
+			pins = "gpio10";
 			function = "normal";
 			power-source = <0>;
 			output-low;

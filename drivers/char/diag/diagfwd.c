@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -707,7 +707,8 @@ int diag_process_time_sync_query_cmd(unsigned char *src_buf, int src_len,
 	struct diag_cmd_time_sync_query_req_t *req = NULL;
 	struct diag_cmd_time_sync_query_rsp_t rsp;
 
-	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0) {
+	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0 ||
+		src_len < sizeof(struct diag_cmd_time_sync_query_req_t)) {
 		pr_err("diag: Invalid input in %s, src_buf: %pK, src_len: %d, dest_buf: %pK, dest_len: %d",
 			__func__, src_buf, src_len, dest_buf, dest_len);
 		return -EINVAL;
@@ -737,7 +738,8 @@ int diag_process_diag_id_query_cmd(unsigned char *src_buf, int src_len,
 	int num_entries = 0;
 	uint8_t process_name_len = 0;
 
-	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0) {
+	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0 ||
+		src_len < sizeof(struct diag_cmd_diag_id_query_req_t)) {
 		pr_err("diag: Invalid input in %s, src_buf:%pK, src_len:%d, dest_buf:%pK, dest_len:%d\n",
 			__func__, src_buf, src_len, dest_buf, dest_len);
 		return -EINVAL;
@@ -783,7 +785,8 @@ int diag_process_time_sync_switch_cmd(unsigned char *src_buf, int src_len,
 	int msg_size = sizeof(struct diag_ctrl_msg_time_sync);
 	int err = 0, write_len = 0;
 
-	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0) {
+	if (!src_buf || !dest_buf || src_len <= 0 || dest_len <= 0 ||
+		src_len < sizeof(struct diag_cmd_time_sync_switch_req_t)) {
 		pr_err("diag: Invalid input in %s, src_buf: %pK, src_len: %d, dest_buf: %pK, dest_len: %d",
 			__func__, src_buf, src_len, dest_buf, dest_len);
 		return -EINVAL;
@@ -1026,7 +1029,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 	uint32_t pd_mask = 0;
 	struct diag_md_session_t *info = NULL;
 
-	if (!buf)
+	if (!buf || len <= 0)
 		return -EIO;
 
 	/* Check if the command is a supported mask command */
@@ -1037,18 +1040,31 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 	}
 
 	temp = buf;
-	entry.cmd_code = (uint16_t)(*(uint8_t *)temp);
-	temp += sizeof(uint8_t);
-	entry.subsys_id = (uint16_t)(*(uint8_t *)temp);
-	temp += sizeof(uint8_t);
-	entry.cmd_code_hi = (uint16_t)(*(uint16_t *)temp);
-	entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
-	temp += sizeof(uint16_t);
+	if (len >= sizeof(uint8_t)) {
+		entry.cmd_code = (uint16_t)(*(uint8_t *)temp);
+		pr_debug("diag: received cmd_code %02x\n", entry.cmd_code);
+	}
+	if (len >= (2 * sizeof(uint8_t))) {
+		temp += sizeof(uint8_t);
+		entry.subsys_id = (uint16_t)(*(uint8_t *)temp);
+		pr_debug("diag: received subsys_id %02x\n", entry.subsys_id);
+	}
+	if (len == (3 * sizeof(uint8_t))) {
+		temp += sizeof(uint8_t);
+		entry.cmd_code_hi = (uint16_t)(*(uint8_t *)temp);
+		entry.cmd_code_lo = (uint16_t)(*(uint8_t *)temp);
+		pr_debug("diag: received cmd_code_hi %02x\n",
+			entry.cmd_code_hi);
+	} else if (len >= (2 * sizeof(uint8_t)) + sizeof(uint16_t)) {
+		temp += sizeof(uint8_t);
+		entry.cmd_code_hi = (uint16_t)(*(uint16_t *)temp);
+		entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
+		pr_debug("diag: received cmd_code_hi %02x\n",
+			entry.cmd_code_hi);
+	}
 
-	pr_debug("diag: In %s, received cmd %02x %02x %02x\n",
-		 __func__, entry.cmd_code, entry.subsys_id, entry.cmd_code_hi);
-
-	if (*buf == DIAG_CMD_LOG_ON_DMND && driver->log_on_demand_support &&
+	if ((len >= sizeof(uint8_t)) && *buf == DIAG_CMD_LOG_ON_DMND &&
+		driver->log_on_demand_support &&
 	    driver->feature[PERIPHERAL_MODEM].rcvd_feature_mask) {
 		write_len = diag_cmd_log_on_demand(buf, len,
 						   driver->apps_rsp_buf,
@@ -1091,14 +1107,16 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 
 #if defined(CONFIG_DIAG_OVER_USB)
 	/* Check for the command/respond msg for the maximum packet length */
-	if ((*buf == 0x4b) && (*(buf+1) == 0x12) &&
+	if ((len >= (4 * sizeof(uint8_t))) &&
+		(*buf == 0x4b) && (*(buf+1) == 0x12) &&
 		(*(uint16_t *)(buf+2) == 0x0055)) {
 		for (i = 0; i < 4; i++)
 			*(driver->apps_rsp_buf+i) = *(buf+i);
 		*(uint32_t *)(driver->apps_rsp_buf+4) = DIAG_MAX_REQ_SIZE;
 		diag_send_rsp(driver->apps_rsp_buf, 8, pid);
 		return 0;
-	} else if ((*buf == 0x4b) && (*(buf+1) == 0x12) &&
+	} else if ((len >= ((2 * sizeof(uint8_t)) + sizeof(uint16_t))) &&
+		(*buf == 0x4b) && (*(buf+1) == 0x12) &&
 		(*(uint16_t *)(buf+2) == DIAG_DIAG_STM)) {
 		len = diag_process_stm_cmd(buf, driver->apps_rsp_buf);
 		if (len > 0) {
@@ -1108,7 +1126,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return len;
 	}
 	/* Check for time sync query command */
-	else if ((*buf == DIAG_CMD_DIAG_SUBSYS) &&
+	else if ((len >= ((2 * sizeof(uint8_t)) + sizeof(uint16_t))) &&
+		(*buf == DIAG_CMD_DIAG_SUBSYS) &&
 		(*(buf+1) == DIAG_SS_DIAG) &&
 		(*(uint16_t *)(buf+2) == DIAG_GET_TIME_API)) {
 		write_len = diag_process_time_sync_query_cmd(buf, len,
@@ -1119,7 +1138,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return 0;
 	}
 	/* Check for time sync switch command */
-	else if ((*buf == DIAG_CMD_DIAG_SUBSYS) &&
+	else if ((len >= ((2 * sizeof(uint8_t)) + sizeof(uint16_t))) &&
+		(*buf == DIAG_CMD_DIAG_SUBSYS) &&
 		(*(buf+1) == DIAG_SS_DIAG) &&
 		(*(uint16_t *)(buf+2) == DIAG_SET_TIME_API)) {
 		write_len = diag_process_time_sync_switch_cmd(buf, len,
@@ -1130,7 +1150,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return 0;
 	}
 	/* Check for diag id command */
-	else if ((*buf == DIAG_CMD_DIAG_SUBSYS) &&
+	else if ((len >= ((2 * sizeof(uint8_t)) + sizeof(uint16_t))) &&
+		(*buf == DIAG_CMD_DIAG_SUBSYS) &&
 		(*(buf+1) == DIAG_SS_DIAG) &&
 		(*(uint16_t *)(buf+2) == DIAG_GET_DIAG_ID)) {
 		write_len = diag_process_diag_id_query_cmd(buf, len,
@@ -1141,7 +1162,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return 0;
 	}
 	/* Check for download command */
-	else if ((chk_apps_master()) && (*buf == 0x3A)) {
+	else if ((len >= sizeof(uint8_t)) && (chk_apps_master()) &&
+		(*buf == 0x3A)) {
 		/* send response back */
 		driver->apps_rsp_buf[0] = *buf;
 		diag_send_rsp(driver->apps_rsp_buf, 1, pid);
@@ -1154,8 +1176,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return 0;
 	}
 	/* Check for polling for Apps only DIAG */
-	else if ((*buf == 0x4b) && (*(buf+1) == 0x32) &&
-		(*(buf+2) == 0x03)) {
+	else if ((len >= (3 * sizeof(uint8_t))) &&
+		(*buf == 0x4b) && (*(buf+1) == 0x32) && (*(buf+2) == 0x03)) {
 		/* If no one has registered for polling */
 		if (chk_polling_response()) {
 			/* Respond to polling for Apps only DIAG */
@@ -1169,7 +1191,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		}
 	}
 	/* Return the Delayed Response Wrap Status */
-	else if ((*buf == 0x4b) && (*(buf+1) == 0x32) &&
+	else if ((len >= (4 * sizeof(uint8_t))) &&
+		(*buf == 0x4b) && (*(buf+1) == 0x32) &&
 		(*(buf+2) == 0x04) && (*(buf+3) == 0x0)) {
 		memcpy(driver->apps_rsp_buf, buf, 4);
 		driver->apps_rsp_buf[4] = wrap_enabled;
@@ -1177,7 +1200,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return 0;
 	}
 	/* Wrap the Delayed Rsp ID */
-	else if ((*buf == 0x4b) && (*(buf+1) == 0x32) &&
+	else if ((len >= (4 * sizeof(uint8_t))) &&
+		(*buf == 0x4b) && (*(buf+1) == 0x32) &&
 		(*(buf+2) == 0x05) && (*(buf+3) == 0x0)) {
 		wrap_enabled = true;
 		memcpy(driver->apps_rsp_buf, buf, 4);
@@ -1186,7 +1210,8 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		return 0;
 	}
 	/* Mobile ID Rsp */
-	else if ((*buf == DIAG_CMD_DIAG_SUBSYS) &&
+	else if ((len >= (4 * sizeof(uint8_t))) &&
+		(*buf == DIAG_CMD_DIAG_SUBSYS) &&
 			(*(buf+1) == DIAG_SS_PARAMS) &&
 			(*(buf+2) == DIAG_EXT_MOBILE_ID) && (*(buf+3) == 0x0)) {
 		write_len = diag_cmd_get_mobile_id(buf, len,
@@ -1209,7 +1234,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 		 !(driver->diagfwd_cntl[PERIPHERAL_MODEM]->ch_open) &&
 		 !(driver->feature[PERIPHERAL_MODEM].rcvd_feature_mask)) {
 		/* respond to 0x0 command */
-		if (*buf == 0x00) {
+		if ((len >= sizeof(uint8_t)) && *buf == 0x00) {
 			for (i = 0; i < 55; i++)
 				driver->apps_rsp_buf[i] = 0;
 
@@ -1217,7 +1242,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
 			return 0;
 		}
 		/* respond to 0x7c command */
-		else if (*buf == 0x7c) {
+		else if ((len >= sizeof(uint8_t)) && *buf == 0x7c) {
 			driver->apps_rsp_buf[0] = 0x7c;
 			for (i = 1; i < 8; i++)
 				driver->apps_rsp_buf[i] = 0;
@@ -1383,6 +1408,9 @@ static int diagfwd_mux_open(int id, int mode)
 		break;
 	case DIAG_MEMORY_DEVICE_MODE:
 		break;
+	case DIAG_PCIE_MODE:
+		driver->pcie_connected = 1;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1415,6 +1443,9 @@ static int diagfwd_mux_close(int id, int mode)
 		driver->usb_connected = 0;
 		break;
 	case DIAG_MEMORY_DEVICE_MODE:
+		break;
+	case DIAG_PCIE_MODE:
+		driver->pcie_connected = 0;
 		break;
 	default:
 		return -EINVAL;
@@ -1714,7 +1745,7 @@ void diag_process_non_hdlc_pkt(unsigned char *buf, int len, int pid)
 		if (*(uint8_t *)(data_ptr + actual_pkt->length) !=
 						CONTROL_CHAR) {
 			mutex_unlock(&driver->hdlc_recovery_mutex);
-			diag_hdlc_start_recovery(buf, len, pid);
+			diag_hdlc_start_recovery(buf, (len - read_bytes), pid);
 			mutex_lock(&driver->hdlc_recovery_mutex);
 		}
 		err = diag_process_apps_pkt(data_ptr,
@@ -1740,8 +1771,8 @@ start:
 		pkt_len = actual_pkt->length;
 
 		if (actual_pkt->start != CONTROL_CHAR) {
-			diag_hdlc_start_recovery(buf, len, pid);
-			diag_send_error_rsp(buf, len, pid);
+			diag_hdlc_start_recovery(buf, (len - read_bytes), pid);
+			diag_send_error_rsp(buf, (len - read_bytes), pid);
 			goto end;
 		}
 		mutex_lock(&driver->hdlc_recovery_mutex);
@@ -1749,7 +1780,7 @@ start:
 			pr_err("diag: In %s, incoming data is too large for the request buffer %d\n",
 			       __func__, pkt_len);
 			mutex_unlock(&driver->hdlc_recovery_mutex);
-			diag_hdlc_start_recovery(buf, len, pid);
+			diag_hdlc_start_recovery(buf, (len - read_bytes), pid);
 			break;
 		}
 		if ((pkt_len + header_len) > (len - read_bytes)) {
@@ -1766,7 +1797,7 @@ start:
 		if (*(uint8_t *)(data_ptr + actual_pkt->length) !=
 						CONTROL_CHAR) {
 			mutex_unlock(&driver->hdlc_recovery_mutex);
-			diag_hdlc_start_recovery(buf, len, pid);
+			diag_hdlc_start_recovery(buf, (len - read_bytes), pid);
 			mutex_lock(&driver->hdlc_recovery_mutex);
 		}
 		else
@@ -1823,9 +1854,11 @@ static int diagfwd_mux_write_done(unsigned char *buf, int len, int buf_ctxt,
 			diagfwd_write_done(peripheral, type, num);
 			diag_ws_on_copy(DIAG_WS_MUX);
 		} else if (peripheral == APPS_DATA) {
+			spin_lock_irqsave(&driver->diagmem_lock, flags);
 			diagmem_free(driver, (unsigned char *)buf,
 				     POOL_TYPE_HDLC);
 			buf = NULL;
+			spin_unlock_irqrestore(&driver->diagmem_lock, flags);
 		} else {
 			pr_err_ratelimited("diag: Invalid peripheral %d in %s, type: %d\n",
 					   peripheral, __func__, type);

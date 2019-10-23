@@ -52,6 +52,14 @@ config QCOM_SDM670_LLCC
 	  can start using the LLCC slices.
 	  Say yes here to enable llcc driver for SDM670.
 
+config QCOM_QCS605_LLCC
+	tristate "Qualcomm Technologies, Inc. QCS605 LLCC driver"
+	depends on QCOM_LLCC
+	help
+	  This provides Last level cache controller driver for QCS605.
+	  This driver provides data required to configure LLCC, so that clients
+	  can start using the LLCC slices.
+	  Say yes here to enable llcc driver for QCS605.
 
 config QCOM_LLCC_AMON
 	tristate "Qualcomm Technologies, Inc. LLCC Activity Monitor(AMON) driver"
@@ -187,6 +195,43 @@ config QCOM_WCNSS_CTRL
 	  Client driver for the WCNSS_CTRL SMD channel, used to download nv
 	  firmware to a newly booted WCNSS chip.
 
+config SETUP_SSR_NOTIF_TIMEOUTS
+	bool "Set timeouts on SSR sysmon notifications and notifier callbacks"
+	help
+	  Setup timers prior to initiating communication between
+	  subsystems through sysmon, and prior to sending notifications
+	  to drivers in the kernel that have registered callbacks with the
+	  subsystem notifier framework for a particular subsystem. This
+	  is a debugging feature.
+
+config SSR_SYSMON_NOTIF_TIMEOUT
+	depends on SETUP_SSR_NOTIF_TIMEOUTS
+	int "SSR Sysmon notifications timeout in ms"
+	default 10000
+	help
+	  The amount of time, in milliseconds, that should elapse between
+	  the start and end of sysmon SSR notifications, before a warning
+	  is emitted.
+
+config SSR_SUBSYS_NOTIF_TIMEOUT
+	depends on SETUP_SSR_NOTIF_TIMEOUTS
+	int "SSR Subsystem notifier timeout in ms"
+	default 10000
+	help
+	  The amount of time, in milliseconds, that should elapse between
+	  the start and end of SSR notifications through the subsystem
+	  notifier, before a warning is emitted.
+
+config PANIC_ON_SSR_NOTIF_TIMEOUT
+	bool "Trigger kernel panic when notification timeout expires"
+	depends on SETUP_SSR_NOTIF_TIMEOUTS
+	help
+	  Trigger a kernel panic when communication between subsystems
+	  through sysmon is taking too long. Also trigger a kernel panic
+	  if invoking the callbacks registered with a particular subsystem's
+	  notifications by the subsystem notifier framework is taking too long.
+	  This is a debugging feature.
+
 config MSM_BOOT_STATS
 	bool "Use MSM boot stats reporting"
 	help
@@ -194,6 +239,16 @@ config MSM_BOOT_STATS
 	  display init, total boot time.
 	  This figures are reported in mpm sleep clock cycles and have a
 	  resolution of 31 bits as 1 bit is used as an overflow check.
+
+config MSM_BOOT_TIME_MARKER
+        bool "Use MSM boot time marker reporting"
+        depends on MSM_BOOT_STATS
+        help
+         Use this to mark msm boot kpi for measurement.
+         An instrumentation for boot time measurement.
+         To create an entry, call "place_marker" function.
+         At userspace, write marker name to "/sys/kernel/debug/bootkpi/kpi_values"
+         If unsure, say N
 
 config MSM_CORE_HANG_DETECT
        tristate "MSM Core Hang Detection Support"
@@ -488,15 +543,16 @@ config MSM_IPC_ROUTER_SMD_XPRT
 	  this layer registers a transport with IPC Router and enable
 	  message exchange.
 
-config MSM_IPC_ROUTER_HSIC_XPRT
-	depends on USB_QCOM_IPC_BRIDGE
+config MSM_IPC_ROUTER_USB_XPRT
+	depends on USB_QCOM_IPC_BRIDGE || USB_F_IPC
 	depends on IPC_ROUTER
-	bool "MSM HSIC XPRT Layer"
+	bool "MSM USB XPRT Layer"
 	help
-	  HSIC Transport Layer that enables off-chip communication of
-	  IPC Router. When the HSIC endpoint becomes available, this layer
-	  registers the transport with IPC Router and enable message
-	  exchange.
+	  USB Transport Layer that enables off-chip communication of IPC Router.
+	  When the USB endpoint becomes available, this layer registers the
+	  transport with IPC Router and enable message exchange. This layer is
+	  independent of USB host or device mode IPC bridge and can interface
+	  with only one of them on a given platform.
 
 config MSM_IPC_ROUTER_MHI_XPRT
 	depends on MSM_MHI
@@ -506,6 +562,16 @@ config MSM_IPC_ROUTER_MHI_XPRT
 	  MHI Transport Layer that enables off-chip communication of
 	  IPC Router. When the MHI endpoint becomes available, this layer
 	  registers the transport with IPC Router and enable message
+	  exchange.
+
+config MSM_IPC_ROUTER_MHI_DEV_XPRT
+	depends on MSM_MHI_DEV
+	depends on IPC_ROUTER
+	bool "MSM MHI_DEV XPRT Layer"
+	help
+	  MHI_DEV Transport Layer that enables off-chip communication of
+	  IPC Router. When the MHI endpoint becomes available, this layer
+	  registers the transport with IPC Router and enables message
 	  exchange.
 
 config MSM_IPC_ROUTER_GLINK_XPRT

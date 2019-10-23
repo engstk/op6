@@ -17,6 +17,7 @@
 #include <linux/tracepoint.h>
 #include <linux/cpumask.h>
 #include <linux/irq_work.h>
+#include <linux/irq.h>
 
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
@@ -485,6 +486,8 @@ struct kvm_vcpu_arch {
 	u64 smbase;
 	bool tpr_access_reporting;
 	u64 ia32_xss;
+	u64 microcode_version;
+	u64 arch_capabilities;
 
 	/*
 	 * Paging state of the vcpu
@@ -659,6 +662,9 @@ struct kvm_vcpu_arch {
 
 	int pending_ioapic_eoi;
 	int pending_external_vector;
+
+	/* Flush the L1 Data cache for L1TF mitigation on VMENTER */
+	bool l1tf_flush_l1d;
 };
 
 struct kvm_lpage_info {
@@ -819,6 +825,7 @@ struct kvm_vcpu_stat {
 	u64 signal_exits;
 	u64 irq_window_exits;
 	u64 nmi_window_exits;
+	u64 l1d_flush;
 	u64 halt_exits;
 	u64 halt_successful_poll;
 	u64 halt_attempted_poll;
@@ -1020,6 +1027,8 @@ struct kvm_x86_ops {
 	void (*cancel_hv_timer)(struct kvm_vcpu *vcpu);
 
 	void (*setup_mce)(struct kvm_vcpu *vcpu);
+
+	int (*get_msr_feature)(struct kvm_msr_entry *entry);
 };
 
 struct kvm_arch_async_pf {
@@ -1316,7 +1325,7 @@ asmlinkage void kvm_spurious_fault(void);
 	"cmpb $0, kvm_rebooting \n\t"	      \
 	"jne 668b \n\t"      		      \
 	__ASM_SIZE(push) " $666b \n\t"	      \
-	"call kvm_spurious_fault \n\t"	      \
+	"jmp kvm_spurious_fault \n\t"	      \
 	".popsection \n\t" \
 	_ASM_EXTABLE(666b, 667b)
 
@@ -1338,6 +1347,7 @@ void kvm_vcpu_reload_apic_access_page(struct kvm_vcpu *vcpu);
 void kvm_arch_mmu_notifier_invalidate_page(struct kvm *kvm,
 					   unsigned long address);
 
+u64 kvm_get_arch_capabilities(void);
 void kvm_define_shared_msr(unsigned index, u32 msr);
 int kvm_set_shared_msr(unsigned index, u64 val, u64 mask);
 

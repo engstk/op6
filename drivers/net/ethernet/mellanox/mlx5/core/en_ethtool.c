@@ -1167,11 +1167,6 @@ static int mlx5e_get_ts_info(struct net_device *dev,
 			     struct ethtool_ts_info *info)
 {
 	struct mlx5e_priv *priv = netdev_priv(dev);
-	int ret;
-
-	ret = ethtool_op_get_ts_info(dev, info);
-	if (ret)
-		return ret;
 
 	info->phc_index = priv->tstamp.ptp ?
 			  ptp_clock_index(priv->tstamp.ptp) : -1;
@@ -1179,9 +1174,9 @@ static int mlx5e_get_ts_info(struct net_device *dev,
 	if (!MLX5_CAP_GEN(priv->mdev, device_frequency_khz))
 		return 0;
 
-	info->so_timestamping |= SOF_TIMESTAMPING_TX_HARDWARE |
-				 SOF_TIMESTAMPING_RX_HARDWARE |
-				 SOF_TIMESTAMPING_RAW_HARDWARE;
+	info->so_timestamping = SOF_TIMESTAMPING_TX_HARDWARE |
+				SOF_TIMESTAMPING_RX_HARDWARE |
+				SOF_TIMESTAMPING_RAW_HARDWARE;
 
 	info->tx_types = BIT(HWTSTAMP_TX_OFF) |
 			 BIT(HWTSTAMP_TX_ON);
@@ -1370,7 +1365,7 @@ static int mlx5e_get_module_info(struct net_device *netdev,
 		break;
 	case MLX5_MODULE_ID_SFP:
 		modinfo->type       = ETH_MODULE_SFF_8472;
-		modinfo->eeprom_len = ETH_MODULE_SFF_8472_LEN;
+		modinfo->eeprom_len = MLX5_EEPROM_PAGE_LENGTH;
 		break;
 	default:
 		netdev_err(priv->netdev, "%s: cable type not recognized:0x%x\n",

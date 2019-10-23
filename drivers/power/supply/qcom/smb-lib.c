@@ -510,6 +510,9 @@ static int smblib_request_dpdm(struct smb_charger *chg, bool enable)
 {
 	int rc = 0;
 
+	if (chg->pr_swap_in_progress)
+		return 0;
+
 	/* fetch the DPDM regulator */
 	if (!chg->dpdm_reg && of_get_property(chg->dev->of_node,
 				"dpdm-supply", NULL)) {
@@ -1603,7 +1606,7 @@ static int _smblib_vbus_regulator_enable(struct regulator_dev *rdev)
 
 	smblib_dbg(chg, PR_OTG, "enabling OTG\n");
 
-	if (chg->wa_flags & OTG_WA) {
+	if ((chg->wa_flags & OTG_WA) && (!chg->reddragon_ipc_wa)) {
 		rc = smblib_enable_otg_wa(chg);
 		if (rc < 0)
 			smblib_err(chg, "Couldn't enable OTG rc=%d\n", rc);
@@ -2885,6 +2888,7 @@ static int __smblib_set_prop_pd_active(struct smb_charger *chg, bool pd_active)
 
 	chg->pd_active = pd_active;
 	if (chg->pd_active) {
+		chg->real_charger_type = POWER_SUPPLY_TYPE_USB_PD;
 		vote(chg->apsd_disable_votable, PD_VOTER, true, 0);
 		vote(chg->pd_allowed_votable, PD_VOTER, true, 0);
 		vote(chg->usb_irq_enable_votable, PD_VOTER, true, 0);
@@ -2943,7 +2947,7 @@ static int __smblib_set_prop_pd_active(struct smb_charger *chg, bool pd_active)
 
 		hvdcp = stat & QC_CHARGER_BIT;
 		vote(chg->apsd_disable_votable, PD_VOTER, false, 0);
-		vote(chg->pd_allowed_votable, PD_VOTER, true, 0);
+		vote(chg->pd_allowed_votable, PD_VOTER, false, 0);
 		vote(chg->usb_irq_enable_votable, PD_VOTER, false, 0);
 		vote(chg->hvdcp_disable_votable_indirect, PD_INACTIVE_VOTER,
 								false, 0);
@@ -3123,7 +3127,9 @@ static int smblib_cc2_sink_removal_exit(struct smb_charger *chg)
 		return 0;
 
 	chg->cc2_detach_wa_active = false;
+	chg->in_chg_lock = true;
 	cancel_work_sync(&chg->rdstd_cc2_detach_work);
+	chg->in_chg_lock = false;
 	smblib_reg_block_restore(chg, cc2_detach_settings);
 	return 0;
 }
@@ -3513,8 +3519,17 @@ void smblib_usb_plugin_hard_reset_locked(struct smb_charger *chg)
 	vbus_rising = (bool)(stat & USBIN_PLUGIN_RT_STS_BIT);
 
 	if (vbus_rising) {
+		/* Remove FCC_STEPPER 1.5A init vote to allow FCC ramp up */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER, false, 0);
+
 		smblib_cc2_sink_removal_exit(chg);
 	} else {
+		/* Force 1500mA FCC on USB removal if fcc stepper is enabled */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER,
+							true, 1500000);
+
 		smblib_cc2_sink_removal_enter(chg);
 		if (chg->wa_flags & BOOST_BACK_WA) {
 			data = chg->irq_info[SWITCH_POWER_OK_IRQ].irq_data;
@@ -3564,6 +3579,10 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 		if (rc < 0)
 			smblib_err(chg, "Couldn't to enable DPDM rc=%d\n", rc);
 
+		/* Remove FCC_STEPPER 1.5A init vote to allow FCC ramp up */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER, false, 0);
+
 		/* Schedule work to enable parallel charger */
 		vote(chg->awake_votable, PL_DELAY_VOTER, true, 0);
 		schedule_delayed_work(&chg->pl_enable_work,
@@ -3590,6 +3609,11 @@ void smblib_usb_plugin_locked(struct smb_charger *chg)
 						false, 0);
 			}
 		}
+
+		/* Force 1500mA FCC on removal if fcc stepper is enabled */
+		if (chg->fcc_stepper_enable)
+			vote(chg->fcc_votable, FCC_STEPPER_VOTER,
+							true, 1500000);
 
 		rc = smblib_request_dpdm(chg, false);
 		if (rc < 0)
@@ -4757,7 +4781,6 @@ static void rdstd_cc2_detach_work(struct work_struct *work)
 {
 	int rc;
 	u8 stat4, stat5;
-	bool lock = false;
 	struct smb_charger *chg = container_of(work, struct smb_charger,
 						rdstd_cc2_detach_work);
 
@@ -4826,22 +4849,15 @@ static void rdstd_cc2_detach_work(struct work_struct *work)
 	 * during pd_hard_reset from the function smblib_cc2_sink_removal_exit
 	 * which is called in the same lock context that we try to acquire in
 	 * this work routine.
-	 * Check if this work is running during pd_hard_reset and use trylock
-	 * instead of mutex_lock to prevent any deadlock if mutext is already
-	 * held.
+	 * Check if this work is running during pd_hard_reset and skip holding
+	 * mutex if lock is already held.
 	 */
-	if (chg->pd_hard_reset) {
-		if (mutex_trylock(&chg->lock))
-			lock = true;
-	} else {
+	if (!chg->in_chg_lock)
 		mutex_lock(&chg->lock);
-		lock = true;
-	}
-
 	smblib_usb_typec_change(chg);
-
-	if (lock)
+	if (!chg->in_chg_lock)
 		mutex_unlock(&chg->lock);
+
 	return;
 
 rerun:

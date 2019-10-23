@@ -168,6 +168,11 @@ Charger specific properties:
   Definition: Specifies the deglitch interval for OTG detection.
 		If the value is not present, 50 msec is used as default.
 
+- qcom,pd-not-supported
+  Usage:      optional
+  Value type: bool
+  Definition: Option to indicate if the platform supports USB PD (power delivery).
+
 - qcom,step-charging-enable
   Usage:      optional
   Value type: bool
@@ -198,6 +203,12 @@ Charger specific properties:
   Value type: bool
   Definition: Boolean flag which when present disables STAT pin default software
 		override configuration.
+
+- qcom,fcc-stepping-enable
+  Usage:      optional
+  Value type: bool
+  Definition: Boolean flag which when present enables stepwise change in FCC.
+		The default stepping rate is 100mA/sec.
 
 =============================================
 Second Level Nodes - SMB2 Charger Peripherals

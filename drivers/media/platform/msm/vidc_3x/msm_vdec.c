@@ -22,6 +22,7 @@
 #define MSM_VDEC_DVC_NAME "msm_vdec_8974"
 #define MIN_NUM_OUTPUT_BUFFERS 4
 #define MIN_NUM_OUTPUT_BUFFERS_VP9 6
+#define MIN_NUM_OUTPUT_BUFFERS_HEVC 6
 #define MIN_NUM_CAPTURE_BUFFERS 6
 #define MIN_NUM_THUMBNAIL_MODE_CAPTURE_BUFFERS 1
 #define MAX_NUM_OUTPUT_BUFFERS VB2_MAX_FRAME
@@ -1499,6 +1500,10 @@ static int msm_vdec_queue_setup(struct vb2_queue *q,
 				V4L2_PIX_FMT_VP9 &&
 				*num_buffers < MIN_NUM_OUTPUT_BUFFERS_VP9)
 			*num_buffers = MIN_NUM_OUTPUT_BUFFERS_VP9;
+		else if (inst->fmts[OUTPUT_PORT].fourcc ==
+				V4L2_PIX_FMT_HEVC &&
+				*num_buffers < MIN_NUM_OUTPUT_BUFFERS_HEVC)
+			*num_buffers = MIN_NUM_OUTPUT_BUFFERS_HEVC;
 
 		for (i = 0; i < *num_planes; i++) {
 			sizes[i] = get_frame_size(inst,
@@ -1938,6 +1943,7 @@ int msm_vdec_inst_init(struct msm_vidc_inst *inst)
 	inst->buffer_mode_set[OUTPUT_PORT] = HAL_BUFFER_MODE_STATIC;
 	inst->buffer_mode_set[CAPTURE_PORT] = HAL_BUFFER_MODE_STATIC;
 	inst->prop.fps = DEFAULT_FPS;
+	inst->prop.operating_rate = 0;
 	memcpy(&inst->fmts[OUTPUT_PORT], &vdec_formats[2],
 						sizeof(struct msm_vidc_format));
 	memcpy(&inst->fmts[CAPTURE_PORT], &vdec_formats[0],
@@ -2546,8 +2552,33 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		 */
 		hal_property.enable = !(ctrl->val);
 		pdata = &hal_property;
+		switch (ctrl->val) {
+		case V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_DISABLE:
+			inst->flags &= ~VIDC_REALTIME;
+			break;
+		case V4L2_MPEG_VIDC_VIDEO_PRIORITY_REALTIME_ENABLE:
+			inst->flags |= VIDC_REALTIME;
+			break;
+		default:
+			dprintk(VIDC_WARN,
+				"inst(%pK) invalid priority ctrl value %#x\n",
+				inst, ctrl->val);
+			break;
+		}
 		break;
 	case V4L2_CID_MPEG_VIDC_VIDEO_OPERATING_RATE:
+		if ((ctrl->val >> 16) < inst->capability.frame_rate.min ||
+			 (ctrl->val >> 16) > inst->capability.frame_rate.max) {
+			dprintk(VIDC_ERR, "Invalid operating rate %u\n",
+				(ctrl->val >> 16));
+			rc = -ENOTSUPP;
+		} else {
+			dprintk(VIDC_DBG,
+				"inst(%pK) operating rate changed from %d to %d\n",
+				inst, inst->prop.operating_rate >> 16,
+					ctrl->val >> 16);
+			inst->prop.operating_rate = ctrl->val;
+		}
 		break;
 	default:
 		break;

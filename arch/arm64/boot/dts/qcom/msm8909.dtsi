@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -163,7 +163,7 @@
 		};
 	};
 
-	reserved-memory {
+	reserved_mem: reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
@@ -474,6 +474,16 @@
 		clock-names = "core", "iface";
 	};
 
+	blsp1_uart2: serial@78b0000 {
+		compatible = "qcom,msm-uartdm-v1.4", "qcom,msm-uart";
+		reg = <0x78b0000 0x200>;
+		interrupts = <0 108 0>;
+		status = "disabled";
+		clocks = <&clock_gcc clk_gcc_blsp1_uart2_apps_clk>,
+			 <&clock_gcc clk_gcc_blsp1_ahb_clk>;
+		clock-names = "core", "iface";
+	};
+
 	blsp1_uart2_hs: uart@78b0000 {		/*BLSP1 UART2*/
 		compatible = "qcom,msm-hsuart-v14";
 		reg = <0x78b0000 0x200>,
@@ -725,6 +735,12 @@
 			qcom,smdpkt-remote = "modem";
 			qcom,smdpkt-port-name = "DATA40_CNTL";
 			qcom,smdpkt-dev-name = "smdcntl8";
+		};
+
+		qcom,smdpkt-data2 {
+			qcom,smdpkt-remote = "modem";
+			qcom,smdpkt-port-name = "DATA2";
+			qcom,smdpkt-dev-name = "at_mdm0";
 		};
 
 		qcom,smdpkt-apr-apps2 {
@@ -1152,6 +1168,11 @@
 			compatible = "qcom,msm-imem-restart_reason";
 			reg = <0x65c 4>;
 		};
+
+		diag_dload@c8 {
+			compatible = "qcom,msm-imem-diag-dload";
+			reg = <0xc8 200>;
+		};
 	};
 
 	qcom,mpm2-sleep-counter@4a3000 {
@@ -1421,6 +1442,12 @@
 		qcom,latency-level = "ultra";
 	};
 
+	pcm_noirq: qcom,msm-pcm-dsp-noirq {
+		compatible = "qcom,msm-pcm-dsp-noirq";
+		qcom,msm-pcm-low-latency;
+		qcom,latency-level = "ultra";
+	};
+
 	lpa: qcom,msm-pcm-lpa {
 		compatible = "qcom,msm-pcm-lpa";
 	};
@@ -1459,6 +1486,12 @@
 		compatible = "qcom,msm-pcm-loopback";
 	};
 
+	pcm_noirq: qcom,msm-pcm-dsp-noirq {
+		compatible = "qcom,msm-pcm-dsp-noirq";
+		qcom,msm-pcm-low-latency;
+		qcom,latency-level = "ultra";
+	};
+
 	qcom,msm-dai-mi2s {
 		compatible = "qcom,msm-dai-mi2s";
 		dai_mi2s0: qcom,msm-dai-q6-mi2s-prim {
@@ -1475,20 +1508,6 @@
 			qcom,msm-mi2s-tx-lines = <0>;
 		};
 
-		dai_mi2s3: qcom,msm-dai-q6-mi2s-quat {
-			compatible = "qcom,msm-dai-q6-mi2s";
-			qcom,msm-dai-q6-mi2s-dev-id = <3>;
-			qcom,msm-mi2s-rx-lines = <0>;
-			qcom,msm-mi2s-tx-lines = <3>;
-		};
-
-		dai_mi2s5: qcom,msm-dai-q6-mi2s-quin {
-			compatible = "qcom,msm-dai-q6-mi2s";
-			qcom,msm-dai-q6-mi2s-dev-id = <5>;
-			qcom,msm-mi2s-rx-lines = <1>;
-			qcom,msm-mi2s-tx-lines = <2>;
-		};
-
 		dai_mi2s2: qcom,msm-dai-q6-mi2s-tert {
 			compatible = "qcom,msm-dai-q6-mi2s";
 			qcom,msm-dai-q6-mi2s-dev-id = <2>;
@@ -1496,7 +1515,21 @@
 			qcom,msm-mi2s-tx-lines = <3>;
 		};
 
-		dai_mi2s6: qcom,msm-dai-q6-mi2s-senary {
+		dai_mi2s3: qcom,msm-dai-q6-mi2s-quat {
+			compatible = "qcom,msm-dai-q6-mi2s";
+			qcom,msm-dai-q6-mi2s-dev-id = <3>;
+			qcom,msm-mi2s-rx-lines = <0>;
+			qcom,msm-mi2s-tx-lines = <3>;
+		};
+
+		dai_mi2s4: qcom,msm-dai-q6-mi2s-quin {
+			compatible = "qcom,msm-dai-q6-mi2s";
+			qcom,msm-dai-q6-mi2s-dev-id = <4>;
+			qcom,msm-mi2s-rx-lines = <1>;
+			qcom,msm-mi2s-tx-lines = <2>;
+		};
+
+		dai_mi2s5: qcom,msm-dai-q6-mi2s-senary {
 			compatible = "qcom,msm-dai-q6-mi2s";
 			qcom,msm-dai-q6-mi2s-dev-id = <6>;
 			qcom,msm-mi2s-rx-lines = <0>;
@@ -1645,6 +1678,13 @@
 
 	qcom,msm-audio-ion {
 		compatible = "qcom,msm-audio-ion";
+	};
+
+	qcom,msm-audio-apr {
+		compatible = "qcom,msm-audio-apr";
+		msm_audio_apr_dummy {
+			compatible = "qcom,msm-audio-apr-dummy";
+		};
 	};
 
 	qcom,mdsprpc-mem {

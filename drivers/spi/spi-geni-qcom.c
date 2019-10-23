@@ -156,6 +156,7 @@ struct spi_geni_master {
 	void *ipc;
 	bool shared_se;
 	bool dis_autosuspend;
+	bool cmd_done;
 };
 
 static struct spi_master *get_spi_master(struct device *dev)
@@ -170,27 +171,32 @@ static int get_spi_clk_cfg(u32 speed_hz, struct spi_geni_master *mas,
 			int *clk_idx, int *clk_div)
 {
 	unsigned long sclk_freq;
+	unsigned long res_freq;
 	struct se_geni_rsc *rsc = &mas->spi_rsc;
 	int ret = 0;
 
 	ret = geni_se_clk_freq_match(&mas->spi_rsc,
 				(speed_hz * mas->oversampling), clk_idx,
-				&sclk_freq, true);
+				&sclk_freq, false);
 	if (ret) {
 		dev_err(mas->dev, "%s: Failed(%d) to find src clk for 0x%x\n",
 						__func__, ret, speed_hz);
 		return ret;
 	}
 
-	*clk_div = ((sclk_freq / mas->oversampling) / speed_hz);
+	*clk_div = DIV_ROUND_UP(sclk_freq,  (mas->oversampling*speed_hz));
+
 	if (!(*clk_div)) {
 		dev_err(mas->dev, "%s:Err:sclk:%lu oversampling:%d speed:%u\n",
 			__func__, sclk_freq, mas->oversampling, speed_hz);
 		return -EINVAL;
 	}
 
-	dev_dbg(mas->dev, "%s: req %u sclk %lu, idx %d, div %d\n", __func__,
-				speed_hz, sclk_freq, *clk_idx, *clk_div);
+	res_freq = (sclk_freq / (*clk_div));
+
+	dev_dbg(mas->dev, "%s: req %u resultant %lu sclk %lu, idx %d, div %d\n",
+		__func__, speed_hz, res_freq, sclk_freq, *clk_idx, *clk_div);
+
 	ret = clk_set_rate(rsc->se_clk, sclk_freq);
 	if (ret)
 		dev_err(mas->dev, "%s: clk_set_rate failed %d\n",
@@ -913,7 +919,7 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 	u32 m_cmd = 0;
 	u32 m_param = 0;
 	u32 spi_tx_cfg = geni_read_reg(mas->base, SE_SPI_TRANS_CFG);
-	u32 trans_len = 0;
+	u32 trans_len = 0, fifo_size = 0;
 
 	if (xfer->bits_per_word != mas->cur_word_len) {
 		spi_setup_word_len(mas, mode, xfer->bits_per_word);
@@ -977,7 +983,9 @@ static void setup_fifo_xfer(struct spi_transfer *xfer,
 		mas->rx_rem_bytes = xfer->len;
 	}
 
-	if (trans_len > (mas->tx_fifo_depth * mas->tx_fifo_width)) {
+	fifo_size =
+		(mas->tx_fifo_depth * mas->tx_fifo_width / mas->cur_word_len);
+	if (trans_len > fifo_size) {
 		if (mas->cur_xfer_mode != SE_DMA) {
 			mas->cur_xfer_mode = SE_DMA;
 			geni_se_select_mode(mas->base, mas->cur_xfer_mode);
@@ -1251,12 +1259,12 @@ static void geni_spi_handle_rx(struct spi_geni_master *mas)
 	mas->rx_rem_bytes -= rx_bytes;
 }
 
-static irqreturn_t geni_spi_irq(int irq, void *dev)
+static irqreturn_t geni_spi_irq(int irq, void *data)
 {
-	struct spi_geni_master *mas = dev;
+	struct spi_geni_master *mas = data;
 	u32 m_irq = 0;
 
-	if (pm_runtime_status_suspended(dev)) {
+	if (pm_runtime_status_suspended(mas->dev)) {
 		GENI_SE_DBG(mas->ipc, false, mas->dev,
 				"%s: device is suspended\n", __func__);
 		goto exit_geni_spi_irq;
@@ -1272,7 +1280,7 @@ static irqreturn_t geni_spi_irq(int irq, void *dev)
 
 		if ((m_irq & M_CMD_DONE_EN) || (m_irq & M_CMD_CANCEL_EN) ||
 			(m_irq & M_CMD_ABORT_EN)) {
-			complete(&mas->xfer_done);
+			mas->cmd_done = true;
 			/*
 			 * If this happens, then a CMD_DONE came before all the
 			 * buffer bytes were sent out. This is unusual, log this
@@ -1312,12 +1320,16 @@ static irqreturn_t geni_spi_irq(int irq, void *dev)
 		if (dma_rx_status & RX_DMA_DONE)
 			mas->rx_rem_bytes = 0;
 		if (!mas->tx_rem_bytes && !mas->rx_rem_bytes)
-			complete(&mas->xfer_done);
+			mas->cmd_done = true;
 		if ((m_irq & M_CMD_CANCEL_EN) || (m_irq & M_CMD_ABORT_EN))
-			complete(&mas->xfer_done);
+			mas->cmd_done = true;
 	}
 exit_geni_spi_irq:
 	geni_write_reg(m_irq, mas->base, SE_GENI_M_IRQ_CLEAR);
+	if (mas->cmd_done) {
+		mas->cmd_done = false;
+		complete(&mas->xfer_done);
+	}
 	return IRQ_HANDLED;
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -891,6 +891,7 @@ static int dsi_ctrl_copy_and_pad_cmd(struct dsi_ctrl *dsi_ctrl,
 	int rc = 0;
 	u8 *buf = NULL;
 	u32 len, i;
+	u8 cmd_type = 0;
 
 	len = packet->size;
 	len += 0x3; len &= ~0x03; /* Align to 32 bits */
@@ -913,7 +914,11 @@ static int dsi_ctrl_copy_and_pad_cmd(struct dsi_ctrl *dsi_ctrl,
 
 
 	/* send embedded BTA for read commands */
-	if ((buf[2] & 0x3f) == MIPI_DSI_DCS_READ)
+	cmd_type = buf[2] & 0x3f;
+	if ((cmd_type == MIPI_DSI_DCS_READ) ||
+	    (cmd_type == MIPI_DSI_GENERIC_READ_REQUEST_0_PARAM) ||
+	    (cmd_type == MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM) ||
+	    (cmd_type == MIPI_DSI_GENERIC_READ_REQUEST_2_PARAM))
 		buf[3] |= BIT(5);
 
 	*buffer = buf;
@@ -2736,7 +2741,12 @@ int dsi_ctrl_update_host_config(struct dsi_ctrl *ctrl,
 		goto error;
 	}
 
-	if (!(flags & (DSI_MODE_FLAG_SEAMLESS | DSI_MODE_FLAG_VRR))) {
+	if (!(flags & (DSI_MODE_FLAG_SEAMLESS | DSI_MODE_FLAG_VRR |
+		       DSI_MODE_FLAG_DYN_CLK))) {
+		/*
+		 * for dynamic clk swith case link frequence would
+		 * be updated dsi_display_dynamic_clk_switch().
+		 */
 		rc = dsi_ctrl_update_link_freqs(ctrl, config, clk_handle);
 		if (rc) {
 			pr_err("[%s] failed to update link frequencies, rc=%d\n",
@@ -3452,6 +3462,27 @@ void dsi_ctrl_irq_update(struct dsi_ctrl *dsi_ctrl, bool enable)
 					DSI_SINT_ERROR);
 
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
+}
+
+/**
+ * dsi_ctrl_wait4dynamic_refresh_done() - Poll for dynamci refresh
+ *				done interrupt.
+ * @dsi_ctrl:              DSI controller handle.
+ */
+int dsi_ctrl_wait4dynamic_refresh_done(struct dsi_ctrl *ctrl)
+{
+	int rc = 0;
+
+	if (!ctrl)
+		return 0;
+
+	mutex_lock(&ctrl->ctrl_lock);
+
+	if (ctrl->hw.ops.wait4dynamic_refresh_done)
+		rc = ctrl->hw.ops.wait4dynamic_refresh_done(&ctrl->hw);
+
+	mutex_unlock(&ctrl->ctrl_lock);
+	return rc;
 }
 
 /**

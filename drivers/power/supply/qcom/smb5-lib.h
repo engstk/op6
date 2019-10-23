@@ -18,6 +18,7 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/consumer.h>
 #include <linux/extcon.h>
+#include <linux/alarmtimer.h>
 #include "storm-watch.h"
 
 enum print_reason {
@@ -68,6 +69,10 @@ enum print_reason {
 #define HW_LIMIT_VOTER			"HW_LIMIT_VOTER"
 #define FORCE_RECHARGE_VOTER		"FORCE_RECHARGE_VOTER"
 #define AICL_THRESHOLD_VOTER		"AICL_THRESHOLD_VOTER"
+#define MOISTURE_VOTER			"MOISTURE_VOTER"
+#define USBOV_DBC_VOTER			"USBOV_DBC_VOTER"
+#define FCC_STEPPER_VOTER		"FCC_STEPPER_VOTER"
+#define CHG_TERMINATION_VOTER		"CHG_TERMINATION_VOTER"
 
 #define BOOST_BACK_STORM_COUNT	3
 #define WEAK_CHG_STORM_COUNT	8
@@ -82,7 +87,6 @@ enum print_reason {
 #define TYPEC_DEFAULT_CURRENT_UA	900000
 #define TYPEC_MEDIUM_CURRENT_UA		1500000
 #define TYPEC_HIGH_CURRENT_UA		3000000
-#define ADC_CHG_TERM_MASK	32767
 
 enum smb_mode {
 	PARALLEL_MASTER = 0,
@@ -99,6 +103,9 @@ enum sink_src_mode {
 enum {
 	BOOST_BACK_WA			= BIT(0),
 	WEAK_ADAPTER_WA			= BIT(1),
+	MOISTURE_PROTECTION_WA		= BIT(2),
+	USBIN_OV_WA			= BIT(3),
+	CHG_TERMINATION_WA		= BIT(4),
 };
 
 enum {
@@ -339,12 +346,19 @@ struct smb_charger {
 	struct work_struct	bms_update_work;
 	struct work_struct	pl_update_work;
 	struct work_struct	jeita_update_work;
+	struct work_struct	moisture_protection_work;
+	struct work_struct	chg_termination_work;
 	struct delayed_work	ps_change_timeout_work;
 	struct delayed_work	clear_hdc_work;
 	struct delayed_work	icl_change_work;
 	struct delayed_work	pl_enable_work;
 	struct delayed_work	uusb_otg_work;
 	struct delayed_work	bb_removal_work;
+	struct delayed_work	usbov_dbc_work;
+
+	/* alarm */
+	struct alarm		moisture_protection_alarm;
+	struct alarm		chg_termination_alarm;
 
 	/* pd */
 	int			voltage_min_uv;
@@ -394,10 +408,17 @@ struct smb_charger {
 	int			aicl_cont_threshold_mv;
 	int			default_aicl_cont_threshold_mv;
 	bool			aicl_max_reached;
+	bool			moisture_present;
+	bool			moisture_protection_enabled;
+	bool			fcc_stepper_enable;
+	int			charge_full_cc;
+	int			cc_soc_ref;
+	int			last_cc_soc;
 
 	/* workaround flag */
 	u32			wa_flags;
 	int			boost_current_ua;
+	bool			dbc_usbov;
 
 	/* extcon for VBUS / ID notification to USB for uUSB */
 	struct extcon_dev	*extcon;
@@ -470,6 +491,7 @@ irqreturn_t high_duty_cycle_irq_handler(int irq, void *data);
 irqreturn_t switcher_power_ok_irq_handler(int irq, void *data);
 irqreturn_t wdog_bark_irq_handler(int irq, void *data);
 irqreturn_t typec_or_rid_detection_change_irq_handler(int irq, void *data);
+irqreturn_t usbin_ov_irq_handler(int irq, void *data);
 
 int smblib_get_prop_input_suspend(struct smb_charger *chg,
 				union power_supply_propval *val);
@@ -490,18 +512,6 @@ int smblib_get_prop_system_temp_level(struct smb_charger *chg,
 int smblib_get_prop_system_temp_level_max(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_input_current_limited(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_voltage_now(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_current_now(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_iterm(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_temp(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_charge_counter(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_cycle_count(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_set_prop_input_suspend(struct smb_charger *chg,
 				const union power_supply_propval *val);
@@ -576,6 +586,9 @@ int smblib_get_prop_pr_swap_in_progress(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_set_prop_pr_swap_in_progress(struct smb_charger *chg,
 				const union power_supply_propval *val);
+int smblib_get_prop_from_bms(struct smb_charger *chg,
+				enum power_supply_property psp,
+				union power_supply_propval *val);
 int smblib_stat_sw_override_cfg(struct smb_charger *chg, bool override);
 int smblib_configure_wdog(struct smb_charger *chg, bool enable);
 int smblib_force_vbus_voltage(struct smb_charger *chg, u8 val);

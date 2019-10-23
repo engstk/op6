@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1716,8 +1716,9 @@ static void adreno_fault_header(struct kgsl_device *device,
 			ib2base, ib2sz, drawctxt->rb->id);
 
 		pr_fault(device, drawobj,
-			"gpu fault ctx %d ts %d status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
-			drawobj->context->id, drawobj->timestamp, status,
+			"gpu fault ctx %d ctx_type %s ts %d status %8.8X rb %4.4x/%4.4x ib1 %16.16llX/%4.4x ib2 %16.16llX/%4.4x\n",
+			drawobj->context->id, get_api_type_str(drawctxt->type),
+			drawobj->timestamp, status,
 			rptr, wptr, ib1base, ib1sz, ib2base, ib2sz);
 
 		if (rb != NULL)
@@ -2093,6 +2094,22 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	if (fault == 0)
 		return 0;
 
+	mutex_lock(&device->mutex);
+
+	/*
+	 * In the very unlikely case that the power is off, do nothing - the
+	 * state will be reset on power up and everybody will be happy
+	 */
+	if (!kgsl_state_is_awake(device)) {
+		mutex_unlock(&device->mutex);
+		if (fault & ADRENO_SOFT_FAULT) {
+			/* Clear the existing register values */
+			memset(adreno_ft_regs_val, 0,
+				adreno_ft_regs_num * sizeof(unsigned int));
+		}
+		return 0;
+	}
+
 	/* Mask all GMU interrupts */
 	if (kgsl_gmu_isenabled(device)) {
 		adreno_write_gmureg(adreno_dev,
@@ -2106,17 +2123,6 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	if (gpudev->gx_is_on)
 		gx_on = gpudev->gx_is_on(adreno_dev);
 
-	/*
-	 * In the very unlikely case that the power is off, do nothing - the
-	 * state will be reset on power up and everybody will be happy
-	 */
-
-	if (!kgsl_state_is_awake(device) && (fault & ADRENO_SOFT_FAULT)) {
-		/* Clear the existing register values */
-		memset(adreno_ft_regs_val, 0,
-				adreno_ft_regs_num * sizeof(unsigned int));
-		return 0;
-	}
 
 	/*
 	 * On A5xx and A6xx, read RBBM_STATUS3:SMMU_STALLED_ON_FAULT (BIT 24)
@@ -2129,11 +2135,11 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 		gx_on) {
 		unsigned int val;
 
-		mutex_lock(&device->mutex);
 		adreno_readreg(adreno_dev, ADRENO_REG_RBBM_STATUS3, &val);
-		mutex_unlock(&device->mutex);
-		if (val & BIT(24))
+		if (val & BIT(24)) {
+			mutex_unlock(&device->mutex);
 			return 0;
+		}
 	}
 
 	/* Turn off all the timers */
@@ -2145,8 +2151,6 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	 */
 	if (adreno_is_preemption_enabled(adreno_dev))
 		del_timer_sync(&adreno_dev->preempt.timer);
-
-	mutex_lock(&device->mutex);
 
 	if (gx_on)
 		adreno_readreg64(adreno_dev, ADRENO_REG_CP_RB_BASE,

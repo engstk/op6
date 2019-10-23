@@ -1,0 +1,206 @@
+/* Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <dt-bindings/clock/qcom,gcc-sdm845.h>
+#include <dt-bindings/clock/qcom,camcc-sdm845.h>
+#include <dt-bindings/clock/qcom,dispcc-sdm845.h>
+#include <dt-bindings/clock/qcom,rpmh.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+
+#include "sda845-v2.1.dtsi"
+#include "sdm845-sde-display.dtsi"
+#include "sdm845-rb3.dtsi"
+#include "sdm845-audio-overlay.dtsi"
+
+&usb1 {
+	status = "ok";
+};
+
+&qusb_phy1 {
+	status = "ok";
+};
+
+&usb_qmp_phy {
+	status = "ok";
+};
+
+&qupv3_se3_i2c {
+	status = "disabled";
+};
+
+&pmi8998_pdphy {
+	vbus-supply = <&smb2_vbus>;
+};
+
+&pmi8998_pwm_2 {
+	status = "ok";
+};
+
+&wil6210 {
+	status = "disabled";
+};
+
+&smb1355_0 {
+	status = "disabled";
+};
+
+&smb1355_1 {
+	status = "disabled";
+};
+
+&key_home_default {
+	pins = "gpio4";
+};
+
+&max_rst_active {
+	mux {
+		pins = "gpio31","gpio77","gpio32";
+	};
+	config {
+		pins = "gpio31","gpio77","gpio32";
+	};
+};
+
+&pcie0 {
+	pinctrl-names = "default", "slot_power_on";
+	pinctrl-1 = <&pcie0_3v3_on &pcie0_1v5_on>;
+	3v3_gpio = <&tlmm 90 0>;
+	1v5_gpio = <&tlmm 90 0>;
+	status = "ok";
+};
+
+&pcie1 {
+	/delete-property/ wake-gpio;
+};
+
+&max_rst_suspend {
+	mux {
+		pins = "gpio31","gpio77","gpio32";
+	};
+	config {
+		pins = "gpio31","gpio77","gpio32";
+	};
+};
+
+&camera_dvdd_en_default {
+	pins = "gpio11";
+};
+
+&soc {
+	qcom,qbt1000 {
+		compatible = "qcom,qbt1000";
+		clock-names = "core", "iface";
+		clock-frequency = <25000000>;
+		qcom,ipc-gpio = <&tlmm 121 0>;
+		qcom,finger-detect-gpio = <&pm8998_gpios 4 0>;
+	};
+
+	qcom,rmnet-ipa {
+		 status="disabled";
+	};
+};
+
+&ssc_sensors {
+	status = "disabled";
+};
+
+&tlmm {
+	cam_sensor_tof_active: cam_sensor_tof_active {
+		/* RESET*/
+		mux {
+			pins = "gpio8";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio8";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_tof_suspend: cam_sensor_tof_suspend {
+		/* RESET*/
+		mux {
+			pins = "gpio8";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio8";
+			bias-pull-down; /* PULL DOWN */
+			drive-strength = <2>; /* 2 MA */
+			output-low;
+		};
+	};
+
+	cam_sensor_tracking_active: cam_sensor_tracking_active {
+		/* RESET */
+		mux {
+			pins = "gpio21";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio21";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_tracking_suspend: cam_sensor_tracking_suspend {
+		/* RESET */
+		mux {
+			pins = "gpio21";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio21";
+			bias-pull-down; /* PULL DOWN */
+			drive-strength = <2>; /* 2 MA */
+			output-low;
+		};
+	};
+
+	cam_sensor_rear4_active: cam_sensor_rear4_active {
+		/* RESET */
+		mux {
+			pins = "gpio12","gpio69";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio12","gpio69";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+
+	cam_sensor_rear4_suspend: cam_sensor_rear4_suspend {
+		/* RESET */
+		mux {
+			pins = "gpio12","gpio69";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio12","gpio69";
+			bias-disable; /* No PULL */
+			drive-strength = <2>; /* 2 MA */
+		};
+	};
+};
+
+&ipa_hw {
+	status="disabled";
+};

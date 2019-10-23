@@ -596,8 +596,14 @@ DEFINE_EVENT(sched_cpu_load, sched_cpu_load_lb,
 
 TRACE_EVENT(sched_load_to_gov,
 
-	TP_PROTO(struct rq *rq, u64 aggr_grp_load, u32 tt_load, u64 freq_aggr_thresh, u64 load, int policy, int big_task_rotation),
-	TP_ARGS(rq, aggr_grp_load, tt_load, freq_aggr_thresh, load, policy, big_task_rotation),
+	TP_PROTO(struct rq *rq, u64 aggr_grp_load, u32 tt_load,
+		u64 freq_aggr_thresh, u64 load, int policy,
+		int big_task_rotation,
+		unsigned int sysctl_sched_little_cluster_coloc_fmin_khz,
+		u64 coloc_boost_load),
+	TP_ARGS(rq, aggr_grp_load, tt_load, freq_aggr_thresh, load, policy,
+		big_task_rotation, sysctl_sched_little_cluster_coloc_fmin_khz,
+		coloc_boost_load),
 
 	TP_STRUCT__entry(
 		__field(	int,	cpu			)
@@ -613,6 +619,9 @@ TRACE_EVENT(sched_load_to_gov,
 		__field(	u64,	pl			)
 		__field(	u64,    load			)
 		__field(	int,    big_task_rotation	)
+		__field(unsigned int,
+				sysctl_sched_little_cluster_coloc_fmin_khz)
+		__field(	u64,	coloc_boost_load	)
 	),
 
 	TP_fast_assign(
@@ -629,14 +638,19 @@ TRACE_EVENT(sched_load_to_gov,
 		__entry->pl		= rq->walt_stats.pred_demands_sum;
 		__entry->load		= load;
 		__entry->big_task_rotation = big_task_rotation;
+		__entry->sysctl_sched_little_cluster_coloc_fmin_khz =
+				sysctl_sched_little_cluster_coloc_fmin_khz;
+		__entry->coloc_boost_load = coloc_boost_load;
 	),
 
-	TP_printk("cpu=%d policy=%d ed_task_pid=%d aggr_grp_load=%llu freq_aggr_thresh=%llu tt_load=%llu rq_ps=%llu grp_rq_ps=%llu nt_ps=%llu grp_nt_ps=%llu pl=%llu load=%llu big_task_rotation=%d",
+	TP_printk("cpu=%d policy=%d ed_task_pid=%d aggr_grp_load=%llu freq_aggr_thresh=%llu tt_load=%llu rq_ps=%llu grp_rq_ps=%llu nt_ps=%llu grp_nt_ps=%llu pl=%llu load=%llu big_task_rotation=%d sysctl_sched_little_cluster_coloc_fmin_khz=%u coloc_boost_load=%llu",
 		__entry->cpu, __entry->policy, __entry->ed_task_pid,
 		__entry->aggr_grp_load, __entry->freq_aggr_thresh,
 		__entry->tt_load, __entry->rq_ps, __entry->grp_rq_ps,
 		__entry->nt_ps, __entry->grp_nt_ps, __entry->pl, __entry->load,
-		__entry->big_task_rotation)
+		__entry->big_task_rotation,
+		__entry->sysctl_sched_little_cluster_coloc_fmin_khz,
+		__entry->coloc_boost_load)
 );
 #endif
 
@@ -657,6 +671,10 @@ TRACE_EVENT(sched_cpu_util,
 		__field(unsigned int, capacity_orig		)
 		__field(int, idle_state				)
 		__field(u64, irqload				)
+		__field(int, online				)
+		__field(int, isolated				)
+		__field(int, reserved				)
+		__field(int, high_irq_load			)
 	),
 
 	TP_fast_assign(
@@ -669,10 +687,14 @@ TRACE_EVENT(sched_cpu_util,
 		__entry->capacity_orig		= capacity_orig_of(cpu);
 		__entry->idle_state		= idle_get_state_idx(cpu_rq(cpu));
 		__entry->irqload		= sched_irqload(cpu);
+		__entry->online			= cpu_online(cpu);
+		__entry->isolated		= cpu_isolated(cpu);
+		__entry->reserved		= is_reserved(cpu);
+		__entry->high_irq_load          = sched_cpu_high_irqload(cpu);
 	),
 
-	TP_printk("cpu=%d nr_running=%d cpu_util=%ld cpu_util_cum=%ld capacity_curr=%u capacity=%u capacity_orig=%u idle_state=%d irqload=%llu",
-		__entry->cpu, __entry->nr_running, __entry->cpu_util, __entry->cpu_util_cum, __entry->capacity_curr, __entry->capacity, __entry->capacity_orig, __entry->idle_state, __entry->irqload)
+	TP_printk("cpu=%d nr_running=%d cpu_util=%ld cpu_util_cum=%ld capacity_curr=%u capacity=%u capacity_orig=%u idle_state=%d irqload=%llu online=%u isolated=%u reserved=%u high_irq_load=%u",
+		__entry->cpu, __entry->nr_running, __entry->cpu_util, __entry->cpu_util_cum, __entry->capacity_curr, __entry->capacity, __entry->capacity_orig, __entry->idle_state, __entry->irqload, __entry->online, __entry->isolated, __entry->reserved, __entry->high_irq_load)
 );
 
 TRACE_EVENT(sched_energy_diff,
@@ -1637,10 +1659,11 @@ TRACE_EVENT(sched_find_best_target,
 
 	TP_PROTO(struct task_struct *tsk, bool prefer_idle,
 		unsigned long min_util, int start_cpu,
-		int best_idle, int best_active, int target),
+		int best_idle, int best_active, int target,
+		int backup_cpu),
 
 	TP_ARGS(tsk, prefer_idle, min_util, start_cpu,
-		best_idle, best_active, target),
+		best_idle, best_active, target, backup_cpu),
 
 	TP_STRUCT__entry(
 		__array( char,	comm,	TASK_COMM_LEN	)
@@ -1651,6 +1674,7 @@ TRACE_EVENT(sched_find_best_target,
 		__field( int,	best_idle		)
 		__field( int,	best_active		)
 		__field( int,	target			)
+		__field( int,	backup_cpu		)
 	),
 
 	TP_fast_assign(
@@ -1662,14 +1686,16 @@ TRACE_EVENT(sched_find_best_target,
 		__entry->best_idle	= best_idle;
 		__entry->best_active	= best_active;
 		__entry->target		= target;
+		__entry->backup_cpu	= backup_cpu;
 	),
 
 	TP_printk("pid=%d comm=%s prefer_idle=%d start_cpu=%d "
-		  "best_idle=%d best_active=%d target=%d",
+		  "best_idle=%d best_active=%d target=%d backup=%d",
 		__entry->pid, __entry->comm,
 		__entry->prefer_idle, __entry->start_cpu,
 		__entry->best_idle, __entry->best_active,
-		__entry->target)
+		__entry->target,
+		__entry->backup_cpu)
 );
 
 TRACE_EVENT(sched_group_energy,

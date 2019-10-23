@@ -120,7 +120,7 @@ static struct msm_vidc_common_data sdm845_common_data[] = {
 	},
 	{
 		.key = "qcom,max-secure-instances",
-		.value = 5,
+		.value = 2,
 	},
 	{
 		.key = "qcom,max-hw-load",
@@ -154,6 +154,10 @@ static struct msm_vidc_common_data sdm845_common_data[] = {
 		.key = "qcom,debug-timeout",
 		.value = 0,
 	},
+	{
+		.key = "qcom,enable-idle-indicator",
+		.value = 1,
+	},
 };
 
 static struct msm_vidc_common_data sdm670_common_data_v0[] = {
@@ -179,7 +183,7 @@ static struct msm_vidc_common_data sdm670_common_data_v0[] = {
 	},
 	{
 		.key = "qcom,max-hw-load",
-		.value = 2219400,
+		.value = 2241480,
 	},
 	{
 		.key = "qcom,max-hq-mbs-per-frame",
@@ -204,6 +208,10 @@ static struct msm_vidc_common_data sdm670_common_data_v0[] = {
 	{
 		.key = "qcom,hw-resp-timeout",
 		.value = 1000,
+	},
+	{
+		.key = "qcom,enable-idle-indicator",
+		.value = 1,
 	},
 };
 
@@ -255,6 +263,10 @@ static struct msm_vidc_common_data sdm670_common_data_v1[] = {
 	{
 		.key = "qcom,hw-resp-timeout",
 		.value = 1000,
+	},
+	{
+		.key = "qcom,enable-idle-indicator",
+		.value = 1,
 	},
 };
 

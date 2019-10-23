@@ -97,7 +97,8 @@ enum kgsl_event_results {
 	{ KGSL_CONTEXT_TYPE_GL, "GL" }, \
 	{ KGSL_CONTEXT_TYPE_CL, "CL" }, \
 	{ KGSL_CONTEXT_TYPE_C2D, "C2D" }, \
-	{ KGSL_CONTEXT_TYPE_RS, "RS" }
+	{ KGSL_CONTEXT_TYPE_RS, "RS" }, \
+	{ KGSL_CONTEXT_TYPE_VK, "VK" }
 
 #define KGSL_CONTEXT_ID(_context) \
 	((_context != NULL) ? (_context)->id : KGSL_MEMSTORE_GLOBAL)
@@ -152,10 +153,10 @@ struct kgsl_functable {
 	unsigned int (*gpuid)(struct kgsl_device *device, unsigned int *chipid);
 	void (*snapshot)(struct kgsl_device *device,
 		struct kgsl_snapshot *snapshot, struct kgsl_context *context);
-	void (*snapshot_gmu)(struct kgsl_device *device,
-		struct kgsl_snapshot *snapshot);
 	irqreturn_t (*irq_handler)(struct kgsl_device *device);
 	int (*drain)(struct kgsl_device *device);
+	struct kgsl_device_private * (*device_private_create)(void);
+	void (*device_private_destroy)(struct kgsl_device_private *dev_priv);
 	/*
 	 * Optional functions - these functions are not mandatory.  The
 	 * driver will check that the function pointer is not NULL before

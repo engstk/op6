@@ -28,27 +28,42 @@ static inline void INIT_LIST_HEAD(struct list_head *list)
 	list->prev = list;
 }
 
+#ifdef CONFIG_DEBUG_LIST
+extern bool __list_add_valid(struct list_head *new,
+			      struct list_head *prev,
+			      struct list_head *next);
+extern bool __list_del_entry_valid(struct list_head *entry);
+#else
+static inline bool __list_add_valid(struct list_head *new,
+				struct list_head *prev,
+				struct list_head *next)
+{
+	return true;
+}
+static inline bool __list_del_entry_valid(struct list_head *entry)
+{
+	return true;
+}
+#endif
+
 /*
  * Insert a new entry between two known consecutive entries.
  *
  * This is only for internal list manipulation where we know
  * the prev/next entries already!
  */
-#ifndef CONFIG_DEBUG_LIST
 static inline void __list_add(struct list_head *new,
 			      struct list_head *prev,
 			      struct list_head *next)
 {
+	if (!__list_add_valid(new, prev, next))
+		return;
+
 	next->prev = new;
 	new->next = next;
 	new->prev = prev;
 	WRITE_ONCE(prev->next, new);
 }
-#else
-extern void __list_add(struct list_head *new,
-			      struct list_head *prev,
-			      struct list_head *next);
-#endif
 
 /**
  * list_add - add a new entry
@@ -96,22 +111,20 @@ static inline void __list_del(struct list_head * prev, struct list_head * next)
  * Note: list_empty() on entry does not return true after this, the entry is
  * in an undefined state.
  */
-#ifndef CONFIG_DEBUG_LIST
 static inline void __list_del_entry(struct list_head *entry)
 {
+	if (!__list_del_entry_valid(entry))
+		return;
+
 	__list_del(entry->prev, entry->next);
 }
 
 static inline void list_del(struct list_head *entry)
 {
-	__list_del(entry->prev, entry->next);
+	__list_del_entry(entry);
 	entry->next = LIST_POISON1;
 	entry->prev = LIST_POISON2;
 }
-#else
-extern void __list_del_entry(struct list_head *entry);
-extern void list_del(struct list_head *entry);
-#endif
 
 /**
  * list_replace - replace old entry by new one
@@ -269,6 +282,36 @@ static inline void list_cut_position(struct list_head *list,
 		INIT_LIST_HEAD(list);
 	else
 		__list_cut_position(list, head, entry);
+}
+
+/**
+ * list_cut_before - cut a list into two, before given entry
+ * @list: a new list to add all removed entries
+ * @head: a list with entries
+ * @entry: an entry within head, could be the head itself
+ *
+ * This helper moves the initial part of @head, up to but
+ * excluding @entry, from @head to @list.  You should pass
+ * in @entry an element you know is on @head.  @list should
+ * be an empty list or a list you do not care about losing
+ * its data.
+ * If @entry == @head, all entries on @head are moved to
+ * @list.
+ */
+static inline void list_cut_before(struct list_head *list,
+				   struct list_head *head,
+				   struct list_head *entry)
+{
+	if (head->next == entry) {
+		INIT_LIST_HEAD(list);
+		return;
+	}
+	list->next = head->next;
+	list->next->prev = list;
+	list->prev = entry->prev;
+	list->prev->next = list;
+	head->next = entry;
+	entry->prev = head;
 }
 
 static inline void __list_splice(const struct list_head *list,

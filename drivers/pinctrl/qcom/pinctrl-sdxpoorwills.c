@@ -50,6 +50,7 @@
 		.intr_cfg_reg = REG_BASE + 0x8 + REG_SIZE * id,		\
 		.intr_status_reg = REG_BASE + 0xc + REG_SIZE * id,	\
 		.intr_target_reg = REG_BASE + 0x8 + REG_SIZE * id,	\
+		.dir_conn_reg = REG_BASE + 0xab000,\
 		.mux_bit = 2,			\
 		.pull_bit = 0,			\
 		.drv_bit = 6,			\
@@ -64,6 +65,7 @@
 		.intr_polarity_bit = 1,		\
 		.intr_detection_bit = 2,	\
 		.intr_detection_width = 2,	\
+		.dir_conn_en_bit = 8,		\
 	}
 
 #define SDC_QDSD_PINGROUP(pg_name, ctl, pull, drv)	\
@@ -454,6 +456,8 @@ enum sdxpoorwills_functions {
 	msm_mux_qdss_stm0,
 	msm_mux_dbg_out,
 	msm_mux_gcc_plltest,
+	msm_mux_emac_pps,
+	msm_mux_gps_ext_aggressor,
 	msm_mux_NA,
 };
 
@@ -830,6 +834,14 @@ static const char * const gcc_plltest_groups[] = {
 	"gpio73", "gpio74",
 };
 
+static const char * const emac_pps_groups[] = {
+	"gpio89",
+};
+
+static const char * const gps_ext_aggressor_groups[] = {
+	"gpio42",
+};
+
 static const struct msm_function sdxpoorwills_functions[] = {
 	FUNCTION(uim2_data),
 	FUNCTION(gpio),
@@ -948,6 +960,8 @@ static const struct msm_function sdxpoorwills_functions[] = {
 	FUNCTION(qdss_stm0),
 	FUNCTION(dbg_out),
 	FUNCTION(gcc_plltest),
+	FUNCTION(emac_pps),
+	FUNCTION(gps_ext_aggressor),
 };
 
 /* Every pin is maintained as a single group, and missing or non-existing pin
@@ -1025,7 +1039,8 @@ static const struct msm_pingroup sdxpoorwills_groups[] = {
 	[39] = PINGROUP(39, NA, NA, NA, NA, NA, NA, NA, NA, NA),
 	[40] = PINGROUP(40, NA, NA, cri_trng0, NA, NA, NA, NA, NA, NA),
 	[41] = PINGROUP(41, NA, NA, cri_trng1, NA, NA, NA, NA, NA, NA),
-	[42] = PINGROUP(42, nav_pps, nav_dr, pll_ref, NA, NA, NA, NA, NA, NA),
+	[42] = PINGROUP(42, nav_pps, gps_ext_aggressor, nav_dr, pll_ref, NA,
+			NA, NA, NA, NA),
 	[43] = PINGROUP(43, NA, NA, NA, NA, NA, NA, NA, NA, NA),
 	[44] = PINGROUP(44, coex_uart, qdss_tracectl, NA, NA, NA, NA, NA, NA,
 			NA),
@@ -1085,7 +1100,8 @@ static const struct msm_pingroup sdxpoorwills_groups[] = {
 	[86] = PINGROUP(86, NA, NA, NA, NA, NA, NA, NA, NA, NA),
 	[87] = PINGROUP(87, NA, NA, NA, NA, NA, NA, NA, NA, NA),
 	[88] = PINGROUP(88, qdss_cti, qdss_cti, NA, NA, NA, NA, NA, NA, NA),
-	[89] = PINGROUP(89, qdss_cti, qdss_cti, NA, NA, NA, NA, NA, NA, NA),
+	[89] = PINGROUP(89, qdss_cti, qdss_cti, emac_pps, NA, NA, NA, NA,
+			NA, NA),
 	[90] = PINGROUP(90, NA, NA, NA, NA, NA, NA, NA, NA, NA),
 	[91] = PINGROUP(91, NA, NA, NA, NA, NA, NA, NA, NA, NA),
 	[92] = PINGROUP(92, NA, NA, NA, NA, NA, NA, NA, NA, NA),
@@ -1151,7 +1167,7 @@ static struct msm_gpio_mux_input sdxpoorwills_mux_in[] = {
 	{42, 80},
 	{43, 82},
 	{44, 83},
-	{45, 84},
+	{45, 84, 1},
 	{46, 86},
 	{47, 87},
 	{48, 88},
@@ -1160,7 +1176,7 @@ static struct msm_gpio_mux_input sdxpoorwills_mux_in[] = {
 	{51, 93},
 	{52, 94},
 	{53, 95},
-	{54, 97},
+	{54, 97, 1},
 	{55, 98},
 };
 
@@ -1196,6 +1212,17 @@ static struct msm_pdc_mux_output sdxpoorwills_mux_out[] = {
 	{0, 195},
 };
 
+static struct msm_dir_conn sdxpoorwills_dir_conn[] = {
+	{0, 220},
+	{0, 219},
+	{0, 218},
+	{0, 217},
+	{0, 216},
+	{0, 215},
+	{0, 214},
+	{0, 213},
+};
+
 static const struct msm_pinctrl_soc_data sdxpoorwills_pinctrl = {
 	.pins = sdxpoorwills_pins,
 	.npins = ARRAY_SIZE(sdxpoorwills_pins),
@@ -1209,6 +1236,9 @@ static const struct msm_pinctrl_soc_data sdxpoorwills_pinctrl = {
 	.n_pdc_mux_out = ARRAY_SIZE(sdxpoorwills_mux_out),
 	.n_pdc_mux_offset = 20,
 	.ngpios = 100,
+	.dir_conn_irq_base = 220,
+	.dir_conn = sdxpoorwills_dir_conn,
+	.n_dir_conns = ARRAY_SIZE(sdxpoorwills_dir_conn),
 };
 
 static int sdxpoorwills_pinctrl_probe(struct platform_device *pdev)

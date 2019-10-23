@@ -510,7 +510,11 @@ nocache:
 	}
 
 found:
-	if (addr + size > vend)
+	/*
+	 * Check also calculated address against the vstart,
+	 * because it can be 0 because of big align request.
+	 */
+	if (addr + size > vend || addr < vstart)
 		goto overflow;
 
 	va->va_start = addr;
@@ -543,7 +547,7 @@ overflow:
 		}
 	}
 
-	if (printk_ratelimit())
+	if (!(gfp_mask & __GFP_NOWARN) && printk_ratelimit())
 		pr_warn("vmap allocation for size %lu failed: use vmalloc=<size> to increase size\n",
 			size);
 	kfree(va);
@@ -1569,7 +1573,7 @@ static void __vunmap(const void *addr, int deallocate_pages)
 			addr))
 		return;
 
-	area = remove_vm_area(addr);
+	area = find_vmap_area((unsigned long)addr)->vm;
 	if (unlikely(!area)) {
 		WARN(1, KERN_ERR "Trying to vfree() nonexistent vm area (%p)\n",
 				addr);
@@ -1579,6 +1583,7 @@ static void __vunmap(const void *addr, int deallocate_pages)
 	debug_check_no_locks_freed(addr, get_vm_area_size(area));
 	debug_check_no_obj_freed(addr, get_vm_area_size(area));
 
+	remove_vm_area(addr);
 	if (deallocate_pages) {
 		int i;
 
@@ -2295,7 +2300,7 @@ int remap_vmalloc_range_partial(struct vm_area_struct *vma, unsigned long uaddr,
 	if (!(area->flags & VM_USERMAP))
 		return -EINVAL;
 
-	if (kaddr + size > area->addr + area->size)
+	if (kaddr + size > area->addr + get_vm_area_size(area))
 		return -EINVAL;
 
 	do {
@@ -2761,6 +2766,9 @@ static int s_show(struct seq_file *m, void *p)
 
 	v = va->vm;
 
+	if (v->flags & VM_LOWMEM)
+		return 0;
+
 	seq_printf(m, "0x%pK-0x%pK %7ld",
 		v->addr, v->addr + v->size, v->size);
 
@@ -2787,9 +2795,6 @@ static int s_show(struct seq_file *m, void *p)
 
 	if (is_vmalloc_addr(v->pages))
 		seq_puts(m, " vpages");
-
-	if (v->flags & VM_LOWMEM)
-		seq_puts(m, " lowmem");
 
 	show_numa_info(m, v);
 	seq_putc(m, '\n');

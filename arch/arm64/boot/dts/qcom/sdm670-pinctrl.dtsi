@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,8 @@
 &soc {
 	tlmm: pinctrl@03400000 {
 		compatible = "qcom,sdm670-pinctrl";
-		reg = <0x03400000 0xc00000>;
+		reg = <0x03400000 0xc00000>, <0x179900F0 0x60>;
+		reg-names = "pinctrl_regs", "spi_cfg_regs";
 		interrupts = <0 208 0>;
 		gpio-controller;
 		#gpio-cells = <2>;
@@ -93,6 +94,35 @@
 					pins = "gpio0", "gpio1";
 					drive-strength = <2>;
 					bias-pull-up;
+				};
+			};
+		};
+
+		micbias_supply_en_pins: micbias_supply_en_pins {
+			micbias_supply_en_active: micbias_supply_en_active {
+				mux {
+					pins = "gpio126";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio126";
+					drive-strength = <16>;
+					output-high;
+				};
+			};
+
+			micbias_supply_en_sleep: micbias_supply_en_sleep {
+				mux {
+					pins = "gpio126";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio126";
+					drive-strength = <16>;
+					bias-disable;
+					output-low;
 				};
 			};
 		};
@@ -1490,6 +1520,34 @@
 			};
 		};
 
+		cdc_reset_ctrl {
+			cdc_reset_sleep: cdc_reset_sleep {
+				mux {
+					pins = "gpio11";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio11";
+					drive-strength = <2>;
+					bias-disable;
+					output-low;
+				};
+			};
+
+			cdc_reset_active:cdc_reset_active {
+				mux {
+					pins = "gpio11";
+					function = "gpio";
+				};
+				config {
+					pins = "gpio11";
+					drive-strength = <8>;
+					bias-pull-down;
+					output-high;
+				};
+			};
+		};
+
 		/* WSA speaker reset pins */
 		spkr_1_sd_n {
 			spkr_1_sd_n_sleep: spkr_1_sd_n_sleep {
@@ -1669,6 +1727,36 @@
 					pins = "gpio80";
 					drive-strength = <2>; /* 2 mA */
 					bias-pull-down; /* pull down */
+					input-enable;
+				};
+			};
+		};
+
+		gpio_jack_det_line_in {
+			jack_det_linein_default: jack_det_linein_default {
+				mux {
+					pins = "gpio124";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio124";
+					bias-pull-up; /* pull up */
+					input-enable;
+				};
+			};
+		};
+
+		gpio_jack_det_line_out {
+			jack_det_lineout_default: jack_det_lineout_default {
+				mux {
+					pins = "gpio125";
+					function = "gpio";
+				};
+
+				config {
+					pins = "gpio125";
+					bias-pull-up; /* pull up */
 					input-enable;
 				};
 			};
@@ -2208,6 +2296,38 @@
 
 			config {
 				pins = "gpio15";
+				bias-pull-down; /* PULL DOWN */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_ir_led_on: cam_sensor_ir_led_on {
+			/*IR_LED*/
+			mux {
+				pins = "gpio22", "gpio141", "gpio142",
+						"gpio107", "gpio110";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio22", "gpio141", "gpio142",
+						"gpio107", "gpio110";
+				bias-disable; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_ir_led_off: cam_sensor_ir_led_off {
+			/*IR_LED*/
+			mux {
+				pins = "gpio22", "gpio141", "gpio142",
+						"gpio107", "gpio110";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio22", "gpio141", "gpio142",
+						"gpio107", "gpio110";
 				bias-pull-down; /* PULL DOWN */
 				drive-strength = <2>; /* 2 MA */
 			};

@@ -1859,6 +1859,20 @@ static void mdss_panel_validate_debugfs_info(struct msm_fb_data_type *mfd)
 	}
 }
 
+static void mdss_fb_signal_retire_fence(struct msm_fb_data_type *mfd)
+{
+#ifdef TARGET_HW_MDSS_MDP3
+	struct mdp3_session_data *mdp3_session = mfd_to_mdp3_data(mfd);
+	int retire_cnt = mdp3_session->retire_cnt;
+#else
+	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
+	int retire_cnt = mdp5_data->retire_cnt;
+#endif
+
+	if (mfd->mdp.signal_retire_fence)
+		mfd->mdp.signal_retire_fence(mfd, retire_cnt);
+}
+
 static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
 	int req_power_state)
 {
@@ -1906,10 +1920,13 @@ static int mdss_fb_blank_blank(struct msm_fb_data_type *mfd,
 	mfd->panel_power_state = req_power_state;
 
 	ret = mfd->mdp.off_fnc(mfd);
-	if (ret)
+	if (ret) {
 		mfd->panel_power_state = cur_power_state;
-	else if (mdss_panel_is_power_off(req_power_state))
+	} else if (!mdss_panel_is_power_on_interactive(req_power_state)) {
 		mdss_fb_release_fences(mfd);
+		if (mfd->panel.type == MIPI_CMD_PANEL)
+			mdss_fb_signal_retire_fence(mfd);
+	}
 	mfd->op_enable = true;
 	complete(&mfd->power_off_comp);
 
@@ -2032,6 +2049,14 @@ static int mdss_fb_blank_sub(int blank_mode, struct fb_info *info,
 	 * supported for command mode panels. For all other panel, treat lp
 	 * mode as full unblank and ulp mode as full blank.
 	 */
+	if ((mfd->panel_info->type == SPI_PANEL) &&
+		((blank_mode == BLANK_FLAG_LP) ||
+		(blank_mode == BLANK_FLAG_ULP))) {
+		pr_debug("lp/ulp mode are not supported for SPI panels\n");
+		if (mdss_fb_is_power_on_interactive(mfd))
+			return 0;
+	}
+
 	if (mfd->panel_info->type != MIPI_CMD_PANEL) {
 		if (blank_mode == BLANK_FLAG_LP) {
 			pr_debug("lp mode only valid for cmd mode panels\n");
@@ -2100,7 +2125,10 @@ static int mdss_fb_blank(int blank_mode, struct fb_info *info)
 	int ret;
 	struct mdss_panel_data *pdata;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
+	ktime_t start, end;
+	s64 actual_time;
 
+	start = ktime_get();
 	ret = mdss_fb_pan_idle(mfd);
 	if (ret) {
 		pr_warn("mdss_fb_pan_idle for fb%d failed. ret=%d\n",
@@ -2133,7 +2161,12 @@ static int mdss_fb_blank(int blank_mode, struct fb_info *info)
 	}
 
 	ret = mdss_fb_blank_sub(blank_mode, info, mfd->op_enable);
-	MDSS_XLOG(blank_mode);
+	end = ktime_get();
+	actual_time = ktime_ms_delta(end, start);
+
+	MDSS_XLOG(blank_mode, actual_time);
+	pr_debug("blank_mode: %d and transition time: %lldms\n",
+					blank_mode, actual_time);
 
 end:
 	mutex_unlock(&mfd->mdss_sysfs_lock);
@@ -2988,7 +3021,7 @@ static int __mdss_fb_wait_for_fence_sub(struct msm_sync_pt_data *sync_pt_data,
 
 		ret = mdss_wait_sync_fence(fences[i], wait_ms);
 
-		if (ret == -ETIME) {
+		if (ret == -ETIMEDOUT) {
 			wait_jf = timeout - jiffies;
 			wait_ms = jiffies_to_msecs(wait_jf);
 			if (wait_jf < 0)
@@ -3005,14 +3038,14 @@ static int __mdss_fb_wait_for_fence_sub(struct msm_sync_pt_data *sync_pt_data,
 			MDSS_XLOG_TOUT_HANDLER("mdp");
 			ret = mdss_wait_sync_fence(fences[i], wait_ms);
 
-			if (ret == -ETIME)
+			if (ret == -ETIMEDOUT)
 				break;
 		}
 		mdss_put_sync_fence(fences[i]);
 	}
 
 	if (ret < 0) {
-		pr_err("%s: sync_fence_wait failed! ret = %x\n",
+		pr_err("%s: sync_fence_wait failed! ret = %d\n",
 				sync_pt_data->fence_name, ret);
 		for (; i < fence_cnt; i++)
 			mdss_put_sync_fence(fences[i]);
@@ -3688,6 +3721,18 @@ static int __mdss_fb_perform_commit(struct msm_fb_data_type *mfd)
 	int ret = -ENOTSUPP;
 	u32 new_dsi_mode, dynamic_dsi_switch = 0;
 
+	if (mfd->panel_info->panel_dead) {
+		pr_debug("Panel dead, Signal fence and exit commit\n");
+		/*
+		 * In case of ESD attack, return early from commit
+		 * after signalling fences.
+		 */
+		mdss_fb_release_kickoff(mfd);
+		mdss_fb_signal_timeline(sync_pt_data);
+		if (mfd->panel.type == MIPI_CMD_PANEL)
+			mdss_fb_signal_retire_fence(mfd);
+		return ret;
+	}
 	if (!sync_pt_data->async_wait_fences)
 		mdss_fb_wait_for_fence(sync_pt_data);
 	sync_pt_data->flushed = false;
@@ -3743,9 +3788,8 @@ skip_commit:
 	if (IS_ERR_VALUE((unsigned long)ret) || !sync_pt_data->flushed) {
 		mdss_fb_release_kickoff(mfd);
 		mdss_fb_signal_timeline(sync_pt_data);
-		if ((mfd->panel.type == MIPI_CMD_PANEL) &&
-			(mfd->mdp.signal_retire_fence))
-			mfd->mdp.signal_retire_fence(mfd, 1);
+		if (mfd->panel.type == MIPI_CMD_PANEL)
+			mdss_fb_signal_retire_fence(mfd);
 	}
 
 	if (dynamic_dsi_switch) {
@@ -4567,7 +4611,6 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 	struct mdp_frc_info *frc_info = NULL;
 	struct mdp_frc_info __user *frc_info_user;
 	struct msm_fb_data_type *mfd;
-	struct mdss_overlay_private *mdp5_data = NULL;
 
 	ret = copy_from_user(&commit, argp, sizeof(struct mdp_layer_commit));
 	if (ret) {
@@ -4578,26 +4621,6 @@ static int mdss_fb_atomic_commit_ioctl(struct fb_info *info,
 	mfd = (struct msm_fb_data_type *)info->par;
 	if (!mfd)
 		return -EINVAL;
-
-	mdp5_data = mfd_to_mdp5_data(mfd);
-
-	if (mfd->panel_info->panel_dead) {
-		pr_debug("early commit return\n");
-		MDSS_XLOG(mfd->panel_info->panel_dead);
-		/*
-		 * In case of an ESD attack, since we early return from the
-		 * commits, we need to signal the outstanding fences.
-		 */
-		mutex_lock(&mfd->mdp_sync_pt_data.sync_mutex);
-		atomic_inc(&mfd->mdp_sync_pt_data.commit_cnt);
-		mutex_unlock(&mfd->mdp_sync_pt_data.sync_mutex);
-		mdss_fb_release_fences(mfd);
-		if ((mfd->panel.type == MIPI_CMD_PANEL) &&
-			mfd->mdp.signal_retire_fence && mdp5_data)
-			mfd->mdp.signal_retire_fence(mfd,
-						mdp5_data->retire_cnt);
-		return 0;
-	}
 
 	output_layer_user = commit.commit_v1.output_layer;
 	if (output_layer_user) {

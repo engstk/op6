@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -434,6 +434,44 @@ error:
 	return rc;
 }
 
+static int calc_clk_post(struct dsi_phy_hw *phy,
+			 struct phy_clk_params *clk_params,
+			 struct phy_timing_desc *desc)
+{
+	struct timing_entry *t = &desc->clk_post;
+	int temp = 0, rc;
+
+	temp = DIV_ROUND_UP(((60 * clk_params->bitclk_mbps) + 9000), 8000) - 1;
+	t->rec = DIV_ROUND_UP((t->rec_max + (9 * temp)), 10);
+
+	rc = dsi_phy_cmn_validate_and_set(t, "clk_post");
+
+	pr_debug("clk_post val 0x%x\n", t->reg_value);
+	return rc;
+}
+
+static int calc_clk_pre(struct dsi_phy_hw *phy,
+			struct phy_clk_params *clk_params,
+			struct phy_timing_desc *desc)
+{
+	struct timing_entry *t = &desc->clk_pre;
+	int temp = 0, rc;
+
+	temp = desc->clk_prepare.reg_value + desc->clk_zero.reg_value +
+		desc->hs_rqst_clk.reg_value + 2;
+
+	if (temp > t->rec_max) {
+		t->rec = DIV_ROUND_UP(((2 * t->rec_max) + (9 * temp)), 10);
+		t->rec = t->rec / 2;
+	} else
+		t->rec = DIV_ROUND_UP((t->rec_max + (9 * temp)), 10);
+
+	rc = dsi_phy_cmn_validate_and_set(t, "clk_pre");
+
+	pr_debug("clk_pre val 0x%x\n", t->reg_value);
+	return rc;
+}
+
 /**
  * dsi_phy_calc_timing_params - calculates timing paramets for a given bit clock
  */
@@ -501,6 +539,19 @@ static int dsi_phy_cmn_calc_timing_params(struct dsi_phy_hw *phy,
 		pr_err("hs_rqst_clk calculations failed, rc=%d\n", rc);
 		goto error;
 	}
+
+	rc = calc_clk_post(phy, clk_params, desc);
+	if (rc) {
+		pr_err("clk_post calculation failed, rc= %d\n", rc);
+		goto error;
+	}
+
+	rc = calc_clk_pre(phy, clk_params, desc);
+	if (rc) {
+		pr_err("clk_pre calculation failed, rc= %d\n", rc);
+		goto error;
+	}
+
 error:
 	return rc;
 }
@@ -511,11 +562,14 @@ error:
  * @mode:     Mode information for which timing has to be calculated.
  * @config:   DSI host configuration for this mode.
  * @timing:   Timing parameters for each lane which will be returned.
+ * @use_mode_bit_clk: Boolean to indicate whether reacalculate dsi
+ *		bit clk or use the existing bit clk(for dynamic clk case).
  */
 int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
-					    struct dsi_mode_info *mode,
-					    struct dsi_host_common_cfg *host,
-					   struct dsi_phy_per_lane_cfgs *timing)
+				       struct dsi_mode_info *mode,
+				       struct dsi_host_common_cfg *host,
+				       struct dsi_phy_per_lane_cfgs *timing,
+				       bool use_mode_bit_clk)
 {
 	/* constants */
 	u32 const esc_clk_mhz = 192; /* TODO: esc clock is hardcoded */
@@ -541,7 +595,7 @@ int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
 	struct phy_timing_ops *ops = phy->ops.timing_ops;
 
 	memset(&desc, 0x0, sizeof(desc));
-	h_total = DSI_H_TOTAL(mode);
+	h_total = DSI_H_TOTAL_DSC(mode);
 	v_total = DSI_V_TOTAL(mode);
 
 	bpp = bits_per_pixel[host->dst_format];
@@ -558,7 +612,10 @@ int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
 		num_of_lanes++;
 
 
-	x = mult_frac(v_total * h_total, inter_num, num_of_lanes);
+	if (use_mode_bit_clk)
+		x = mode->clk_rate_hz;
+	else
+		x = mult_frac(v_total * h_total, inter_num, num_of_lanes);
 	y = rounddown(x, 1);
 
 	clk_params.bitclk_mbps = rounddown(DIV_ROUND_UP_ULL(y, 1000000), 1);
@@ -576,6 +633,8 @@ int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
 	desc.hs_exit.rec_max = hs_exit_reco_max;
 	desc.hs_rqst.mipi_min = hs_rqst_spec_min;
 	desc.hs_rqst_clk.mipi_min = hs_rqst_spec_min;
+	desc.clk_post.rec_max = 63;
+	desc.clk_pre.rec_max = 63;
 
 	if (ops->get_default_phy_params) {
 		ops->get_default_phy_params(&clk_params);
@@ -605,6 +664,9 @@ int dsi_phy_hw_calculate_timing_params(struct dsi_phy_hw *phy,
 
 	if (ops->update_timing_params) {
 		ops->update_timing_params(timing, &desc);
+		/* update clock out timing control values */
+		host->t_clk_pre = desc.clk_pre.reg_value;
+		host->t_clk_post = desc.clk_post.reg_value;
 	} else {
 		rc = -EINVAL;
 		goto error;

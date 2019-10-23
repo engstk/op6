@@ -143,6 +143,10 @@ int nfs40_discover_server_trunking(struct nfs_client *clp,
 		/* Sustain the lease, even if it's empty.  If the clientid4
 		 * goes stale it's of no use for trunking discovery. */
 		nfs4_schedule_state_renewal(*result);
+
+		/* If the client state need to recover, do it. */
+		if (clp->cl_state)
+			nfs4_schedule_state_manager(clp);
 	}
 out:
 	return status;
@@ -1336,6 +1340,8 @@ int nfs4_schedule_stateid_recovery(const struct nfs_server *server, struct nfs4_
 
 	if (!nfs4_state_mark_reclaim_nograce(clp, state))
 		return -EBADF;
+	nfs_inode_find_delegation_state_and_recover(state->inode,
+			&state->stateid);
 	dprintk("%s: scheduling stateid recovery for server %s\n", __func__,
 			clp->cl_hostname);
 	nfs4_schedule_state_manager(clp);

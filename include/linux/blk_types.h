@@ -66,9 +66,20 @@ struct bio {
 		struct bio_integrity_payload *bi_integrity; /* data integrity */
 #endif
 	};
+
 #ifdef CONFIG_PFK
 	/* Encryption key to use (NULL if none) */
 	const struct blk_encryption_key	*bi_crypt_key;
+
+	/*
+	* When using dircet-io (O_DIRECT), we can't get the inode from a bio
+	* by walking bio->bi_io_vec->bv_page->mapping->host
+	* since the page is anon.
+	*/
+	struct inode            *bi_dio_inode;
+#endif
+#ifdef CONFIG_DM_DEFAULT_KEY
+	int bi_crypt_skip;
 #endif
 
 	unsigned short		bi_vcnt;	/* how many bio_vec's */
@@ -85,12 +96,6 @@ struct bio {
 
 	struct bio_set		*bi_pool;
 
-	/*
-	 * When using dircet-io (O_DIRECT), we can't get the inode from a bio
-	 * by walking bio->bi_io_vec->bv_page->mapping->host
-	 * since the page is anon.
-	 */
-	struct inode		*bi_dio_inode;
 	/*
 	 * We can inline a number of vecs at the end of the bio, to avoid
 	 * double allocations for a small number of bio_vecs. This member
@@ -183,6 +188,9 @@ enum rq_flag_bits {
 	__REQ_FUA,		/* forced unit access */
 	__REQ_PREFLUSH,		/* request for cache flush */
 	__REQ_BARRIER,		/* marks flush req as barrier */
+        /* Android specific flags */
+	__REQ_NOENCRYPT,	/* ok to not encrypt (already encrypted at fs
+				   level) */
 
 	/* bio only flags */
 	__REQ_RAHEAD,		/* read ahead, can fail anytime */
@@ -223,6 +231,7 @@ enum rq_flag_bits {
 #define REQ_URGENT		(1ULL << __REQ_URGENT)
 #define REQ_NOIDLE		(1ULL << __REQ_NOIDLE)
 #define REQ_INTEGRITY		(1ULL << __REQ_INTEGRITY)
+#define REQ_NOENCRYPT		(1ULL << __REQ_NOENCRYPT)
 
 #define REQ_FAILFAST_MASK \
 	(REQ_FAILFAST_DEV | REQ_FAILFAST_TRANSPORT | REQ_FAILFAST_DRIVER)

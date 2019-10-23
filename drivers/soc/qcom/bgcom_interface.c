@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -95,6 +95,7 @@ static  dev_t                    bg_dev;
 static  int                      device_open;
 static  void                     *handle;
 static	bool                     twm_exit;
+static	bool                     bg_app_running;
 static  struct   bgcom_open_config_type   config_type;
 static DECLARE_COMPLETION(bg_modem_down_wait);
 
@@ -306,10 +307,23 @@ static int bgchar_write_cmd(struct bg_ui_data *fui_obj_msg, int type)
 
 int bg_soft_reset(void)
 {
-	/*pull down reset gpio */
-	gpio_direction_output(bgreset_gpio, 0);
+	pr_debug("do BG reset using gpio %d\n", bgreset_gpio);
+	if (!gpio_is_valid(bgreset_gpio)) {
+		pr_err("gpio %d is not valid\n", bgreset_gpio);
+		return -ENXIO;
+	}
+	if (gpio_direction_output(bgreset_gpio, 1))
+		pr_err("gpio %d direction not set\n", bgreset_gpio);
+
+	/* Sleep for 50ms for hardware to detect signal as high */
+	msleep(50);
+
+	gpio_set_value(bgreset_gpio, 0);
+
+	/* Sleep for 50ms for hardware to detect signal as high */
 	msleep(50);
 	gpio_set_value(bgreset_gpio, 1);
+
 	return 0;
 }
 EXPORT_SYMBOL(bg_soft_reset);
@@ -366,6 +380,10 @@ static long bg_com_ioctl(struct file *filp,
 		break;
 	case BG_TWM_EXIT:
 		twm_exit = true;
+		ret = 0;
+		break;
+	case BG_APP_RUNNING:
+		bg_app_running = true;
 		ret = 0;
 		break;
 	default:
@@ -576,6 +594,16 @@ bool is_twm_exit(void)
 	return false;
 }
 EXPORT_SYMBOL(is_twm_exit);
+
+bool is_bg_running(void)
+{
+	if (bg_app_running) {
+		bg_app_running = false;
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(is_bg_running);
 
 static struct notifier_block ssr_modem_nb = {
 	.notifier_call = ssr_modem_cb,

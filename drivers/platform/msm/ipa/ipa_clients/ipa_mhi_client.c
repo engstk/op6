@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, 2017-2018 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015, 2017-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -67,11 +67,17 @@
 #define IPA_MHI_SUSPEND_SLEEP_MAX 1100
 
 #define IPA_MHI_MAX_UL_CHANNELS 1
-#define IPA_MHI_MAX_DL_CHANNELS 1
+#define IPA_MHI_MAX_DL_CHANNELS 2
 
 /* bit #40 in address should be asserted for MHI transfers over pcie */
 #define IPA_MHI_CLIENT_HOST_ADDR_COND(addr) \
 	((ipa_mhi_client_ctx->assert_bit40)?(IPA_MHI_HOST_ADDR(addr)):(addr))
+
+/* De-assert bit #40 in address when updating to host. */
+#define IPA_MHI_HOST_UPDATE(addr) ((addr) & ~(BIT_ULL(40)))
+
+#define IPA_MHI_CLIENT_HOST_ADDR_UPDATE(addr) \
+	((ipa_mhi_client_ctx->assert_bit40)?(IPA_MHI_HOST_UPDATE(addr)):(addr))
 
 enum ipa_mhi_rm_state {
 	IPA_MHI_RM_STATE_RELEASED,
@@ -1338,8 +1344,13 @@ static int ipa_mhi_suspend_gsi_channel(struct ipa_mhi_channel_ctx *channel)
 	}
 
 	/* check if channel was stopped completely */
-	if (res)
+	if (res) {
 		channel->stop_in_proc = true;
+	} else {
+		/* Dump RP/WP. */
+		ipa_mhi_query_ch_info(channel->client,
+				&channel->ch_info);
+	}
 
 	IPA_MHI_DBG("GSI channel is %s\n", (channel->stop_in_proc) ?
 		"STOP_IN_PROC" : "STOP");
@@ -1617,7 +1628,7 @@ int ipa_mhi_connect_pipe(struct ipa_mhi_connect_params *in, u32 *clnt_hdl)
 		res = ipa_mhi_read_write_host(IPA_MHI_DMA_TO_HOST,
 			&channel->state, channel->channel_context_addr +
 				offsetof(struct ipa_mhi_ch_ctx, chstate),
-				sizeof(channel->state));
+				sizeof(((struct ipa_mhi_ch_ctx *)0)->chstate));
 		if (res) {
 			IPA_MHI_ERR("ipa_mhi_read_write_host failed\n");
 			return res;
@@ -1743,13 +1754,14 @@ static int ipa_mhi_wait_for_cons_release(void)
 	return 0;
 }
 
-static int ipa_mhi_suspend_channels(struct ipa_mhi_channel_ctx *channels)
+static int ipa_mhi_suspend_channels(struct ipa_mhi_channel_ctx *channels,
+	int max_channels)
 {
 	int i;
 	int res;
 
 	IPA_MHI_FUNC_ENTRY();
-	for (i = 0; i < IPA_MHI_MAX_UL_CHANNELS; i++) {
+	for (i = 0; i < max_channels; i++) {
 		if (!channels[i].valid)
 			continue;
 		if (channels[i].state !=
@@ -1779,7 +1791,7 @@ static int ipa_mhi_suspend_channels(struct ipa_mhi_channel_ctx *channels)
 }
 
 static int ipa_mhi_stop_event_update_channels(
-		struct ipa_mhi_channel_ctx *channels)
+		struct ipa_mhi_channel_ctx *channels, int max_channels)
 {
 	int i;
 	int res;
@@ -1788,7 +1800,7 @@ static int ipa_mhi_stop_event_update_channels(
 		return 0;
 
 	IPA_MHI_FUNC_ENTRY();
-	for (i = 0; i < IPA_MHI_MAX_UL_CHANNELS; i++) {
+	for (i = 0; i < max_channels; i++) {
 		if (!channels[i].valid)
 			continue;
 		if (channels[i].state !=
@@ -1847,14 +1859,14 @@ static bool ipa_mhi_check_pending_packets_from_host(void)
 }
 
 static int ipa_mhi_resume_channels(bool LPTransitionRejected,
-		struct ipa_mhi_channel_ctx *channels)
+		struct ipa_mhi_channel_ctx *channels, int max_channels)
 {
 	int i;
 	int res;
 	struct ipa_mhi_channel_ctx *channel;
 
 	IPA_MHI_FUNC_ENTRY();
-	for (i = 0; i < IPA_MHI_MAX_UL_CHANNELS; i++) {
+	for (i = 0; i < max_channels; i++) {
 		if (!channels[i].valid)
 			continue;
 		if (channels[i].state !=
@@ -1903,7 +1915,8 @@ static int ipa_mhi_suspend_ul(bool force, bool *empty, bool *force_clear)
 
 	*force_clear = false;
 
-	res = ipa_mhi_suspend_channels(ipa_mhi_client_ctx->ul_channels);
+	res = ipa_mhi_suspend_channels(ipa_mhi_client_ctx->ul_channels,
+		IPA_MHI_MAX_UL_CHANNELS);
 	if (res) {
 		IPA_MHI_ERR("ipa_mhi_suspend_ul_channels failed %d\n", res);
 		goto fail_suspend_ul_channel;
@@ -1964,7 +1977,7 @@ static int ipa_mhi_suspend_ul(bool force, bool *empty, bool *force_clear)
 	}
 
 	res = ipa_mhi_stop_event_update_channels(
-		ipa_mhi_client_ctx->ul_channels);
+		ipa_mhi_client_ctx->ul_channels, IPA_MHI_MAX_UL_CHANNELS);
 	if (res) {
 		IPA_MHI_ERR(
 			"ipa_mhi_stop_event_update_ul_channels failed %d\n",
@@ -2015,7 +2028,8 @@ static void ipa_mhi_update_host_ch_state(bool update_rp)
 				ipa_assert();
 				return;
 			}
-
+			channel->ch_info.rp =
+			IPA_MHI_CLIENT_HOST_ADDR_UPDATE(channel->ch_info.rp);
 			res = ipa_mhi_read_write_host(IPA_MHI_DMA_TO_HOST,
 				&channel->ch_info.rp,
 				channel->channel_context_addr +
@@ -2053,6 +2067,8 @@ static void ipa_mhi_update_host_ch_state(bool update_rp)
 				return;
 			}
 
+			channel->ch_info.rp =
+			IPA_MHI_CLIENT_HOST_ADDR_UPDATE(channel->ch_info.rp);
 			res = ipa_mhi_read_write_host(IPA_MHI_DMA_TO_HOST,
 				&channel->ch_info.rp,
 				channel->channel_context_addr +
@@ -2080,7 +2096,8 @@ static int ipa_mhi_suspend_dl(bool force)
 {
 	int res;
 
-	res = ipa_mhi_suspend_channels(ipa_mhi_client_ctx->dl_channels);
+	res = ipa_mhi_suspend_channels(ipa_mhi_client_ctx->dl_channels,
+		IPA_MHI_MAX_DL_CHANNELS);
 	if (res) {
 		IPA_MHI_ERR(
 			"ipa_mhi_suspend_channels for dl failed %d\n", res);
@@ -2088,7 +2105,8 @@ static int ipa_mhi_suspend_dl(bool force)
 	}
 
 	res = ipa_mhi_stop_event_update_channels
-			(ipa_mhi_client_ctx->dl_channels);
+			(ipa_mhi_client_ctx->dl_channels,
+			IPA_MHI_MAX_DL_CHANNELS);
 	if (res) {
 		IPA_MHI_ERR("failed to stop event update on DL %d\n", res);
 		goto fail_stop_event_update_dl_channel;
@@ -2113,7 +2131,8 @@ static int ipa_mhi_suspend_dl(bool force)
 
 fail_stop_event_update_dl_channel:
 		ipa_mhi_resume_channels(true,
-				ipa_mhi_client_ctx->dl_channels);
+				ipa_mhi_client_ctx->dl_channels,
+				IPA_MHI_MAX_DL_CHANNELS);
 fail_suspend_dl_channel:
 		return res;
 }
@@ -2146,6 +2165,15 @@ int ipa_mhi_suspend(bool force)
 		IPA_MHI_ERR("ipa_mhi_set_state failed %d\n", res);
 		return res;
 	}
+
+	res = ipa_mhi_suspend_dl(force);
+	if (res) {
+		IPA_MHI_ERR("ipa_mhi_suspend_dl failed %d\n", res);
+		goto fail_suspend_dl_channel;
+	}
+
+	usleep_range(IPA_MHI_SUSPEND_SLEEP_MIN, IPA_MHI_SUSPEND_SLEEP_MAX);
+
 	res = ipa_mhi_suspend_ul(force, &empty, &force_clear);
 	if (res) {
 		IPA_MHI_ERR("ipa_mhi_suspend_ul failed %d\n", res);
@@ -2190,12 +2218,6 @@ int ipa_mhi_suspend(bool force)
 #endif
 	usleep_range(IPA_MHI_SUSPEND_SLEEP_MIN, IPA_MHI_SUSPEND_SLEEP_MAX);
 
-	res = ipa_mhi_suspend_dl(force);
-	if (res) {
-		IPA_MHI_ERR("ipa_mhi_suspend_dl failed %d\n", res);
-		goto fail_suspend_dl_channel;
-	}
-
 	if (!empty)
 		ipa_set_tag_process_before_gating(false);
 
@@ -2209,7 +2231,6 @@ int ipa_mhi_suspend(bool force)
 	IPA_MHI_FUNC_EXIT();
 	return 0;
 
-fail_suspend_dl_channel:
 fail_release_cons:
 	if (!ipa_pm_is_used())
 	ipa_mhi_request_prod();
@@ -2224,8 +2245,8 @@ fail_deactivate_pm:
 #endif
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 fail_suspend_ul_channel:
-	ipa_mhi_resume_channels(true, ipa_mhi_client_ctx->ul_channels);
-	ipa_mhi_set_state(IPA_MHI_STATE_STARTED);
+	ipa_mhi_resume_channels(true, ipa_mhi_client_ctx->ul_channels,
+		IPA_MHI_MAX_UL_CHANNELS);
 	if (force_clear) {
 		if (
 		ipa_mhi_disable_force_clear(ipa_mhi_client_ctx->qmi_req_id)) {
@@ -2235,6 +2256,10 @@ fail_suspend_ul_channel:
 		IPA_MHI_DBG("force clear datapath disabled\n");
 		ipa_mhi_client_ctx->qmi_req_id++;
 	}
+fail_suspend_dl_channel:
+	ipa_mhi_resume_channels(true, ipa_mhi_client_ctx->dl_channels,
+		IPA_MHI_MAX_DL_CHANNELS);
+	ipa_mhi_set_state(IPA_MHI_STATE_STARTED);
 	return res;
 }
 
@@ -2268,7 +2293,8 @@ int ipa_mhi_resume(void)
 	if (ipa_mhi_client_ctx->rm_cons_state == IPA_MHI_RM_STATE_REQUESTED) {
 		/* resume all DL channels */
 		res = ipa_mhi_resume_channels(false,
-				ipa_mhi_client_ctx->dl_channels);
+				ipa_mhi_client_ctx->dl_channels,
+				IPA_MHI_MAX_DL_CHANNELS);
 		if (res) {
 			IPA_MHI_ERR("ipa_mhi_resume_dl_channels failed %d\n",
 				res);
@@ -2306,7 +2332,8 @@ int ipa_mhi_resume(void)
 
 	/* resume all UL channels */
 	res = ipa_mhi_resume_channels(false,
-					ipa_mhi_client_ctx->ul_channels);
+					ipa_mhi_client_ctx->ul_channels,
+					IPA_MHI_MAX_UL_CHANNELS);
 	if (res) {
 		IPA_MHI_ERR("ipa_mhi_resume_ul_channels failed %d\n", res);
 		goto fail_resume_ul_channels;
@@ -2314,7 +2341,8 @@ int ipa_mhi_resume(void)
 
 	if (!dl_channel_resumed) {
 		res = ipa_mhi_resume_channels(false,
-					ipa_mhi_client_ctx->dl_channels);
+					ipa_mhi_client_ctx->dl_channels,
+					IPA_MHI_MAX_DL_CHANNELS);
 		if (res) {
 			IPA_MHI_ERR("ipa_mhi_resume_dl_channels failed %d\n",
 				res);
@@ -2335,9 +2363,11 @@ int ipa_mhi_resume(void)
 	return 0;
 
 fail_set_state:
-	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->dl_channels);
+	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->dl_channels,
+		IPA_MHI_MAX_DL_CHANNELS);
 fail_resume_dl_channels2:
-	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->ul_channels);
+	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->ul_channels,
+		IPA_MHI_MAX_UL_CHANNELS);
 fail_resume_ul_channels:
 	if (!ipa_pm_is_used())
 		ipa_mhi_release_prod();
@@ -2350,7 +2380,8 @@ fail_pm_activate_modem:
 		ipa_pm_deactivate_sync(ipa_mhi_client_ctx->pm_hdl);
 fail_pm_activate:
 #endif
-	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->dl_channels);
+	ipa_mhi_suspend_channels(ipa_mhi_client_ctx->dl_channels,
+		IPA_MHI_MAX_DL_CHANNELS);
 fail_resume_dl_channels:
 	ipa_mhi_set_state(IPA_MHI_STATE_SUSPENDED);
 	return res;
@@ -2787,12 +2818,15 @@ int ipa_mhi_init(struct ipa_mhi_init_params *params)
 		goto fail_rm;
 	}
 
-	/* Initialize uC interface */
-	ipa_uc_mhi_init(ipa_mhi_uc_ready_cb,
-		ipa_mhi_uc_wakeup_request_cb);
-	if (ipa_uc_state_check() == 0)
+	if (ipa_get_transport_type() == IPA_TRANSPORT_TYPE_GSI) {
 		ipa_mhi_set_state(IPA_MHI_STATE_READY);
-
+	} else {
+		/* Initialize uC interface */
+		ipa_uc_mhi_init(ipa_mhi_uc_ready_cb,
+			ipa_mhi_uc_wakeup_request_cb);
+		if (ipa_uc_state_check() == 0)
+			ipa_mhi_set_state(IPA_MHI_STATE_READY);
+	}
 	/* Initialize debugfs */
 	ipa_mhi_debugfs_init();
 

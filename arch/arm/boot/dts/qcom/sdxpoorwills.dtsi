@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,7 +25,7 @@
 / {
 	model = "Qualcomm Technologies, Inc. SDX POORWILLS";
 	compatible = "qcom,sdxpoorwills";
-	qcom,msm-id = <334 0x0>, <335 0x0>;
+	qcom,msm-id = <334 0x0>, <335 0x0>, <408 0x0>;
 	interrupt-parent = <&pdc>;
 
 	reserved-memory {
@@ -65,7 +65,7 @@
 		mss_mem: mss_region@87400000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x87000000 0x8700000>;
+			reg = <0x86c00000 0x8b00000>;
 			label = "mss_mem";
 		};
 
@@ -85,14 +85,16 @@
 			compatible = "shared-dma-pool";
 			reusable;
 			alignment = <0x400000>;
-			size = <0x1400000>;
+			size = <0x400000>;
+			status = "disabled";
 		};
 
 		qseecom_ta_mem: qseecom_ta_region@0 {
 			compatible = "shared-dma-pool";
 			reusable;
 			alignment = <0x400000>;
-			size = <0x1000000>;
+			size = <0x400000>;
+			status = "disabled";
 		};
 	};
 
@@ -237,17 +239,17 @@
 
 	cpubw: qcom,cpubw {
 		compatible = "qcom,devbw";
-		governor = "cpufreq";
+		governor = "performance";
 		qcom,src-dst-ports = <1 512>;
 		qcom,active-only;
 		qcom,bw-tbl =
-			< MHZ_TO_MBPS(200, 2) >, /*   381 MB/s */
-			< MHZ_TO_MBPS(470, 2) >, /*   896 MB/s */
-			< MHZ_TO_MBPS(547, 2) >, /*  1043 MB/s */
-			< MHZ_TO_MBPS(691, 2) >, /*  1317 MB/s */
-			< MHZ_TO_MBPS(806, 2) >, /*  1537 MB/s */
-			< MHZ_TO_MBPS(940, 2) >, /*  1792 MB/s */
-			< MHZ_TO_MBPS(1383, 2) >; /* 2637 MB/s */
+			< MHZ_TO_MBPS(200, 4) >, /*   762 MB/s */
+			< MHZ_TO_MBPS(470, 4) >, /*  1792 MB/s */
+			< MHZ_TO_MBPS(547, 4) >, /*  2086 MB/s */
+			< MHZ_TO_MBPS(691, 4) >, /*  2634 MB/s */
+			< MHZ_TO_MBPS(806, 4) >, /*  3074 MB/s */
+			< MHZ_TO_MBPS(940, 4) >, /*  3584 MB/s */
+			< MHZ_TO_MBPS(1383, 4) >; /* 5274 MB/s */
 	};
 
 	devfreq_compute: qcom,devfreq-compute {
@@ -255,9 +257,9 @@
 		qcom,cpulist = <&CPU0>;
 		qcom,target-dev = <&cpubw>;
 		qcom,core-dev-table =
-				<  153600 MHZ_TO_MBPS(200, 2) >,
-				<  576000 MHZ_TO_MBPS(691, 2) >,
-				< 1497600 MHZ_TO_MBPS(1383, 2)>;
+				<  153600 MHZ_TO_MBPS( 200, 4) >,
+				<  576000 MHZ_TO_MBPS( 691, 4) >,
+				< 1497600 MHZ_TO_MBPS(1383, 4)>;
 	};
 
 	clock_gcc: qcom,gcc@100000 {
@@ -361,9 +363,10 @@
 			<0x40001000 0x1000>,
 			<0x01c00000 0x2000>,
 			<0x01c02000 0x1000>,
-			<0x01c04000 0x1000>;
+			<0x01c04000 0x1000>,
+			<0x01fcb000 0x1000>;
 		reg-names = "msi", "dm_core", "elbi", "iatu", "parf",
-				"phy", "mmio";
+				"phy", "mmio", "tcsr_pcie_perst_en";
 
 		#address-cells = <0>;
 		interrupt-parent = <&pcie_ep>;
@@ -416,6 +419,8 @@
 				<45 512 0 0>,
 				<45 512 500 800>;
 
+		qcom,pcie-vendor-id = /bits/ 16 <0x17cb>;
+		qcom,pcie-device-id = /bits/ 16 <0x0304>;
 		qcom,pcie-link-speed = <2>;
 		qcom,pcie-phy-ver = <6>;
 		qcom,pcie-active-config;
@@ -505,6 +510,22 @@
 		status = "disabled";
 	};
 
+	ipc_router_mhi_dev_xprt: qcom,ipc_router_mhi_dev_xprt {
+		compatible = "qcom,ipc-router-mhi-dev-xprt";
+		qcom,out-chan-id = <20>;
+		qcom,in-chan-id = <21>;
+		qcom,xprt-remote = "external-ap";
+		qcom,xprt-linkid = <2>;
+		qcom,xprt-version = <1>;
+		status = "disabled";
+	};
+
+	mhi_net_device: qcom,mhi_net_dev {
+		compatible = "qcom,msm-mhi-dev-net";
+		qcom,mhi-ethernet-interface;
+		status = "disabled";
+	};
+
 	gdsc_emac: qcom,gdsc@147004 {
 		compatible = "qcom,gdsc";
 		regulator-name = "gdsc_emac";
@@ -573,6 +594,9 @@
 
 		qcom,restore-after-cx-collapse;
 
+		/* DLL HSR settings. Refer go/hsr - <Target> DLL settings */
+		qcom,dll-hsr-list = <0x0007642c 0x0 0x10 0x2c010800 0x80040868>;
+
 		status = "disabled";
 	};
 
@@ -615,7 +639,7 @@
 		clock-frequency = <32768>;
 	};
 
-	restart@c264000 {
+	restart_pshold: restart@c264000 {
 		compatible = "qcom,pshold";
 		reg = <0x0c264000 0x4>,
 			<0x01fd3000 0x4>;
@@ -908,10 +932,10 @@
 	dcc: dcc_v2@10a2000 {
 		compatible = "qcom,dcc-v2";
 		reg = <0x10a2000 0x1000>,
-		      <0x10ae000 0x2000>;
+		      <0x10ae400 0x1c00>;
 		reg-names = "dcc-base", "dcc-ram-base";
 
-		dcc-ram-offset = <0x6000>;
+		dcc-ram-offset = <0x400>;
 	};
 
 	system_pm {
@@ -932,7 +956,7 @@
 		qcom,ipa-hw-mode = <0>;
 		qcom,ee = <0>;
 		qcom,use-ipa-tethering-bridge;
-		qcom,mhi-event-ring-id-limits = <9 10>; /* start and end */
+		qcom,mhi-event-ring-id-limits = <9 11>; /* start and end */
 		qcom,modem-cfg-emb-pipe-flt;
 		qcom,use-ipa-pm;
 		qcom,wlan-ce-db-over-pcie;
@@ -951,24 +975,24 @@
 		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 0>,
 
 		/* SVS2 */
-		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_MEM_NOC_GC 240000 480000>,
-		<MSM_BUS_MASTER_SNOC_GC_MEM_NOC MSM_BUS_SLAVE_EBI_CH0 900000 1800000>,
-		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 300000 600000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 90000 179000>,
+		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_MEM_NOC_GC 116000 480000>,
+		<MSM_BUS_MASTER_SNOC_GC_MEM_NOC MSM_BUS_SLAVE_EBI_CH0 116000 1800000>,
+		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 60000 600000>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 17900 179000>,
 		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 120>,
 
 		/* SVS */
-		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_MEM_NOC_GC 360000 720000>,
-		<MSM_BUS_MASTER_SNOC_GC_MEM_NOC MSM_BUS_SLAVE_EBI_CH0 1530000 3060000>,
-		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 400000 800000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 100000 199000>,
+		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_MEM_NOC_GC 225000 720000>,
+		<MSM_BUS_MASTER_SNOC_GC_MEM_NOC MSM_BUS_SLAVE_EBI_CH0 225000 3060000>,
+		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 80000 800000>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 19900 199000>,
 		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 250>,
 
 		/* NOMINAL */
-		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_MEM_NOC_GC 780000 1560000>,
-		<MSM_BUS_MASTER_SNOC_GC_MEM_NOC MSM_BUS_SLAVE_EBI_CH0 2592000 5184000>,
-		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 800000 1600000>,
-		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 200000 399000>,
+		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_SNOC_MEM_NOC_GC 375000 1560000>,
+		<MSM_BUS_MASTER_SNOC_GC_MEM_NOC MSM_BUS_SLAVE_EBI_CH0 375000 5184000>,
+		<MSM_BUS_MASTER_IPA MSM_BUS_SLAVE_OCIMEM 160000 1600000>,
+		<MSM_BUS_MASTER_AMPSS_M0 MSM_BUS_SLAVE_IPA_CFG 39900 399000>,
 		<MSM_BUS_MASTER_IPA_CORE MSM_BUS_SLAVE_IPA_CORE 0 440>,
 
 		/* TURBO */
@@ -1166,6 +1190,11 @@
 		clock-names = "iface_clk";
 	};
 
+	qcom_tzlog: tz-log@1468B720 {
+		compatible = "qcom,tz-log";
+		reg = <0x1468B720 0x2000>;
+	};
+
 	qcom_seecom: qseecom@90000000{
 		compatible = "qcom,qseecom";
 		reg = <0x90000000 0x600000>;
@@ -1288,12 +1317,16 @@
 				<45 512 98572 655360>, <1 512 98572 1600000>,
 				/* Upto 800 Mbps */
 				<45 512 207108 1146880>, <1 512 207108 3124992>;
+
+		qcom,wlan-smmu-iova-address = <0x10000000 0x10000000>;
+		qcom,wlan-smmu-iova-ipa = <0x20000000 0x10000>;
 	};
 
 	cnss_sdio: qcom,cnss_sdio {
 		compatible = "qcom,cnss_sdio";
 		subsys-name = "AR6320_SDIO";
 		vdd-wlan-supply = <&vreg_wlan>;
+		vdd-wlan-xtal-supply = <&pmxpoorwills_l5>;
 		vdd-wlan-io-supply = <&pmxpoorwills_l6>;
 		qcom,wlan-ramdump-dynamic = <0x200000>;
 		pinctrl-names = "active", "sleep";
@@ -1301,6 +1334,8 @@
 		pinctrl-1 = <&cnss_sdio_sleep>;
 		qcom,is-antenna-shared;
 		status = "disabled";
+		vdd-wlan-xtal-min = <1704000>;
+		vdd-wlan-xtal-max = <1704000>;
 	};
 };
 
@@ -1343,9 +1378,9 @@
 		qcom,msm-bus,num-paths = <2>;
 		qcom,msm-bus,vectors-KBps =
 			<98 512 0 0>, <1 781 0 0>,  /* No vote */
-			<98 512 1250 0>, <1 781 0 40000>,  /* 10Mbps vote */
-			<98 512 12500 0>, <1 781 0 40000>,  /* 100Mbps vote */
-			<98 512 125000 0>, <1 781 0 40000>; /* 1000Mbps vote */
+			<98 512 2500 0>, <1 781 0 40000>,  /* 10Mbps vote */
+			<98 512 25000 0>, <1 781 0 40000>,  /* 100Mbps vote */
+			<98 512 250000 0>, <1 781 0 40000>; /* 1000Mbps vote */
 		qcom,bus-vector-names = "0", "10", "100", "1000";
 		clocks = <&clock_gcc GCC_ETH_AXI_CLK>,
 			<&clock_gcc GCC_ETH_PTP_CLK>,
@@ -1379,7 +1414,7 @@
 			compatible = "qcom,ess-switch-qca83xx";
 			qcom,switch-access-mode = "mdio";
 			qcom,ar8327-initvals = <
-				0x00004 0x7600000   /* PAD0_MODE */
+				0x00004 0x4200000   /* PAD0_MODE */
 				0x00008 0x0         /* PAD5_MODE */
 				0x000e4 0xaa545     /* MAC_POWER_SEL */
 				0x000e0 0xc74164de  /* SGMII_CTRL */

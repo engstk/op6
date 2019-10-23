@@ -450,7 +450,7 @@ static int isp_vma_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct page *page;
 	struct vfe_device *vfe_dev = vma->vm_private_data;
-	struct isp_proc *isp_page = NULL;
+	struct isp_kstate *isp_page = NULL;
 
 	isp_page = vfe_dev->isp_page;
 
@@ -691,7 +691,8 @@ int vfe_hw_probe(struct platform_device *pdev)
 	spin_lock_init(&vfe_dev->shared_data_lock);
 	spin_lock_init(&vfe_dev->reg_update_lock);
 	spin_lock_init(&req_history_lock);
-	spin_lock_init(&vfe_dev->completion_lock);
+	spin_lock_init(&vfe_dev->reset_completion_lock);
+	spin_lock_init(&vfe_dev->halt_completion_lock);
 	media_entity_pads_init(&vfe_dev->subdev.sd.entity, 0, NULL);
 	vfe_dev->subdev.sd.entity.function = MSM_CAMERA_SUBDEV_VFE;
 	//vfe_dev->subdev.sd.entity.group_id = MSM_CAMERA_SUBDEV_VFE;
@@ -727,7 +728,7 @@ int vfe_hw_probe(struct platform_device *pdev)
 	vfe_dev->buf_mgr->init_done = 1;
 	vfe_dev->vfe_open_cnt = 0;
 	/*Allocate a page in kernel and map it to camera user process*/
-	vfe_dev->isp_page = (struct isp_proc *)get_zeroed_page(GFP_KERNEL);
+	vfe_dev->isp_page = (struct isp_kstate *)get_zeroed_page(GFP_KERNEL);
 	if (vfe_dev->isp_page == NULL) {
 		pr_err("%s: no enough memory\n", __func__);
 		rc = -ENOMEM;

@@ -286,7 +286,8 @@ void take_dentry_name_snapshot(struct name_snapshot *name, struct dentry *dentry
 		spin_unlock(&dentry->d_lock);
 		name->name = p->name;
 	} else {
-		memcpy(name->inline_name, dentry->d_iname, DNAME_INLINE_LEN);
+		memcpy(name->inline_name, dentry->d_iname,
+		       dentry->d_name.len + 1);
 		spin_unlock(&dentry->d_lock);
 		name->name = name->inline_name;
 	}
@@ -352,14 +353,11 @@ static void dentry_unlink_inode(struct dentry * dentry)
 	__releases(dentry->d_inode->i_lock)
 {
 	struct inode *inode = dentry->d_inode;
-	bool hashed = !d_unhashed(dentry);
 
-	if (hashed)
-		raw_write_seqcount_begin(&dentry->d_seq);
+	raw_write_seqcount_begin(&dentry->d_seq);
 	__d_clear_type_and_inode(dentry);
 	hlist_del_init(&dentry->d_u.d_alias);
-	if (hashed)
-		raw_write_seqcount_end(&dentry->d_seq);
+	raw_write_seqcount_end(&dentry->d_seq);
 	spin_unlock(&dentry->d_lock);
 	spin_unlock(&inode->i_lock);
 	if (!inode->i_nlink)
@@ -1166,15 +1164,11 @@ static enum lru_status dentry_lru_isolate_shrink(struct list_head *item,
  */
 void shrink_dcache_sb(struct super_block *sb)
 {
-	long freed;
-
 	do {
 		LIST_HEAD(dispose);
 
-		freed = list_lru_walk(&sb->s_dentry_lru,
+		list_lru_walk(&sb->s_dentry_lru,
 			dentry_lru_isolate_shrink, &dispose, 1024);
-
-		this_cpu_sub(nr_dentry_unused, freed);
 		shrink_dentry_list(&dispose);
 		cond_resched();
 	} while (list_lru_count(&sb->s_dentry_lru) > 0);
@@ -1412,7 +1406,7 @@ static enum d_walk_ret select_collect(void *_data, struct dentry *dentry)
 		goto out;
 
 	if (dentry->d_flags & DCACHE_SHRINK_LIST) {
-		data->found++;
+		goto out;
 	} else {
 		if (dentry->d_flags & DCACHE_LRU_LIST)
 			d_lru_del(dentry);
@@ -1528,7 +1522,7 @@ static void check_and_drop(void *_data)
 {
 	struct detach_data *data = _data;
 
-	if (!data->mountpoint && !data->select.found)
+	if (!data->mountpoint && list_empty(&data->select.dispose))
 		__d_drop(data->select.start);
 }
 
@@ -1570,17 +1564,15 @@ void d_invalidate(struct dentry *dentry)
 
 		d_walk(dentry, &data, detach_and_collect, check_and_drop);
 
-		if (data.select.found)
+		if (!list_empty(&data.select.dispose))
 			shrink_dentry_list(&data.select.dispose);
+		else if (!data.mountpoint)
+			return;
 
 		if (data.mountpoint) {
 			detach_mounts(data.mountpoint);
 			dput(data.mountpoint);
 		}
-
-		if (!data.mountpoint && !data.select.found)
-			break;
-
 		cond_resched();
 	}
 }
@@ -1914,10 +1906,12 @@ struct dentry *d_make_root(struct inode *root_inode)
 
 	if (root_inode) {
 		res = __d_alloc(root_inode->i_sb, NULL);
-		if (res)
+		if (res) {
+			res->d_flags |= DCACHE_RCUACCESS;
 			d_instantiate(res, root_inode);
-		else
+		} else {
 			iput(root_inode);
+		}
 	}
 	return res;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,7 +27,8 @@
 			<258 0>,
 			<275 0>,
 			<300 0>;
-	qcom,board-id = <8 0xf>;
+	qcom,board-id = <8 0xf>,
+			<8 0x17>;
 	qcom,pmic-id =  <0x0001001b 0x0 0x0 0x0>,
 			<0x0001011b 0x0 0x0 0x0>;
 };
@@ -58,8 +59,7 @@
 			synaptics,do-not-disable-regulators;
 			synaptics,wakeup-gestures-en;
 			synaptics,resume-in-workqueue;
-			synaptics,x-flip;
-			synaptics,y-flip;
+			synaptics,fw-name = "PR1814809-s1222_30303032.img";
 			/delete-property/ synaptics,reset-gpio;
 			/delete-property/ synaptics,display-coords;
 			/delete-property/ synaptics,panel-coords;
@@ -137,6 +137,13 @@
 			qcom,glinkpkt-edge = "bg";
 			qcom,glinkpkt-ch-name = "RSB_CTRL";
 			qcom,glinkpkt-dev-name = "glink_pkt_bg_rsb_ctrl";
+		};
+
+		qcom,glinkpkt-bg-sso-ctrl {
+			qcom,glinkpkt-transport = "bgcom";
+			qcom,glinkpkt-edge = "bg";
+			qcom,glinkpkt-ch-name = "sso-ctrl";
+			qcom,glinkpkt-dev-name = "glink_pkt_bg_sso_ctrl";
 		};
 	};
 

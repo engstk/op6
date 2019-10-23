@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -88,6 +88,7 @@ static void sysmon_clnt_svc_arrive(struct work_struct *work);
 static void sysmon_clnt_svc_exit(struct work_struct *work);
 
 static const int notif_map[SUBSYS_NOTIF_TYPE_COUNT] = {
+	[0 ... SUBSYS_NOTIF_TYPE_COUNT - 1] = SSCTL_SSR_EVENT_INVALID,
 	[SUBSYS_BEFORE_POWERUP] = SSCTL_SSR_EVENT_BEFORE_POWERUP,
 	[SUBSYS_AFTER_POWERUP] = SSCTL_SSR_EVENT_AFTER_POWERUP,
 	[SUBSYS_BEFORE_SHUTDOWN] = SSCTL_SSR_EVENT_BEFORE_SHUTDOWN,
@@ -145,6 +146,11 @@ static void sysmon_clnt_notify(struct qmi_handle *handle,
 	default:
 		break;
 	}
+}
+
+static bool is_ssctl_event(enum subsys_notif_type notif)
+{
+	return notif_map[notif] != SSCTL_SSR_EVENT_INVALID;
 }
 
 static void sysmon_clnt_svc_arrive(struct work_struct *work)
@@ -318,8 +324,8 @@ int sysmon_send_event(struct subsys_desc *dest_desc,
 	const char *dest_ss = dest_desc->name;
 	int ret;
 
-	if (notif < 0 || notif >= SUBSYS_NOTIF_TYPE_COUNT || event_ss == NULL
-		|| dest_ss == NULL)
+	if (notif < 0 || notif >= SUBSYS_NOTIF_TYPE_COUNT ||
+	    !is_ssctl_event(notif) || event_ss == NULL || dest_ss == NULL)
 		return -EINVAL;
 
 	mutex_lock(&sysmon_list_lock);
@@ -474,7 +480,7 @@ int sysmon_send_shutdown(struct subsys_desc *dest_desc)
 	shutdown_ack_ret = wait_for_shutdown_ack(dest_desc);
 	if (shutdown_ack_ret < 0) {
 		pr_err("shutdown_ack SMP2P bit for %s not set\n", data->name);
-		if (!&data->ind_recv.done) {
+		if (!completion_done(&data->ind_recv)) {
 			pr_err("QMI shutdown indication not received\n");
 			ret = shutdown_ack_ret;
 		}

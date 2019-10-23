@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -226,6 +226,14 @@
 };
 
 &dsi_sharp_1080_cmd {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
+	qcom,mdss-dsi-bl-min-level = <1>;
+	qcom,mdss-dsi-bl-max-level = <4095>;
+	qcom,platform-reset-gpio = <&tlmm 6 0>;
+};
+
+&dsi_r63417_truly_1080_cmd {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 	qcom,mdss-dsi-bl-min-level = <1>;
@@ -481,6 +489,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&pm8998_adc_tm 0x4c>;
+		wake-capable-sensor;
 		thermal-governor = "user_space";
 
 		trips {
@@ -496,6 +505,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&pm8998_adc_tm 0x4d>;
+		wake-capable-sensor;
 		thermal-governor = "user_space";
 
 		trips {
@@ -511,6 +521,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&pm8998_adc_tm 0x4f>;
+		wake-capable-sensor;
 		thermal-governor = "user_space";
 
 		trips {
@@ -526,6 +537,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&pm8998_adc_tm 0x51>;
+		wake-capable-sensor;
 		thermal-governor = "user_space";
 
 		trips {

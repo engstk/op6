@@ -55,14 +55,6 @@
 					fsmgr_flags = "wait,avb";
 					status = "ok";
 				};
-				system {
-					compatible = "android,system";
-					dev = "/dev/block/platform/soc/7824900.sdhci/by-name/system";
-					type = "ext4";
-					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait,avb";
-					status = "ok";
-				};
 
 			};
 		};
@@ -144,6 +136,11 @@
 			label = "cont_splash_mem";
 		};
 
+		adsp_shmem_device_mem: adsp_shmem_device_region@0xc0100000 {
+			reg = <0x0 0xc0100000 0x0 0x08200000>;
+			label = "adsp_shmem_device_mem";
+		};
+
 		gpu_mem: gpu_region@0 {
 			compatible = "shared-dma-pool";
 			reusable;
@@ -156,6 +153,15 @@
 			compatible = "shared-dma-pool";
 			reusable;
 			size = <0x400000>;
+		};
+
+		/* global autoconfigured region for contiguous allocations */
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			alignment = <0 0x400000>;
+			size = <0 0x1400000>;
+			linux,cma-default;
 		};
 	};
 
@@ -432,6 +438,7 @@
 		qcom,qsee-ce-hw-instance = <0>;
 		qcom,disk-encrypt-pipe-pair = <2>;
 		qcom,support-fde;
+		qcom,commonlib64-loaded-by-uefi;
 		qcom,msm-bus,name = "qseecom-noc";
 		qcom,msm-bus,num-cases = <4>;
 		qcom,msm-bus,num-paths = <1>;
@@ -1347,9 +1354,9 @@
 			reg = <0x10 8>;
 		};
 
-		dload_type@18 {
+		dload_type@1c {
 			compatible = "qcom,msm-imem-dload-type";
-			reg = <0x18 4>;
+			reg = <0x1c 4>;
 		};
 
 		restart_reason@65c {

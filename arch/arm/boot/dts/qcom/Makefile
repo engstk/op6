@@ -3,7 +3,7 @@ dtb-$(CONFIG_ARCH_SDXPOORWILLS) += sdxpoorwills-rumi.dtb \
 	sdxpoorwills-cdp.dtb \
 	sdxpoorwills-mtp.dtb \
 	sdxpoorwills-atp.dtb \
-	sdxpoorwills-ttp.dtb \
+	sa415m-ttp.dtb \
 	sdxpoorwills-cdp-256.dtb \
 	sdxpoorwills-mtp-256.dtb \
 	sdxpoorwills-dualwifi-cdp.dtb \
@@ -11,7 +11,17 @@ dtb-$(CONFIG_ARCH_SDXPOORWILLS) += sdxpoorwills-rumi.dtb \
 	sdxpoorwills-pcie-ep-cdp-256.dtb \
 	sdxpoorwills-pcie-ep-mtp-256.dtb \
 	sdxpoorwills-pcie-ep-cdp.dtb \
-	sdxpoorwills-pcie-ep-mtp.dtb
+	sdxpoorwills-pcie-ep-mtp.dtb \
+	sdxpoorwills-v2-mtp.dtb \
+	sdxpoorwills-v2-cdp.dtb \
+	sdxpoorwills-v2-dualwifi-mtp.dtb \
+	sdxpoorwills-v2-dualwifi-cdp.dtb \
+	sa415m-ccard.dtb \
+	sa415m-ccard-pcie-ep.dtb \
+	sa415m-ccard-usb-ep.dtb \
+	sa415m-ttp-usb-ep.dtb \
+	sdxpoorwills-v2-pcie-ep-mtp-256.dtb \
+	sdxpoorwills-v2-pcie-ep-mtp.dtb
 
 dtb-$(CONFIG_ARCH_MDM9650) += mdm9650-nand-mtp.dtb \
 	mdm9650-ttp.dtb \

@@ -21,10 +21,16 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
 #include "sxr1120-lc-cdp.dtsi"
+#include "sxr1120-audio.dtsi"
+#include "sxr1120-audio-overlay.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SXR1120 LC Groot+PM8005 Ext. Audio Codec CDP";
 	compatible = "qcom,sxr1120-cdp", "qcom,sxr1120", "qcom,cdp";
 	qcom,msm-id = <370 0x0>;
 	qcom,board-id = <1 1>;
+};
+
+&int_codec {
+	status = "disabled";
 };

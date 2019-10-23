@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,7 @@
 #define desc_to_data(d)	container_of(d, struct pil_bg_data, desc)
 #define subsys_to_data(d) container_of(d, struct pil_bg_data, subsys_desc)
 #define BG_RAMDUMP_SZ	0x00102000
+#define BG_VERSION_SZ	32
 #define BG_CRASH_IN_TWM	-2
 /**
  * struct pil_bg_data
@@ -192,6 +193,9 @@ static long bgpil_tzapp_comm(struct pil_bg_data *pbd,
 	struct tzapp_bg_req *bg_tz_req;
 	struct tzapp_bg_rsp *bg_tz_rsp;
 	int rc, req_len, rsp_len;
+	unsigned char *ascii;
+	char fiwmare_version[100] = {'\0'};
+	char ascii_string[5];
 
 	/* Fill command structure */
 	req_len = sizeof(struct tzapp_bg_req);
@@ -213,6 +217,21 @@ static long bgpil_tzapp_comm(struct pil_bg_data *pbd,
 		pbd->cmd_status = bg_tz_rsp->status;
 	else
 		pbd->cmd_status = 0;
+	/* if last command sent was BG_VERSION print the version*/
+	if (req->tzapp_bg_cmd == BGPIL_GET_BG_VERSION) {
+		int i;
+
+		pr_info("BG FW version ");
+		for (i = 0; i < bg_tz_rsp->bg_info_len; i++) {
+			pr_info("0x%08x ", bg_tz_rsp->bg_info[i]);
+			ascii = (unsigned char *)&bg_tz_rsp->bg_info[i];
+			snprintf(ascii_string, PAGE_SIZE, "%c%c%c%c", ascii[0],
+						ascii[1], ascii[2], ascii[3]);
+			strlcat(fiwmare_version, ascii_string,
+						PAGE_SIZE);
+		}
+		pr_info("%s\n", fiwmare_version);
+	}
 end:
 	return rc;
 }
@@ -252,6 +271,11 @@ static int bg_powerup(const struct subsys_desc *subsys)
 	struct pil_bg_data *bg_data = subsys_to_data(subsys);
 	int ret;
 
+	if (is_bg_running()) {
+		pr_debug("bg is already up\n");
+		return 0;
+	}
+
 	init_completion(&bg_data->err_ready);
 	if (!bg_data->qseecom_handle) {
 		ret = pil_load_bg_tzapp(bg_data);
@@ -275,7 +299,6 @@ static int bg_powerup(const struct subsys_desc *subsys)
 			__func__, bg_data->status_irq, ret);
 			return ret;
 	}
-	disable_irq(bg_data->status_irq);
 
 	/* Enable status and err fatal irqs */
 	ret = pil_boot(&bg_data->desc);
@@ -284,7 +307,6 @@ static int bg_powerup(const struct subsys_desc *subsys)
 			"%s: BG PIL Boot failed\n", __func__);
 		return ret;
 	}
-	enable_irq(bg_data->status_irq);
 	ret = wait_for_err_ready(bg_data);
 	if (ret) {
 		dev_err(bg_data->desc.dev,
@@ -392,6 +414,32 @@ static int bg_get_firmware_addr(struct pil_desc *pil,
 	return 0;
 }
 
+static int bg_get_version(const struct subsys_desc *subsys)
+{
+	struct pil_bg_data *bg_data = subsys_to_data(subsys);
+	struct pil_desc desc = bg_data->desc;
+	struct tzapp_bg_req bg_tz_req;
+	int ret;
+	struct device dev = {NULL};
+
+	arch_setup_dma_ops(&dev, 0, 0, NULL, 0);
+
+	desc.attrs = 0;
+	desc.attrs |= DMA_ATTR_SKIP_ZEROING;
+	desc.attrs |= DMA_ATTR_STRONGLY_ORDERED;
+
+
+	bg_tz_req.tzapp_bg_cmd = BGPIL_GET_BG_VERSION;
+
+	ret = bgpil_tzapp_comm(bg_data, &bg_tz_req);
+	if (ret || bg_data->cmd_status) {
+		dev_dbg(desc.dev, "%s: BG PIL get BG version failed error %d\n",
+			__func__, bg_data->cmd_status);
+		return bg_data->cmd_status;
+	}
+
+	return 0;
+}
 
 /**
  * bg_auth_and_xfer() - Called by Peripheral loader framework
@@ -426,6 +474,7 @@ static int bg_auth_and_xfer(struct pil_desc *pil)
 		pil_free_memory(&bg_data->desc);
 		return bg_data->cmd_status;
 	}
+	ret = bg_get_version(&bg_data->subsys_desc);
 	/* BG Transfer of image is complete, free up the memory */
 	pr_debug("BG Firmware authentication and transfer done\n");
 	pil_free_memory(&bg_data->desc);

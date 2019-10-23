@@ -1625,7 +1625,7 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 }
 
 static struct task_struct *
-pick_next_task_rt(struct rq *rq, struct task_struct *prev, struct pin_cookie cookie)
+pick_next_task_rt(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	struct task_struct *p;
 	struct rt_rq *rt_rq = &rq->rt;
@@ -1637,9 +1637,9 @@ pick_next_task_rt(struct rq *rq, struct task_struct *prev, struct pin_cookie coo
 		 * disabled avoiding further scheduler activity on it and we're
 		 * being very careful to re-start the picking loop.
 		 */
-		lockdep_unpin_lock(&rq->lock, cookie);
+		rq_unpin_lock(rq, rf);
 		pull_rt_task(rq);
-		lockdep_repin_lock(&rq->lock, cookie);
+		rq_repin_lock(rq, rf);
 		/*
 		 * pull_rt_task() can drop (and re-acquire) rq->lock; this
 		 * means a dl or stop task can slip in, in which case we need
@@ -1805,7 +1805,6 @@ static int find_lowest_rq(struct task_struct *task)
 				}
 			}
 		} while (sg = sg->next, sg != sd->groups);
-		rcu_read_unlock();
 
 		if (sg_target) {
 			cpumask_and(&search_cpu, lowest_mask,
@@ -1894,6 +1893,7 @@ retry:
 		}
 
 		if (best_cpu != -1 && placement_boost != SCHED_BOOST_ON_ALL) {
+			rcu_read_unlock();
 			return best_cpu;
 		} else if (!cpumask_empty(&backup_search_cpu)) {
 			cpumask_copy(&search_cpu, &backup_search_cpu);
@@ -1902,6 +1902,7 @@ retry:
 			placement_boost = SCHED_BOOST_NONE;
 			goto retry;
 		}
+		rcu_read_unlock();
 	}
 
 noea:

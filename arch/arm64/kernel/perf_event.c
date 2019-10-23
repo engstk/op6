@@ -779,8 +779,8 @@ static irqreturn_t armv8pmu_handle_irq(int irq_num, void *dev)
 		struct perf_event *event = cpuc->events[idx];
 		struct hw_perf_event *hwc;
 
-		/* Ignore if we don't have an event or if it's a zombie event */
-		if (!event || event->state == PERF_EVENT_STATE_ZOMBIE)
+		/* Ignore if we don't have an event */
+		if (!event || event->state != PERF_EVENT_STATE_ACTIVE)
 			continue;
 
 		/*
@@ -1221,6 +1221,7 @@ static struct platform_driver armv8_pmu_driver = {
 	.driver		= {
 		.name	= ARMV8_PMU_PDEV_NAME,
 		.of_match_table = armv8_pmu_of_device_ids,
+		.suppress_bind_attrs = true,
 	},
 	.probe		= armv8_pmu_device_probe,
 };

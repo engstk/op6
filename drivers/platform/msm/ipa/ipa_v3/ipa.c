@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -593,6 +593,73 @@ static int ipa3_send_vlan_l2tp_msg(unsigned long usr_param, uint8_t msg_type)
 
 	retval = ipa3_send_msg(&msg_meta, buff,
 		ipa3_vlan_l2tp_msg_free_cb);
+	if (retval) {
+		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
+			retval,
+			msg_type);
+		kfree(buff);
+		return retval;
+	}
+	IPADBG("exit\n");
+
+	return 0;
+}
+
+static void ipa3_gsb_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	if (!buff) {
+		IPAERR("Null buffer\n");
+		return;
+	}
+
+	switch (type) {
+	case IPA_GSB_CONNECT:
+	case IPA_GSB_DISCONNECT:
+		break;
+	default:
+		IPAERR("Wrong type given. buff %pK type %d\n", buff, type);
+		return;
+	}
+
+	kfree(buff);
+}
+
+static int ipa3_send_gsb_msg(unsigned long usr_param, uint8_t msg_type)
+{
+	int retval;
+	struct ipa_ioc_gsb_info *gsb_info;
+	struct ipa_msg_meta msg_meta;
+	void *buff;
+
+	IPADBG("type %d\n", msg_type);
+
+	memset(&msg_meta, 0, sizeof(msg_meta));
+	msg_meta.msg_type = msg_type;
+
+	if ((msg_type == IPA_GSB_CONNECT) ||
+		(msg_type == IPA_GSB_DISCONNECT)) {
+		gsb_info = kzalloc(sizeof(struct ipa_ioc_gsb_info),
+			GFP_KERNEL);
+		if (!gsb_info) {
+			IPAERR("no memory\n");
+			return -ENOMEM;
+		}
+
+		if (copy_from_user((u8 *)gsb_info, (void __user *)usr_param,
+			sizeof(struct ipa_ioc_gsb_info))) {
+			kfree(gsb_info);
+			return -EFAULT;
+		}
+
+		msg_meta.msg_len = sizeof(struct ipa_ioc_gsb_info);
+		buff = gsb_info;
+	} else {
+		IPAERR("Unexpected event\n");
+		return -EFAULT;
+	}
+
+	retval = ipa3_send_msg(&msg_meta, buff,
+		ipa3_gsb_msg_free_cb);
 	if (retval) {
 		IPAERR("ipa3_send_msg failed: %d, msg_type %d\n",
 			retval,
@@ -1795,6 +1862,22 @@ static long ipa3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		retval = ipa3_resend_wlan_msg();
 		break;
 
+	case IPA_IOC_GSB_CONNECT:
+		IPADBG("Got IPA_IOC_GSB_CONNECT\n");
+		if (ipa3_send_gsb_msg(arg, IPA_GSB_CONNECT)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
+	case IPA_IOC_GSB_DISCONNECT:
+		IPADBG("Got IPA_IOC_GSB_DISCONNECT\n");
+		if (ipa3_send_gsb_msg(arg, IPA_GSB_DISCONNECT)) {
+			retval = -EFAULT;
+			break;
+		}
+		break;
+
 	default:
 		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 		return -ENOTTY;
@@ -2536,6 +2619,9 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 
 	ipa3_q6_pipe_delay(true);
 	ipa3_q6_avoid_holb();
+	if (ipa3_ctx->ipa_config_is_mhi)
+		ipa3_set_reset_client_cons_pipe_sus_holb(true,
+		IPA_CLIENT_MHI_CONS);
 	if (ipa3_q6_clean_q6_tables()) {
 		IPAERR("Failed to clean Q6 tables\n");
 		BUG();
@@ -2548,8 +2634,11 @@ void ipa3_q6_pre_shutdown_cleanup(void)
 	 * on pipe reset procedure
 	 */
 	ipa3_q6_pipe_delay(false);
-
-	ipa3_set_usb_prod_pipe_delay();
+	ipa3_set_reset_client_prod_pipe_delay(true,
+		IPA_CLIENT_USB_PROD);
+	if (ipa3_ctx->ipa_config_is_mhi)
+		ipa3_set_reset_client_prod_pipe_delay(true,
+		IPA_CLIENT_MHI_PROD);
 
 	IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	IPADBG_LOW("Exit with success\n");
@@ -4845,6 +4934,15 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		}
 	}
 
+	/* Prevent multiple calls from trying to load the FW again. */
+	if (ipa3_ctx->fw_loaded) {
+		IPAERR("not load FW again\n");
+		return count;
+	}
+
+	/* Schedule WQ to load ipa-fws */
+	ipa3_ctx->fw_loaded = true;
+
 	queue_work(ipa3_ctx->transport_power_mgmt_wq,
 		&ipa3_fw_loading_work);
 
@@ -5018,7 +5116,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 
 	ipa3_ctx->logbuf = ipc_log_context_create(IPA_IPC_LOG_PAGES, "ipa", 0);
 	if (ipa3_ctx->logbuf == NULL)
-		IPAERR("failed to create IPC log, continue...\n");
+		IPADBG("failed to create IPC log, continue...\n");
 
 	/* ipa3_ctx->pdev and ipa3_ctx->uc_pdev will be set in the smmu probes*/
 	ipa3_ctx->master_pdev = ipa_pdev;
@@ -6205,15 +6303,17 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 		}
 		IPADBG("AP/USB SMMU atomic set\n");
 
-		if (iommu_domain_set_attr(cb->mapping->domain,
+		if (smmu_info.fast_map) {
+			if (iommu_domain_set_attr(cb->mapping->domain,
 				DOMAIN_ATTR_FAST,
 				&fast)) {
-			IPAERR("couldn't set fast map\n");
-			arm_iommu_release_mapping(cb->mapping);
-			cb->valid = false;
-			return -EIO;
+				IPAERR("couldn't set fast map\n");
+				arm_iommu_release_mapping(cb->mapping);
+				cb->valid = false;
+				return -EIO;
+			}
+			IPADBG("SMMU fast map set\n");
 		}
-		IPADBG("SMMU fast map set\n");
 	}
 
 	pr_info("IPA smmu_info.s1_bypass_arr[AP]=%d smmu_info.fast_map=%d\n",

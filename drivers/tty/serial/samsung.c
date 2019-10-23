@@ -866,15 +866,12 @@ static int s3c24xx_serial_request_dma(struct s3c24xx_uart_port *p)
 	dma->rx_conf.direction		= DMA_DEV_TO_MEM;
 	dma->rx_conf.src_addr_width	= DMA_SLAVE_BUSWIDTH_1_BYTE;
 	dma->rx_conf.src_addr		= p->port.mapbase + S3C2410_URXH;
-	dma->rx_conf.src_maxburst	= 16;
+	dma->rx_conf.src_maxburst	= 1;
 
 	dma->tx_conf.direction		= DMA_MEM_TO_DEV;
 	dma->tx_conf.dst_addr_width	= DMA_SLAVE_BUSWIDTH_1_BYTE;
 	dma->tx_conf.dst_addr		= p->port.mapbase + S3C2410_UTXH;
-	if (dma_get_cache_alignment() >= 16)
-		dma->tx_conf.dst_maxburst = 16;
-	else
-		dma->tx_conf.dst_maxburst = 1;
+	dma->tx_conf.dst_maxburst	= 1;
 
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
@@ -1338,11 +1335,14 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 	wr_regl(port, S3C2410_ULCON, ulcon);
 	wr_regl(port, S3C2410_UBRDIV, quot);
 
+	port->status &= ~UPSTAT_AUTOCTS;
+
 	umcon = rd_regl(port, S3C2410_UMCON);
 	if (termios->c_cflag & CRTSCTS) {
 		umcon |= S3C2410_UMCOM_AFC;
 		/* Disable RTS when RX FIFO contains 63 bytes */
 		umcon &= ~S3C2412_UMCON_AFC_8;
+		port->status = UPSTAT_AUTOCTS;
 	} else {
 		umcon &= ~S3C2410_UMCOM_AFC;
 	}

@@ -40,6 +40,7 @@ obj-$(CONFIG_BLK_DEV_DM_BUILTIN) += dm-builtin.o
 obj-$(CONFIG_DM_BUFIO)		+= dm-bufio.o
 obj-$(CONFIG_DM_BIO_PRISON)	+= dm-bio-prison.o
 obj-$(CONFIG_DM_CRYPT)		+= dm-crypt.o
+obj-$(CONFIG_DM_DEFAULT_KEY)	+= dm-default-key.o
 obj-$(CONFIG_DM_DELAY)		+= dm-delay.o
 obj-$(CONFIG_DM_FLAKEY)		+= dm-flakey.o
 obj-$(CONFIG_DM_MULTIPATH)	+= dm-multipath.o dm-round-robin.o
@@ -61,6 +62,7 @@ obj-$(CONFIG_DM_ERA)		+= dm-era.o
 obj-$(CONFIG_DM_LOG_WRITES)	+= dm-log-writes.o
 obj-$(CONFIG_DM_REQ_CRYPT)	+= dm-req-crypt.o
 obj-$(CONFIG_DM_ANDROID_VERITY) += dm-android-verity.o
+obj-$(CONFIG_DM_BOW)		+= dm-bow.o
 
 ifeq ($(CONFIG_DM_UEVENT),y)
 dm-mod-objs			+= dm-uevent.o
@@ -68,4 +70,8 @@ endif
 
 ifeq ($(CONFIG_DM_VERITY_FEC),y)
 dm-verity-objs			+= dm-verity-fec.o
+endif
+
+ifeq ($(CONFIG_DM_VERITY_AVB),y)
+dm-verity-objs			+= dm-verity-avb.o
 endif

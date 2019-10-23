@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1015,7 +1015,8 @@ static ssize_t mdss_dsi_cmd_write(struct file *file, const char __user *p,
 static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 {
 	struct buf_data *pcmds = file->private_data;
-	int blen, len, i;
+	unsigned int len;
+	int blen, i;
 	char *buf, *bufp, *bp;
 	struct dsi_ctrl_hdr *dchdr;
 
@@ -1059,7 +1060,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 	while (len >= sizeof(*dchdr)) {
 		dchdr = (struct dsi_ctrl_hdr *)bp;
 		dchdr->dlen = ntohs(dchdr->dlen);
-		if (dchdr->dlen > len || dchdr->dlen < 0) {
+		if (dchdr->dlen > (len - sizeof(*dchdr)) || dchdr->dlen < 0) {
 			pr_err("%s: dtsi cmd=%x error, len=%d\n",
 				__func__, dchdr->dtype, dchdr->dlen);
 			kfree(buf);
@@ -1951,6 +1952,9 @@ static void __mdss_dsi_update_video_mode_total(struct mdss_panel_data *pdata,
 		return;
 	}
 
+	if (ctrl_pdata->timing_db_mode)
+		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x1e8, 0x1);
+
 	vsync_period =
 		mdss_panel_get_vtotal(&pdata->panel_info);
 	hsync_period =
@@ -1960,23 +1964,13 @@ static void __mdss_dsi_update_video_mode_total(struct mdss_panel_data *pdata,
 	new_dsi_v_total =
 		((vsync_period - 1) << 16) | (hsync_period - 1);
 
-	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x2C,
-			(current_dsi_v_total | 0x8000000));
-	if (new_dsi_v_total & 0x8000000) {
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x2C,
-				new_dsi_v_total);
-	} else {
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x2C,
-				(new_dsi_v_total | 0x8000000));
-		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x2C,
-				(new_dsi_v_total & 0x7ffffff));
-	}
+	MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x2C, new_dsi_v_total);
 
 	if (ctrl_pdata->timing_db_mode)
 		MIPI_OUTP((ctrl_pdata->ctrl_base) + 0x1e4, 0x1);
 
-	pr_debug("%s new_fps:%d vsync:%d hsync:%d frame_rate:%d\n",
-			__func__, new_fps, vsync_period, hsync_period,
+	pr_debug("%s new_fps:%d new_vtotal:0x%X cur_vtotal:0x%X frame_rate:%d\n",
+			__func__, new_fps, new_dsi_v_total, current_dsi_v_total,
 			ctrl_pdata->panel_data.panel_info.mipi.frame_rate);
 
 	ctrl_pdata->panel_data.panel_info.current_fps = new_fps;

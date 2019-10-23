@@ -14,6 +14,7 @@
 #include <asm/bugs.h>
 #include <asm/cpu.h>
 #include <asm/intel-family.h>
+#include <asm/microcode_intel.h>
 
 #ifdef CONFIG_X86_64
 #include <linux/topology.h>
@@ -109,6 +110,9 @@ static bool bad_spectre_microcode(struct cpuinfo_x86 *c)
 	if (cpu_has(c, X86_FEATURE_HYPERVISOR))
 		return false;
 
+	if (c->x86 != 6)
+		return false;
+
 	for (i = 0; i < ARRAY_SIZE(spectre_bad_microcodes); i++) {
 		if (c->x86_model == spectre_bad_microcodes[i].model &&
 		    c->x86_stepping == spectre_bad_microcodes[i].stepping)
@@ -134,14 +138,8 @@ static void early_init_intel(struct cpuinfo_x86 *c)
 		(c->x86 == 0x6 && c->x86_model >= 0x0e))
 		set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
 
-	if (c->x86 >= 6 && !cpu_has(c, X86_FEATURE_IA64)) {
-		unsigned lower_word;
-
-		wrmsr(MSR_IA32_UCODE_REV, 0, 0);
-		/* Required by the SDM */
-		sync_core();
-		rdmsr(MSR_IA32_UCODE_REV, lower_word, c->microcode);
-	}
+	if (c->x86 >= 6 && !cpu_has(c, X86_FEATURE_IA64))
+		c->microcode = intel_get_microcode_revision();
 
 	/* Now if any of them are set, check the blacklist and clear the lot */
 	if ((cpu_has(c, X86_FEATURE_SPEC_CTRL) ||
@@ -283,6 +281,13 @@ static void early_init_intel(struct cpuinfo_x86 *c)
 	}
 
 	check_mpx_erratum(c);
+
+	/*
+	 * Get the number of SMT siblings early from the extended topology
+	 * leaf, if available. Otherwise try the legacy SMT detection.
+	 */
+	if (detect_extended_topology_early(c) < 0)
+		detect_ht_early(c);
 }
 
 #ifdef CONFIG_X86_32

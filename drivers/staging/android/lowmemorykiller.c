@@ -59,6 +59,10 @@
 #else
 #define _ZONE ZONE_NORMAL
 #endif
+#include <linux/circ_buf.h>
+#include <linux/proc_fs.h>
+#include <linux/slab.h>
+#include <linux/poll.h>
 
 #define CREATE_TRACE_POINTS
 #include "trace/lowmemorykiller.h"
@@ -644,6 +648,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n",
 		     sc->nr_to_scan, sc->gfp_mask, rem);
 	mutex_unlock(&scan_mutex);
+
 	return rem;
 }
 

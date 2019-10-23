@@ -960,7 +960,7 @@ static u32 mdss_mdp_calc_prefill_line_time(struct mdss_mdp_ctl *ctl,
 {
 	u32 prefill_us = 0;
 	u32 prefill_amortized = 0;
-	struct mdss_data_type *mdata;
+	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 	struct mdss_mdp_mixer *mixer;
 	struct mdss_panel_info *pinfo;
 	u32 fps, v_total;
@@ -1506,7 +1506,7 @@ static bool is_mdp_prefetch_needed(struct mdss_panel_info *pinfo)
  * the mdp fetch lines  as the last (25 - vbp - vpw) lines of vertical
  * front porch.
  */
-int mdss_mdp_get_prefetch_lines(struct mdss_panel_info *pinfo)
+int mdss_mdp_get_prefetch_lines(struct mdss_panel_info *pinfo, bool is_fixed)
 {
 	int prefetch_avail = 0;
 	int v_total, vfp_start;
@@ -1515,7 +1515,11 @@ int mdss_mdp_get_prefetch_lines(struct mdss_panel_info *pinfo)
 	if (!is_mdp_prefetch_needed(pinfo))
 		return 0;
 
-	v_total = mdss_panel_get_vtotal(pinfo);
+	if (is_fixed)
+		v_total = mdss_panel_get_vtotal_fixed(pinfo);
+	else
+		v_total = mdss_panel_get_vtotal(pinfo);
+
 	vfp_start = (pinfo->lcdc.v_back_porch + pinfo->lcdc.v_pulse_width +
 			pinfo->yres);
 
@@ -2559,7 +2563,7 @@ struct mdss_mdp_mixer *mdss_mdp_mixer_alloc(
 			mixer_pool += ctl->mdata->ndspp;
 			nmixers -= ctl->mdata->ndspp;
 		} else if ((ctl->panel_data->panel_info.is_pluggable) &&
-				nmixers_active) {
+				nmixers_active > 1) {
 			mixer_pool += ctl->mdata->ndspp;
 			nmixers -= ctl->mdata->ndspp;
 		}
@@ -5821,7 +5825,8 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
 
 	/* update backlight in commit */
 	if (ctl->intf_type == MDSS_INTF_DSI && !ctl->is_video_mode &&
-	    ctl->mfd && ctl->mfd->bl_extn_level > 0) {
+			ctl->mfd && ctl->mfd->bl_extn_level > 0 &&
+			ctl->mfd->bl_extn_level != U64_MAX) {
 		if (!IS_CALIB_MODE_BL(ctl->mfd) && (!ctl->mfd->ext_bl_ctrl ||
 						!ctl->mfd->bl_level)) {
 			mutex_lock(&ctl->mfd->bl_lock);

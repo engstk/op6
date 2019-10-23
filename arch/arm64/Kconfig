@@ -554,6 +554,16 @@ config ARM64_64K_PAGES
 
 endchoice
 
+config ARCH_MSM8953_SOC_SETTINGS
+	bool "Enable MSM8953 SOC settings"
+	depends on ARCH_MSM8953
+	help
+	  Enable MSM8953 SOC related settings, these generic MSM8953
+	  related settings are required for some of CPUSS sub-system
+	  functionality.
+
+	  If you are not sure what to do, select 'N' here.
+
 choice
 	prompt "Virtual address space size"
 	default ARM64_VA_BITS_39 if ARM64_4K_PAGES
@@ -792,6 +802,13 @@ config XEN
 	help
 	  Say Y if you want to run Linux in a Virtual Machine on Xen on ARM64.
 
+config OKL4_GUEST
+	bool "OKL4 Hypervisor guest support"
+	depends on ARM64 && OF
+	default n
+	help
+	  Say Y if you want to run Linux as a guest of the OKL4 hypervisor
+
 config FORCE_MAX_ZONEORDER
 	int
 	default "14" if (ARM64_64K_PAGES && TRANSPARENT_HUGEPAGE)
@@ -854,6 +871,15 @@ config PSCI_BP_HARDENING
 	  branch prediction attacks.
 
 	  If unsure, say N.
+
+config ARM64_SSBD
+	bool "Speculative Store Bypass Disable" if EXPERT
+	default y
+	help
+	  This enables mitigation of the bypassing of previous stores
+	  by speculative loads.
+
+	  If unsure, say Y.
 
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"
@@ -1237,6 +1263,10 @@ config COMPAT
 config SYSVIPC_COMPAT
 	def_bool y
 	depends on COMPAT && SYSVIPC
+
+config KEYS_COMPAT
+	def_bool y
+	depends on COMPAT && KEYS
 
 endmenu
 

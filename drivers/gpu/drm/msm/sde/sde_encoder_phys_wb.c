@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,7 +32,6 @@
 
 #define TO_S15D16(_x_)	((_x_) << 7)
 
-#define MULTIPLE_CONN_DETECTED(x) (x > 1)
 /**
  * sde_rgb2yuv_601l - rgb to yuv color space conversion matrix
  *
@@ -453,11 +452,9 @@ static void sde_encoder_phys_wb_setup_cdp(struct sde_encoder_phys *phys_enc)
 static void _sde_enc_phys_wb_detect_cwb(struct sde_encoder_phys *phys_enc,
 		struct drm_crtc_state *crtc_state)
 {
-	struct drm_connector *conn;
-	struct drm_connector_state *conn_state;
+	struct drm_encoder *encoder;
 	struct sde_encoder_phys_wb *wb_enc = to_sde_encoder_phys_wb(phys_enc);
 	const struct sde_wb_cfg *wb_cfg = wb_enc->hw_wb->caps;
-	int conn_count = 0;
 
 	phys_enc->in_clone_mode = false;
 
@@ -465,20 +462,15 @@ static void _sde_enc_phys_wb_detect_cwb(struct sde_encoder_phys *phys_enc,
 	if (!(wb_cfg->features & BIT(SDE_WB_HAS_CWB)))
 		return;
 
-	/* Count the number of connectors on the given crtc */
-	drm_for_each_connector(conn, crtc_state->crtc->dev) {
-		conn_state =
-			drm_atomic_get_connector_state(crtc_state->state, conn);
-		if ((conn->state && conn->state->crtc == crtc_state->crtc) ||
-				(conn_state &&
-				 conn_state->crtc == crtc_state->crtc))
-			conn_count++;
+	 /* if any other encoder is connected to same crtc enable clone mode*/
+	drm_for_each_encoder(encoder, crtc_state->crtc->dev) {
+		if (encoder->crtc != crtc_state->crtc)
+			continue;
+		if (phys_enc->parent != encoder) {
+			phys_enc->in_clone_mode = true;
+			break;
+		}
 	}
-
-
-	/* Enable clone mode If crtc has multiple connectors & one is WB */
-	if (MULTIPLE_CONN_DETECTED(conn_count))
-		phys_enc->in_clone_mode = true;
 
 	SDE_DEBUG("detect CWB - status:%d\n", phys_enc->in_clone_mode);
 }
@@ -912,7 +904,8 @@ static void sde_encoder_phys_wb_irq_ctrl(
 {
 
 	struct sde_encoder_phys_wb *wb_enc = to_sde_encoder_phys_wb(phys);
-	int index = 0;
+	int index = 0, refcount;
+	int ret = 0;
 
 	if (!wb_enc)
 		return;
@@ -920,17 +913,33 @@ static void sde_encoder_phys_wb_irq_ctrl(
 	if (wb_enc->bypass_irqreg)
 		return;
 
-	if (enable) {
-		sde_encoder_helper_register_irq(phys, INTR_IDX_WB_DONE);
-		if (phys->in_clone_mode) {
+	refcount = atomic_read(&phys->wbirq_refcount);
+
+	if (!enable && !refcount)
+		return;
+
+	SDE_EVT32(DRMID(phys->parent), enable,
+			atomic_read(&phys->wbirq_refcount));
+
+	if (enable && atomic_inc_return(&phys->wbirq_refcount) == 1) {
+		ret = sde_encoder_helper_register_irq(phys, INTR_IDX_WB_DONE);
+		if (ret)
+			atomic_dec_return(&phys->wbirq_refcount);
+
+	} else if (!enable &&
+			atomic_dec_return(&phys->wbirq_refcount) == 0) {
+		ret = sde_encoder_helper_unregister_irq(phys, INTR_IDX_WB_DONE);
+		if (ret)
+			atomic_inc_return(&phys->wbirq_refcount);
+	}
+
+	if (phys->in_clone_mode) {
+		if (enable) {
 			for (index = 0; index < CRTC_DUAL_MIXERS; index++)
 				sde_encoder_helper_register_irq(phys,
 						index ? INTR_IDX_PP3_OVFL
 						: INTR_IDX_PP2_OVFL);
-		}
-	} else {
-		sde_encoder_helper_unregister_irq(phys, INTR_IDX_WB_DONE);
-		if (phys->in_clone_mode) {
+		} else {
 			for (index = 0; index < CRTC_DUAL_MIXERS; index++)
 				sde_encoder_helper_unregister_irq(phys,
 						index ? INTR_IDX_PP3_OVFL
@@ -1357,15 +1366,17 @@ static void sde_encoder_phys_wb_disable(struct sde_encoder_phys *phys_enc)
 	/* reset h/w before final flush */
 	if (phys_enc->hw_ctl->ops.clear_pending_flush)
 		phys_enc->hw_ctl->ops.clear_pending_flush(phys_enc->hw_ctl);
-	if (sde_encoder_helper_reset_mixers(phys_enc, wb_enc->fb_disable))
+	if (sde_encoder_helper_reset_mixers(phys_enc, NULL))
 		goto exit;
 
 	phys_enc->enable_state = SDE_ENC_DISABLING;
 	sde_encoder_phys_wb_prepare_for_kickoff(phys_enc, NULL);
+	sde_encoder_phys_wb_irq_ctrl(phys_enc, true);
 	if (phys_enc->hw_ctl->ops.trigger_flush)
 		phys_enc->hw_ctl->ops.trigger_flush(phys_enc->hw_ctl);
 	sde_encoder_helper_trigger_start(phys_enc);
 	sde_encoder_phys_wb_wait_for_commit_done(phys_enc);
+	sde_encoder_phys_wb_irq_ctrl(phys_enc, false);
 exit:
 	phys_enc->enable_state = SDE_ENC_DISABLED;
 	wb_enc->crtc = NULL;
@@ -1584,6 +1595,7 @@ struct sde_encoder_phys *sde_encoder_phys_wb_init(
 	phys_enc->enc_spinlock = p->enc_spinlock;
 	phys_enc->vblank_ctl_lock = p->vblank_ctl_lock;
 	atomic_set(&phys_enc->pending_retire_fence_cnt, 0);
+	atomic_set(&phys_enc->wbirq_refcount, 0);
 
 	irq = &phys_enc->irq[INTR_IDX_WB_DONE];
 	INIT_LIST_HEAD(&irq->cb.list);
