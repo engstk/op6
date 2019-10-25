@@ -1,2 +1,1 @@
-source "drivers/oneplus/fs/exfat/Kconfig"
 source "drivers/oneplus/fs/proc/Kconfig"
