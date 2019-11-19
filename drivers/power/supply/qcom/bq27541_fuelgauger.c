@@ -1585,7 +1585,7 @@ re_unseal:
 	bq27541_cntl_cmd(bq27541_di, 0xffff);
 	usleep_range(10000, 10001);
 
-	if (get_boot_mode() == MSM_BOOT_MODE__RECOVERY)
+	if (get_boot_mode() == MSM_BOOT_MODE__RECOVERY || get_boot_mode() == MSM_BOOT_MODE__CHARGE)
 		SEAL_POLLING_RETRY_LIMIT_2 = 10;
 	else
 		SEAL_POLLING_RETRY_LIMIT_2 = 100;
