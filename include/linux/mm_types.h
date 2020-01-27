@@ -538,6 +538,8 @@ struct mm_struct {
 	atomic_long_t hugetlb_usage;
 #endif
 	struct work_struct async_put_work;
+	bool va_feature;
+	unsigned long va_feature_rnd;
 };
 
 static inline void mm_init_cpumask(struct mm_struct *mm)
