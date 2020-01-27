@@ -70,8 +70,6 @@ module_param_named(mmutype, kgsl_mmu_type, charp, 0000);
 MODULE_PARM_DESC(kgsl_mmu_type, "Type of MMU to be used for graphics");
 
 #define SIZE_10M 0xA00000
-static int va_feature = 3;
-module_param_named(va_feature, va_feature, int, 0644);
 
 /* Mutex used for the IOMMU sync quirk */
 DEFINE_MUTEX(kgsl_mmu_sync);
@@ -4425,7 +4423,7 @@ static unsigned long _get_svm_area(struct kgsl_process_private *private,
 	 * Search downwards from the hint first. If that fails we
 	 * must try to search above it.
 	 */
-	if ((va_feature & 0x2) && current->mm->va_feature) {
+	if (current->mm->va_feature & 0x2) {
 		uint64_t lstart, lend;
 		unsigned long lresult;
 

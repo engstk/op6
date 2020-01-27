@@ -3226,26 +3226,36 @@ static const struct file_operations proc_pid_memplus_type_operations = {
 };
 #endif
 
+
+#include <linux/random.h>
+static int va_feature = 0x7;
+module_param(va_feature, int, 0644);
 static ssize_t proc_va_feature_read(struct file *file, char __user *buf,
 		size_t count, loff_t *ppos)
 {
-	struct task_struct *task = get_proc_task(file_inode(file));
+	struct task_struct *task;
 	struct mm_struct *mm;
-	char buffer[64];
+	char buffer[32];
 	int ret;
 
+	if (!test_thread_flag(TIF_32BIT))
+		return -EINVAL;
+
+	task = get_proc_task(file_inode(file));
 	if (!task)
 		return -ESRCH;
 
-	ret = 0;
+	ret = -EINVAL;
 	mm = get_task_mm(task);
 	if (mm) {
-		ret = snprintf(buffer, sizeof(buffer), "%d\n",
-				mm->va_feature);
+		if (mm->va_feature & 0x4) {
+			ret = snprintf(buffer, sizeof(buffer), "%d\n",
+					(mm->zygoteheap_in_MB > 256) ? mm->zygoteheap_in_MB : 256);
+			if (ret > 0)
+				ret = simple_read_from_buffer(buf, count, ppos,
+						buffer, ret);
+		}
 		mmput(mm);
-		if (ret > 0)
-			ret = simple_read_from_buffer(buf, count, ppos,
-					buffer, ret);
 	}
 
 	put_task_struct(task);
@@ -3256,16 +3266,16 @@ static ssize_t proc_va_feature_read(struct file *file, char __user *buf,
 static ssize_t proc_va_feature_write(struct file *file, const char __user *buf,
 		size_t count, loff_t *ppos)
 {
-	struct task_struct *task = get_proc_task(file_inode(file));
+	struct task_struct *task;
 	struct mm_struct *mm;
 	int ret;
-	unsigned int enable_va_fature;
+	unsigned int heapsize;
 
+	task = get_proc_task(file_inode(file));
 	if (!task)
 		return -ESRCH;
 
-	ret = kstrtouint_from_user(buf, count, 0, &enable_va_fature);
-
+	ret = kstrtouint_from_user(buf, count, 0, &heapsize);
 	if (ret) {
 		put_task_struct(task);
 		return ret;
@@ -3273,7 +3283,22 @@ static ssize_t proc_va_feature_write(struct file *file, const char __user *buf,
 
 	mm = get_task_mm(task);
 	if (mm) {
-		WRITE_ONCE(mm->va_feature, enable_va_fature);
+		unsigned long old_mmap_base = mm->mmap_base;
+
+		mm->va_feature = va_feature;
+
+		/* useless to print comm, always "main" */
+		if (mm->va_feature & 0x1) {
+			mm->va_feature_rnd = (0x4900000 + (get_random_long() % 0x1e00000)) & ~(0xffff);
+			special_arch_pick_mmap_layout(mm);
+			pr_info("%s (%d): rnd val is 0x%llx, mmap_base 0x%llx -> 0x%llx\n",
+					current->group_leader->comm, current->pid,
+					mm->va_feature_rnd, old_mmap_base, mm->mmap_base);
+		}
+
+		if ((mm->va_feature & 0x4) && (mm->zygoteheap_in_MB == 0))
+			mm->zygoteheap_in_MB = heapsize;
+
 		mmput(mm);
 	}
 
@@ -3286,6 +3311,7 @@ static const struct file_operations proc_va_feature_operations = {
 	.read           = proc_va_feature_read,
 	.write          = proc_va_feature_write,
 };
+
 
 /*
  * Thread groups
