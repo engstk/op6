@@ -3271,6 +3271,9 @@ static ssize_t proc_va_feature_write(struct file *file, const char __user *buf,
 	int ret;
 	unsigned int heapsize;
 
+	if (!test_thread_flag(TIF_32BIT))
+		return -ENOTTY;
+
 	task = get_proc_task(file_inode(file));
 	if (!task)
 		return -ESRCH;
