@@ -4497,7 +4497,7 @@ kgsl_get_unmapped_area(struct file *file, unsigned long addr,
 			}
 
 			KGSL_DRV_ERR_RATELIMIT(device,
-					"kgsl additional info: %s VmSize %lu MaxGap %lu VA_rnd 0x%llx\n"
+					"kgsl additional info: %s VmSize %lu MaxGap %lu VA_rnd 0x%lx\n"
 					, current->group_leader->comm, mm->total_vm, largest_gap, mm->va_feature_rnd);
 		}
 	}

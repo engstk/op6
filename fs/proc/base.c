@@ -3286,17 +3286,12 @@ static ssize_t proc_va_feature_write(struct file *file, const char __user *buf,
 
 	mm = get_task_mm(task);
 	if (mm) {
-		unsigned long old_mmap_base = mm->mmap_base;
-
 		mm->va_feature = va_feature;
 
 		/* useless to print comm, always "main" */
 		if (mm->va_feature & 0x1) {
 			mm->va_feature_rnd = (0x4900000 + (get_random_long() % 0x1e00000)) & ~(0xffff);
 			special_arch_pick_mmap_layout(mm);
-			pr_info("%s (%d): rnd val is 0x%llx, mmap_base 0x%llx -> 0x%llx\n",
-					current->group_leader->comm, current->pid,
-					mm->va_feature_rnd, old_mmap_base, mm->mmap_base);
 		}
 
 		if ((mm->va_feature & 0x4) && (mm->zygoteheap_in_MB == 0))
