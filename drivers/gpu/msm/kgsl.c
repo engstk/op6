@@ -4432,8 +4432,8 @@ static unsigned long _get_svm_area(struct kgsl_process_private *private,
 		switch (len) {
 		case 4096: case 8192: case 16384: case 32768:
 		case 65536: case 131072: case 262144:
-			lend = current->mm->va_feature_rnd - (SIZE_10M * (18 - ilog2(len)));
-			lstart = lend - SIZE_10M;
+			lend = current->mm->va_feature_rnd - (SIZE_10M * (ilog2(len) - 12));
+			lstart = current->mm->va_feature_rnd - (SIZE_10M * 7);
 			if (lend <= svm_end && lstart >= svm_start) {
 				lresult = _search_range(private, entry, lstart, lend, len, align);
 				if (!IS_ERR_VALUE(lresult))

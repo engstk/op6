@@ -2033,8 +2033,8 @@ unsigned long unmapped_area_topdown(struct vm_unmapped_area_info *info)
 		case 4096: case 8192: case 16384: case 32768:
 		case 65536: case 131072: case 262144:
 			info_b = *info;
-			info_b.high_limit = current->mm->va_feature_rnd - (SIZE_10M * (18 - ilog2(info->length)));
-			info_b.low_limit = info_b.high_limit - SIZE_10M;
+			info_b.high_limit = current->mm->va_feature_rnd - (SIZE_10M * (ilog2(info->length) - 12));
+			info_b.low_limit = current->mm->va_feature_rnd - (SIZE_10M * 7);
 			addr = unmapped_area_topdown(&info_b);
 			if (!offset_in_page(addr))
 				return addr;
