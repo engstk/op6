@@ -57,13 +57,8 @@
 #ifndef arch_mmap_check
 #define arch_mmap_check(addr, len, flags)	(0)
 #endif
-static int va_feature = 3;
-module_param(va_feature, int, 0644);
 
 #define SIZE_10M 0xA00000
-#define MAP_BACKUP_CREATE 0x10000000
-#define RESERVE_VMAP_32_ADDR 0xdeaddead
-#define RESERVE_VMAP_64_ADDR 0xffffffffdeaddead
 
 #ifdef CONFIG_HAVE_ARCH_MMAP_RND_BITS
 const int mmap_rnd_bits_min = CONFIG_ARCH_MMAP_RND_BITS_MIN;
@@ -1640,25 +1635,6 @@ SYSCALL_DEFINE6(mmap_pgoff, unsigned long, addr, unsigned long, len,
 
 	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
 
-	if ((flags & MAP_BACKUP_CREATE) && (len == 0x6000000)
-			&& (addr == RESERVE_VMAP_32_ADDR || addr == RESERVE_VMAP_64_ADDR)) {
-		struct mm_struct *mm = current->mm;
-
-		if (test_thread_flag(TIF_32BIT) && !mm->va_feature) {
-			unsigned long old_mmap_base = mm->mmap_base;
-
-			mm->va_feature = true;
-			mm->va_feature_rnd = (0x4900000 + (get_random_long() % (1 << 25))) & ~(0xffff);
-			/* useless to print comm, always "main" */
-			if (va_feature & 0x1)
-				special_arch_pick_mmap_layout(mm);
-			pr_info("%s (%d): rnd val is 0x%llx, mmap_base 0x%llx -> 0x%llx\n"
-				, current->group_leader->comm, current->pid
-				, mm->va_feature_rnd, old_mmap_base, mm->mmap_base);
-			return 0;
-		}
-		return -EINVAL;
-	}
 	retval = vm_mmap_pgoff(file, addr, len, prot, flags, pgoff);
 out_fput:
 	if (file)
@@ -2025,7 +2001,7 @@ unsigned long unmapped_area_topdown(struct vm_unmapped_area_info *info)
 	if (length < info->length)
 		return -ENOMEM;
 
-	if ((va_feature & 0x2) && mm->va_feature && info->high_limit == mm->mmap_base) {
+	if ((mm->va_feature & 0x2) && info->high_limit == mm->mmap_base) {
 		struct vm_unmapped_area_info info_b;
 		unsigned long addr;
 
@@ -2209,7 +2185,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	info.flags = VM_UNMAPPED_AREA_TOPDOWN;
 	info.length = len;
 	info.low_limit = max(PAGE_SIZE, mmap_min_addr);
-	if ((va_feature & 0x1) && mm->va_feature)
+	if (mm->va_feature & 0x1)
 		info.low_limit = max_t(unsigned long, 0x12c00000, info.low_limit);
 
 	info.high_limit = mm->mmap_base;
@@ -2229,7 +2205,8 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		info.high_limit = TASK_SIZE;
 		addr = vm_unmapped_area(&info);
 	}
-	if ((va_feature & 0x1) && mm->va_feature && offset_in_page(addr)) {
+
+	if ((mm->va_feature & 0x1) && offset_in_page(addr)) {
 		VM_BUG_ON(addr != -ENOMEM);
 		info.flags = VM_UNMAPPED_AREA_TOPDOWN;
 		info.low_limit = max(PAGE_SIZE, mmap_min_addr);

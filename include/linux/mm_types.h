@@ -538,7 +538,8 @@ struct mm_struct {
 	atomic_long_t hugetlb_usage;
 #endif
 	struct work_struct async_put_work;
-	bool va_feature;
+	unsigned int zygoteheap_in_MB;
+	int va_feature;
 	unsigned long va_feature_rnd;
 };
 
