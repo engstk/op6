@@ -3226,6 +3226,67 @@ static const struct file_operations proc_pid_memplus_type_operations = {
 };
 #endif
 
+static ssize_t proc_va_feature_read(struct file *file, char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file_inode(file));
+	struct mm_struct *mm;
+	char buffer[64];
+	int ret;
+
+	if (!task)
+		return -ESRCH;
+
+	ret = 0;
+	mm = get_task_mm(task);
+	if (mm) {
+		ret = snprintf(buffer, sizeof(buffer), "%d\n",
+				mm->va_feature);
+		mmput(mm);
+		if (ret > 0)
+			ret = simple_read_from_buffer(buf, count, ppos,
+					buffer, ret);
+	}
+
+	put_task_struct(task);
+
+	return ret;
+}
+
+static ssize_t proc_va_feature_write(struct file *file, const char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file_inode(file));
+	struct mm_struct *mm;
+	int ret;
+	unsigned int enable_va_fature;
+
+	if (!task)
+		return -ESRCH;
+
+	ret = kstrtouint_from_user(buf, count, 0, &enable_va_fature);
+
+	if (ret) {
+		put_task_struct(task);
+		return ret;
+	}
+
+	mm = get_task_mm(task);
+	if (mm) {
+		WRITE_ONCE(mm->va_feature, enable_va_fature);
+		mmput(mm);
+	}
+
+	put_task_struct(task);
+
+	return count;
+}
+
+static const struct file_operations proc_va_feature_operations = {
+	.read           = proc_va_feature_read,
+	.write          = proc_va_feature_write,
+};
+
 /*
  * Thread groups
  */
@@ -3350,6 +3411,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SMART_BOOST
 	REG("page_hot_count", 0666, proc_page_hot_count_operations),
 #endif
+	REG("va_feature", 0666, proc_va_feature_operations),
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
