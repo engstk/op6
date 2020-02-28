@@ -1,2 +1,1 @@
-OP6_O2_BETA_32 and OP6T_O2_BETA_32: No change since last OP6_O2_BETA_31 and OP6T_O2_BETA_31
-
+OnePlus 6/6T OxygenOS  10.3.2 : No change since last OnePlus 6/6T OxygenOS 10.3.1 version
