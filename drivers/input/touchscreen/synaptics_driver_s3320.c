@@ -179,6 +179,7 @@ struct pm_qos_request pm_qos_req_tp;
 #define KEY_GESTURE_SWIPE_LEFT      KEY_F6
 #define KEY_GESTURE_SWIPE_DOWN      KEY_F7
 #define KEY_GESTURE_SWIPE_UP        KEY_F8
+#define KEY_GESTURE_SINGLE_TAP      KEY_F9
 #endif
 
 
@@ -208,7 +209,7 @@ int Down2UpSwip_gesture =0;//"down to up |"
 int Wgestrue_gesture =0;//"(W)"
 int Mgestrue_gesture =0;//"(M)"
 int Sgestrue_gesture =0;//"(S)"
-int Single_gesture = 0; //"(SingleTap)"
+int SingleTap_gesture = 0; //"(SingleTap)"
 int Enable_gesture =0;
 static int gesture_switch = 0;
 //ruanbanmao@BSP add for tp gesture 2015-05-06, end
@@ -1572,6 +1573,9 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 		case Down2UpSwip:
 			keyCode = KEY_GESTURE_SWIPE_UP;
 			break;
+        case SingleTap:
+            keyCode = KEY_GESTURE_SINGLE_TAP;
+            break;
 		default:
 			break;
 	}
@@ -1595,6 +1599,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 		synaptics_get_coordinate_point(ts);
 
 	if((gesture == DouTap && DouTap_gesture)||(gesture == RightVee && RightVee_gesture)
+        ||(gesture == SingleTap && SingleTap_gesture)
         ||(gesture == LeftVee && LeftVee_gesture)||(gesture == UpVee && UpVee_gesture)
         ||(gesture == Circle && Circle_gesture)||(gesture == DouSwip && DouSwip_gesture)
         ||(gesture == DownVee && DownVee_gesture)||(gesture == Left2RightSwip && Left2RightSwip_gesture)
@@ -2132,7 +2137,7 @@ static ssize_t tp_gesture_write_func(struct file *file, const char __user *buffe
 	Sgestrue_gesture = (buf[1] & BIT0)?1:0;//"S"
 	Mgestrue_gesture = (buf[1] & BIT1)?1:0; //"M"
 	Wgestrue_gesture = (buf[1] & BIT2)?1:0; //"W"
-	Single_gesture = (buf[1] & BIT3)?1:0;   //"Single_gesture"
+	SingleTap_gesture = (buf[1] & BIT3)?1:0;   //"Single_gesture"
 
 	tp_gesture_set_enable();
 
@@ -2183,6 +2188,7 @@ GESTURE_ATTR(letter_o, Circle_gesture);
 GESTURE_ATTR(letter_w, Wgestrue_gesture);
 GESTURE_ATTR(letter_m, Mgestrue_gesture);
 GESTURE_ATTR(letter_s, Sgestrue_gesture);
+GESTURE_ATTR(single_tap, SingleTap_gesture);
 
 #define CREATE_PROC_NODE(PARENT, NAME, MODE)\
 prEntry_tmp = proc_create(#NAME, MODE, PARENT, &NAME##_proc_fops);\
@@ -3711,6 +3717,7 @@ static int	synaptics_input_init(struct synaptics_ts_data *ts)
 	set_bit(KEY_GESTURE_SWIPE_LEFT, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_SWIPE_RIGHT, ts->input_dev->keybit);
 	set_bit(KEY_GESTURE_SWIPE_DOWN, ts->input_dev->keybit);
+	set_bit(KEY_GESTURE_SINGLE_TAP, ts->input_dev->keybit);
 #endif
 	set_bit(KEY_APPSELECT, ts->input_dev->keybit);
 	set_bit(KEY_BACK, ts->input_dev->keybit);
@@ -4951,6 +4958,7 @@ static int init_synaptics_proc(void)
 	CREATE_GESTURE_NODE(letter_w);
 	CREATE_GESTURE_NODE(letter_m);
 	CREATE_GESTURE_NODE(letter_s);
+	CREATE_GESTURE_NODE(single_tap);
 #endif
 
 #ifdef SUPPORT_GLOVES_MODE
