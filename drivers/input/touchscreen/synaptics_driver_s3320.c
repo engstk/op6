@@ -4928,7 +4928,7 @@ static const struct file_operations key_disable_proc_fops = {
 	.owner = THIS_MODULE,
 };
 #endif
-static int init_synaptics_proc(void)
+static int init_synaptics_proc(struct synaptics_ts_data *ts)
 {
 	int ret = 0;
 	struct proc_dir_entry *prEntry_tmp  = NULL;
@@ -4958,7 +4958,10 @@ static int init_synaptics_proc(void)
 	CREATE_GESTURE_NODE(letter_w);
 	CREATE_GESTURE_NODE(letter_m);
 	CREATE_GESTURE_NODE(letter_s);
-	CREATE_GESTURE_NODE(single_tap);
+	// single_tap is only available on fajita
+	if (ts->project_version == 0x03) {
+		CREATE_GESTURE_NODE(single_tap);
+	}
 #endif
 
 #ifdef SUPPORT_GLOVES_MODE
@@ -6219,7 +6222,7 @@ static int synaptics_ts_probe(struct i2c_client *client, const struct i2c_device
 
 	}
 #endif
-	init_synaptics_proc();
+	init_synaptics_proc(ts);
 	TPDTM_DMESG("synaptics_ts_probe 3203: normal end\n");
 
 	bootmode = get_boot_mode();
