@@ -867,6 +867,7 @@ static void log_failure_reason(const struct pil_tz_data *d)
         save_tz_dump_reason_to_device_info(reason);
 	save_dump_reason_to_smem(reason, function_name);
 	pr_err("%s subsystem failure reason: %s.\n", name, reason);
+	subsys_store_crash_reason(d->subsys, reason);
 }
 
 static int subsys_shutdown(const struct subsys_desc *subsys, bool force_stop)

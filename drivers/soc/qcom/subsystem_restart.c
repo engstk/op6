@@ -206,6 +206,7 @@ struct subsys_device {
 	int id;
 	int restart_level;
 	int crash_count;
+	char crash_reason[256];
 	struct subsys_soc_restart_order *restart_order;
 	bool do_ramdump_on_put;
 	struct cdev char_dev;
@@ -254,6 +255,12 @@ static ssize_t crash_count_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%d\n", to_subsys(dev)->crash_count);
+}
+
+static ssize_t crash_reason_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", to_subsys(dev)->crash_reason);
 }
 
 static ssize_t
@@ -377,10 +384,21 @@ void subsys_default_online(struct subsys_device *dev)
 }
 EXPORT_SYMBOL(subsys_default_online);
 
+void subsys_store_crash_reason(struct subsys_device *dev, char *reason)
+{
+	if (dev == NULL)
+		return;
+
+	if (reason != NULL)
+		strlcpy(dev->crash_reason, reason, sizeof(dev->crash_reason));
+}
+EXPORT_SYMBOL(subsys_store_crash_reason);
+
 static struct device_attribute subsys_attrs[] = {
 	__ATTR_RO(name),
 	__ATTR_RO(state),
 	__ATTR_RO(crash_count),
+	__ATTR_RO(crash_reason),
 	__ATTR(restart_level, 0644, restart_level_show, restart_level_store),
 	__ATTR(firmware_name, 0644, firmware_name_show, firmware_name_store),
 	__ATTR(system_debug, 0644, system_debug_show, system_debug_store),
@@ -577,6 +595,49 @@ static void _init_subsys_timer(struct subsys_desc *subsys)
 
 #endif /* CONFIG_SETUP_SSR_NOTIF_TIMEOUTS */
 
+static int __find_subsys(struct device *dev, void *data)
+{
+	struct subsys_device *subsys = to_subsys(dev);
+
+	return !strcmp(subsys->desc->name, data);
+}
+
+static struct subsys_device *find_subsys(const char *str)
+{
+	struct device *dev;
+
+	if (!str)
+		return NULL;
+
+	dev = bus_find_device(&subsys_bus_type, NULL, (void *)str,
+			__find_subsys);
+	return dev ? to_subsys(dev) : NULL;
+}
+static int val;
+
+static void subsys_send_uevent_notify(struct subsys_desc *desc,	int crash_count)
+{
+	char *envp[4];
+	struct subsys_device *dev;
+
+	if (!desc)
+		return;
+
+	dev = find_subsys(desc->name);
+	if (!dev)
+		return;
+
+	envp[0] = kasprintf(GFP_KERNEL, "SUBSYSTEM=%s", desc->name);
+	envp[1] = kasprintf(GFP_KERNEL, "CRASHCOUNT=%d", crash_count);
+	envp[2] = kasprintf(GFP_KERNEL, "CRASHREASON=%s", dev->crash_reason);
+	envp[3] = NULL;
+	kobject_uevent_env(&desc->dev->kobj, KOBJ_CHANGE, envp);
+	pr_err("%s %s %s\n", envp[0], envp[1], envp[2]);
+	kfree(envp[2]);
+	kfree(envp[1]);
+	kfree(envp[0]);
+}
+
 static void send_sysmon_notif(struct subsys_device *dev)
 {
 	struct subsys_device *subsys;
@@ -738,6 +799,7 @@ static int subsystem_shutdown(struct subsys_device *dev, void *data)
 	subsys_set_state(dev, SUBSYS_OFFLINE);
 	disable_all_irqs(dev);
 
+	subsys_send_uevent_notify(dev->desc, dev->crash_count);
 	return 0;
 }
 
@@ -800,26 +862,6 @@ static int subsystem_powerup(struct subsys_device *dev, void *data)
 
 	return 0;
 }
-
-static int __find_subsys(struct device *dev, void *data)
-{
-	struct subsys_device *subsys = to_subsys(dev);
-
-	return !strcmp(subsys->desc->name, data);
-}
-
-static struct subsys_device *find_subsys(const char *str)
-{
-	struct device *dev;
-
-	if (!str)
-		return NULL;
-
-	dev = bus_find_device(&subsys_bus_type, NULL, (void *)str,
-			__find_subsys);
-	return dev ? to_subsys(dev) : NULL;
-}
-static int val;
 
 static ssize_t proc_restart_level_all_read(struct file *p_file,
 	char __user *puser_buf, size_t count, loff_t *p_offset)
