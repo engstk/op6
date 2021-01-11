@@ -2315,6 +2315,7 @@ int qtaguid_untag(struct socket *el_socket, bool kernel)
 		pid = current->tgid;
 	pqd_entry = proc_qtu_data_tree_search(
 		&proc_qtu_data_tree, pid);
+
 	/* TODO: remove if, and start failing.
 	 * At first, we want to catch user-space code that is not
 	 * opening the /dev/xt_qtaguid.
@@ -2331,7 +2332,6 @@ int qtaguid_untag(struct socket *el_socket, bool kernel)
 	 */
 	if (sock_tag_entry->list.next)
 		list_del(&sock_tag_entry->list);
-	}
 
 	spin_unlock_bh(&uid_tag_data_tree_lock);
 	/* We don't free tag_ref from the utd_entry here,
