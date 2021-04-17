@@ -376,26 +376,26 @@ static const struct msm_mmu_funcs funcs = {
 static struct msm_smmu_domain msm_smmu_domains[MSM_SMMU_DOMAIN_MAX] = {
 	[MSM_SMMU_DOMAIN_UNSECURE] = {
 		.label = "mdp_ns",
-		.va_start = SZ_2G,
-		.va_size = SZ_4G - SZ_2G,
+		.va_start = SZ_128K,
+		.va_size = SZ_4G - SZ_128K,
 		.secure = false,
 	},
 	[MSM_SMMU_DOMAIN_SECURE] = {
 		.label = "mdp_s",
-		.va_start = SZ_2G,
-		.va_size = SZ_4G - SZ_2G,
+		.va_start = SZ_128K,
+		.va_size = SZ_4G - SZ_128K,
 		.secure = true,
 	},
 	[MSM_SMMU_DOMAIN_NRT_UNSECURE] = {
 		.label = "rot_ns",
-		.va_start = SZ_2G,
-		.va_size = SZ_4G - SZ_2G,
+		.va_start = SZ_128K,
+		.va_size = SZ_4G - SZ_128K,
 		.secure = false,
 	},
 	[MSM_SMMU_DOMAIN_NRT_SECURE] = {
 		.label = "rot_s",
-		.va_start = SZ_2G,
-		.va_size = SZ_4G - SZ_2G,
+		.va_start = SZ_128K,
+		.va_size = SZ_4G - SZ_128K,
 		.secure = true,
 	},
 };
