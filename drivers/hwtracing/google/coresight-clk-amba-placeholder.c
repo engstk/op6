@@ -36,6 +36,15 @@ static const struct amba_id coresight_ids[] = {
 	ETM4x_AMBA_ID(0x000bb95a), /* Cortex-A72 */
 	ETM4x_AMBA_ID(0x000bb959), /* Cortex-A73 */
 	ETM4x_AMBA_ID(0x000bb9da), /* Cortex-A35 */
+	ETM4x_AMBA_ID(0x0003b908),
+	ETM4x_AMBA_ID(0x0003b909),
+	ETM4x_AMBA_ID(0x0003b961),
+	ETM4x_AMBA_ID(0x0003b962),
+	ETM4x_AMBA_ID(0x0003b966),
+	ETM4x_AMBA_ID(0x0003b968),
+	ETM4x_AMBA_ID(0x0003b969),
+	ETM4x_AMBA_ID(0x0003b999),
+	ETM4x_AMBA_ID(0x000bb95d),
 	/* dynamic-replicator IDs */
 	{
 		.id = 0x000bb909,
