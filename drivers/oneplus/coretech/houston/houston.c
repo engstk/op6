@@ -14,10 +14,13 @@
 #include <linux/cpufreq.h>
 #include <linux/freezer.h>
 #include <linux/power_supply.h>
+#include <linux/poll.h>
+#include <linux/ioctl.h>
 #include "houston.h"
 #include "../drivers/gpu/msm/kgsl.h"
 #include "../drivers/gpu/msm/kgsl_pwrctrl.h"
 #include <oneplus/houston/houston_helper.h>
+#include <linux/jiffies.h>
 
 #define HT_POLLING_MIN_INTERVAL (100)
 #define HT_REPORT_PERIOD_MAX (18000)
@@ -117,11 +120,22 @@ struct ht_monitor {
 	.buf = NULL,
 };
 
+struct ht_util_pol {
+	unsigned long *utils[HT_CPUS_PER_CLUS];
+	unsigned long *hi_util;
+};
+
 static struct game_fps_data_struct
 {
 	u64 fps;
 	u64 enqueue_time;
 } game_fps_data;
+
+static DECLARE_WAIT_QUEUE_HEAD(ht_poll_waitq);
+
+static DEFINE_SPINLOCK(egl_buf_lock);
+#define EGL_BUF_MAX (128)
+static char egl_buf[EGL_BUF_MAX] = {0};
 
 static atomic_t cached_fps[2];
 
@@ -140,11 +154,49 @@ module_param_named(filter_mask, filter_mask, uint, 0644);
 static unsigned int disable_mask = 0;
 module_param_named(disable_mask, disable_mask, uint, 0644);
 
+static bool bat_sample_high_resolution = false;
+module_param_named(bat_sample_high_resolution, bat_sample_high_resolution, bool, 0664);
+
+/* force update battery current */
+static unsigned long bat_update_period_us = 1000000; // 1 sec
+module_param_named(bat_update_period_us, bat_update_period_us, ulong, 0664);
+
+static unsigned int thermal_update_period_hz = 100;
+module_param_named(thermal_update_period_hz, thermal_update_period_hz, uint, 0664);
+
 /* div should not be 0, check before assign */
 static unsigned int report_div[HT_MONITOR_SIZE];
 module_param_array_named(div, report_div, uint, NULL, 0644);
 
 static unsigned int sample_period = 3000;
+
+static dev_t ht_ctl_dev;
+static struct class *driver_class;
+static struct cdev cdev;
+
+static struct ht_util_pol ht_utils[HT_CLUSTERS];
+
+static inline const char* ht_ioctl_str(unsigned int cmd)
+{
+	switch (cmd) {
+	case HT_IOC_SCHEDSTAT: return "HT_IOC_SCHEDSTAT";
+	case HT_IOC_FPS_STABILIZER_UPDATE: return "HT_IOC_FPS_STABILIZER_UPDATE";
+	case HT_IOC_FPS_PARTIAL_SYS_INFO: return "HT_IOC_FPS_PARTIAL_SYS_INFO";
+	}
+	return "UNKNOWN";
+}
+
+static inline void ht_update_battery(void)
+{
+	static u64 prev = 0;
+	u64 cur = ktime_to_us(ktime_get());
+
+	if (cur - prev >= bat_update_period_us) {
+		prev = cur;
+	} else if (prev > cur) {
+		prev = cur;
+	}
+}
 
 static int ht_sample_period_store(const char *buf, const struct kernel_param *kp)
 {
@@ -236,6 +288,107 @@ static inline int ht_mapping_tags(char *name)
 	return HT_MONITOR_SIZE;
 }
 
+static inline int ht_get_temp(int monitor_idx)
+{
+	int temp = 0;
+	struct thermal_zone_device* tzd;
+        tzd=rocket.trk[monitor_idx].tzd;
+	if (!tzd)
+		return 0;
+	if (disable_mask & (1 << monitor_idx))
+		return 0;
+	if (thermal_zone_get_temp(tzd, &temp))
+		return 0;
+	return temp;
+}
+
+static unsigned int ht_get_temp_delay(int idx)
+{
+	static unsigned long next[HT_MONITOR_SIZE] = {0};
+	static unsigned int temps[HT_MONITOR_SIZE] = {0};
+	/* only allow for reading sensor data */
+	if (unlikely(idx < HT_CPU_0 || idx > HT_SEN_2))
+		return 0;
+	/* update */
+	if (jiffies > next[idx] && jiffies - next[idx] > thermal_update_period_hz) {
+		next[idx] = jiffies;
+		temps[idx] = ht_get_temp(idx);
+	}
+	if (jiffies < next[idx]) {
+		next[idx] = jiffies;
+		temps[idx] = ht_get_temp(idx);
+	}
+	return temps[idx];
+}
+
+static int egl_buf_store(const char *buf, const struct kernel_param *kp)
+{
+	char _buf[EGL_BUF_MAX] = {0};
+
+	if (strlen(buf) >= EGL_BUF_MAX)
+		return 0;
+
+	if (sscanf(buf, "%s\n", _buf) <= 0)
+		return 0;
+
+	spin_lock(&egl_buf_lock);
+	memcpy(egl_buf, _buf, EGL_BUF_MAX);
+	egl_buf[EGL_BUF_MAX - 1] = '\0';
+	spin_unlock(&egl_buf_lock);
+
+	return 0;
+}
+
+static int egl_buf_show(char *buf, const struct kernel_param *kp)
+{
+	char _buf[EGL_BUF_MAX] = {0};
+
+	spin_lock(&egl_buf_lock);
+	memcpy(_buf, egl_buf, EGL_BUF_MAX);
+	_buf[EGL_BUF_MAX - 1] = '\0';
+	spin_unlock(&egl_buf_lock);
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", _buf);
+}
+
+static struct kernel_param_ops egl_buf_ops = {
+	.set = egl_buf_store,
+	.get = egl_buf_show,
+};
+module_param_cb(egl_buf, &egl_buf_ops, NULL, 0664);
+
+/* fps stable parameter, default -1 max */
+static int efps_max = -1;
+static int efps_pid = 0;
+static int expectfps = -1;
+static int efps_max_store(const char *buf, const struct kernel_param *kp)
+{
+	int val;
+	int pid;
+	int eval;
+	int ret;
+
+	ret = sscanf(buf, "%d,%d,%d\n", &pid, &val, &eval);
+	if (ret < 2)
+		return 0;
+
+	efps_pid = pid;
+	efps_max = val;
+	expectfps = (ret == 3) ? eval : -1;
+	return 0;
+}
+
+static int efps_max_show(char *buf, const struct kernel_param *kp)
+{
+	return snprintf(buf, PAGE_SIZE, "%d,%d,%d\n", efps_pid, efps_max, expectfps);
+}
+
+static struct kernel_param_ops efps_max_ops = {
+	.set = efps_max_store,
+	.get = efps_max_show,
+};
+module_param_cb(efps_max, &efps_max_ops, NULL, 0664);
+
 void ht_register_thermal_zone_device(struct thermal_zone_device *tzd)
 {
 	int idx;
@@ -271,6 +424,56 @@ void ht_register_kgsl_pwrctrl(void *pwr)
 	gpwr = (struct kgsl_pwrctrl *) pwr;
 	pr_info("Registered lgsl pwrctrl\n");
 }
+
+void ht_register_cpu_util(unsigned int cpu, unsigned int first_cpu,
+		unsigned long *util, unsigned long *hi_util)
+{
+	struct ht_util_pol *hus;
+
+	switch (first_cpu) {
+	case 0: case 1: case 2: case 3: hus = &ht_utils[0]; break;
+	case 4: case 5: case 6: case 7: hus = &ht_utils[1]; break;
+	default:
+		/* should not happen */
+		pr_info("wrong first cpu utils idx %d\n", first_cpu);
+		return;
+	}
+
+	if (cpu == CLUS_1_IDX)
+		cpu = 0;
+	else
+		cpu %= HT_CPUS_PER_CLUS;
+	hus->utils[cpu] = util;
+	hus->hi_util = hi_util;
+	pr_info("ht register cpu %d util, first cpu %d\n", cpu, first_cpu);
+}
+
+/* fps stabilizer update & online config update */
+static DECLARE_WAIT_QUEUE_HEAD(ht_fps_stabilizer_waitq);
+static char ht_online_config_buf[PAGE_SIZE];
+static bool ht_disable_fps_stabilizer_bat = true;
+module_param_named(disable_fps_stabilizer_bat, ht_disable_fps_stabilizer_bat, bool, 0664);
+
+static int ht_online_config_update_store(const char *buf, const struct kernel_param *kp)
+{
+	int ret;
+
+	ret = sscanf(buf, "%s\n", ht_online_config_buf);
+	pr_info("fpsst: %d, %s\n", ret, ht_online_config_buf);
+	wake_up(&ht_fps_stabilizer_waitq);
+	return 0;
+}
+
+static int ht_online_config_update_show(char *buf, const struct kernel_param *kp)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", ht_online_config_buf);
+}
+
+static struct kernel_param_ops ht_online_config_update_ops = {
+	.set = ht_online_config_update_store,
+	.get = ht_online_config_update_show,
+};
+module_param_cb(ht_online_config_update, &ht_online_config_update_ops, NULL, 0664);
 
 static int ht_fps_data_sync_store(const char *buf, const struct kernel_param *kp)
 {
@@ -380,6 +583,154 @@ static struct kernel_param_ops game_info_ops = {
 	.get = game_info_show,
 };
 module_param_cb(game_info, &game_info_ops, NULL, 0664);
+
+static long ht_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long __user arg)
+{
+	if (_IOC_TYPE(cmd) != HT_IOC_MAGIC) return 0;
+	if (_IOC_NR(cmd) > HT_IOC_MAX) return 0;
+	pr_info("%s: cmd: %s %x, arg: %lu\n", __func__, ht_ioctl_str(cmd), cmd, arg);
+
+	switch (cmd) {
+	case HT_IOC_SCHEDSTAT:
+	{
+		struct task_struct *task;
+		u64 exec_ns = 0;
+		u64 pid;
+		if (copy_from_user(&pid, (u64 *) arg, sizeof(u64)))
+			return 0;
+
+		rcu_read_lock();
+		task = find_task_by_vpid(pid);
+		if (task) {
+			get_task_struct(task);
+			rcu_read_unlock();
+			exec_ns = task_sched_runtime(task);
+			put_task_struct(task);
+			if (exec_ns == 0)
+				pr_info("fpsst: schedstat is 0\n");
+		} else {
+			rcu_read_unlock();
+			pr_info("fpsst: can't find task for schedstat\n");
+		}
+		if (copy_to_user((u64 *) arg, &exec_ns, sizeof(u64)))
+			return 0;
+		break;
+	}
+	case HT_IOC_FPS_STABILIZER_UPDATE:
+	{
+		DEFINE_WAIT(wait);
+		prepare_to_wait(&ht_fps_stabilizer_waitq, &wait, TASK_INTERRUPTIBLE);
+		freezable_schedule();
+		finish_wait(&ht_fps_stabilizer_waitq, &wait);
+
+		pr_info("fpsst: %s\n", ht_online_config_buf);
+
+		if (ht_online_config_buf[0] == '\0') {
+			// force invalid config
+			char empty[] = "{}";
+			copy_to_user((struct ht_fps_stabilizer_buf __user *) arg, &empty, strlen(empty));
+		} else {
+			copy_to_user((struct ht_fps_stabilizer_buf __user *) arg, &ht_online_config_buf, PAGE_SIZE);
+		}
+		break;
+	}
+	case HT_IOC_FPS_PARTIAL_SYS_INFO:
+	{
+		struct ht_partial_sys_info data;
+		union power_supply_propval prop = {0, };
+		int ret;
+
+		if (ht_disable_fps_stabilizer_bat) {
+			data.volt = data.curr = 0;
+		} else {
+			ht_update_battery();
+			ret = power_supply_get_property(rocket.psy, POWER_SUPPLY_PROP_VOLTAGE_NOW, &prop);
+			data.volt = ret >= 0? prop.intval: 0;
+			ret = power_supply_get_property(rocket.psy, POWER_SUPPLY_PROP_CURRENT_NOW, &prop);
+			data.curr = ret >= 0? prop.intval: 0;
+		}
+
+		// related to cpu cluster configuration
+		// clus 0
+		data.utils[0] = ht_utils[0].utils[0]? (u64) *(ht_utils[0].utils[0]): 0;
+		data.utils[1] = ht_utils[0].utils[1]? (u64) *(ht_utils[0].utils[1]): 0;
+		data.utils[2] = ht_utils[0].utils[2]? (u64) *(ht_utils[0].utils[2]): 0;
+		data.utils[3] = ht_utils[0].utils[3]? (u64) *(ht_utils[0].utils[3]): 0;
+		// clus 1
+		data.utils[4] = ht_utils[1].utils[0]? (u64) *(ht_utils[1].utils[0]): 0;
+		data.utils[5] = ht_utils[1].utils[1]? (u64) *(ht_utils[1].utils[1]): 0;
+		data.utils[6] = ht_utils[1].utils[2]? (u64) *(ht_utils[1].utils[2]): 0;
+		data.utils[7] = ht_utils[1].utils[3]? (u64) *(ht_utils[1].utils[3]): 0;
+
+		// pick skip-therm since not support shell-therm.
+		data.skin_temp = ht_get_temp_delay(HT_SEN_2);
+		if (copy_to_user((struct ht_partial_sys_info __user *) arg, &data, sizeof(struct ht_partial_sys_info)))
+			return 0;
+		break;
+	}
+	default:
+	{
+		// handle unsupported ioctl cmd
+		return -1;
+	}
+	}
+	return 0;
+}
+
+/* poll for fps data synchronization */
+static unsigned int ht_ctl_poll(struct file *fp, poll_table *wait)
+{
+	poll_wait(fp, &ht_poll_waitq, wait);
+	return POLLIN;
+}
+
+static const struct file_operations ht_ctl_fops = {
+	.owner = THIS_MODULE,
+	.poll = ht_ctl_poll,
+	.unlocked_ioctl = ht_ctl_ioctl,
+	.compat_ioctl = ht_ctl_ioctl,
+};
+
+static int fps_sync_init(void)
+{
+	int rc;
+	struct device *class_dev;
+
+	rc = alloc_chrdev_region(&ht_ctl_dev, 0, 1, HT_CTL_NODE);
+	if (rc < 0) {
+		pr_err("alloc_chrdev_region failed %d\n", rc);
+		return 0;
+	}
+
+	driver_class = class_create(THIS_MODULE, HT_CTL_NODE);
+	if (IS_ERR(driver_class)) {
+		rc = -ENOMEM;
+		pr_err("class_create failed %d\n", rc);
+		goto exit_unreg_chrdev_region;
+	}
+	class_dev = device_create(driver_class, NULL, ht_ctl_dev, NULL, HT_CTL_NODE);
+	if (IS_ERR(class_dev)) {
+		pr_err("class_device_create failed %d\n", rc);
+		rc = -ENOMEM;
+		goto exit_destroy_class;
+	}
+	cdev_init(&cdev, &ht_ctl_fops);
+	cdev.owner = THIS_MODULE;
+	rc = cdev_add(&cdev, MKDEV(MAJOR(ht_ctl_dev), 0), 1);
+	if (rc < 0) {
+		pr_err("cdev_add failed %d\n", rc);
+		goto exit_destroy_device;
+	}
+	pr_info("fps data sync ready\n");
+	return 0;
+exit_destroy_device:
+	device_destroy(driver_class, ht_ctl_dev);
+exit_destroy_class:
+	class_destroy(driver_class);
+exit_unreg_chrdev_region:
+	unregister_chrdev_region(ht_ctl_dev, 1);
+	return 0;
+}
 
 #define SILVER_CLUS_IDX 0
 #define GOLDEN_CLUS_IDX 4
@@ -621,9 +972,6 @@ static int ht_init(void)
 
 	ht_set_all_mask();
 
-	/* default disabled, enable while you need it */
-	disable_mask = ht_all_mask;
-
 	rocket.monitor_thread = kthread_create(ht_monitor, NULL, "ht_rocket");
 	if (IS_ERR(rocket.monitor_thread)) {
 		pr_err("Can't create ht monitor thread\n");
@@ -641,6 +989,7 @@ static int ht_init(void)
 	rocket.running = true;
 	ht_wake_up();
 	proc_create("ht_report", S_IFREG | 0400, NULL, &ht_report_proc_fops);
+	fps_sync_init();
 
 	return 0;
 out:
