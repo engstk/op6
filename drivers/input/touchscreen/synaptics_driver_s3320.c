@@ -6170,12 +6170,12 @@ static int synaptics_ts_suspend(struct device *dev)
 #ifdef SUPPORT_GESTURE
 	if( ts->gesture_enable ){
 		atomic_set(&ts->is_stop,0);
-		if (mutex_trylock(&ts->mutex)){
-			touch_enable(ts);
-			synaptics_enable_interrupt_for_gesture(ts, 1);
-			mutex_unlock(&ts->mutex);
-			TPD_ERR("enter gesture mode\n");
-		}
+		mutex_lock(&ts->mutex);
+		touch_enable(ts);
+		synaptics_enable_interrupt_for_gesture(ts, 1);
+		mutex_unlock(&ts->mutex);
+		TPD_ERR("enter gesture mode\n");
+
 		//set_doze_time(2);	/*change dozeinterval by firmware*/
 		//just for fajita
 		if (ts->project_version == 0x03) {
