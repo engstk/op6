@@ -4124,10 +4124,18 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 		return 0;
 
 	mutex_lock(&panel->panel_lock);
+	if (strcmp(panel->name, "samsung sofef00_m cmd mode dsi panel") == 0) {
+		if (panel->aod_status) {
+			panel->aod_status = 0;
+			pr_err("DSI_PANEL: DSI_CMD_AOD_OFF_NEW cmds\n");
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_AOD_OFF_NEW);
+		}
+	}
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_NOLP);
 	if (rc)
 		pr_err("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
+
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
