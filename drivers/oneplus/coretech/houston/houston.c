@@ -179,6 +179,7 @@ static struct ht_util_pol ht_utils[HT_CLUSTERS];
 static inline const char* ht_ioctl_str(unsigned int cmd)
 {
 	switch (cmd) {
+	case HT_IOC_COLLECT: return "HT_IOC_COLLECT";
 	case HT_IOC_SCHEDSTAT: return "HT_IOC_SCHEDSTAT";
 	case HT_IOC_FPS_STABILIZER_UPDATE: return "HT_IOC_FPS_STABILIZER_UPDATE";
 	case HT_IOC_FPS_PARTIAL_SYS_INFO: return "HT_IOC_FPS_PARTIAL_SYS_INFO";
@@ -229,6 +230,8 @@ module_param_cb(sample_period, &ht_sample_period_ops, NULL, 0644);
 /* fps */
 static int game_fps_pid = -1;
 module_param_named(game_fps_pid, game_fps_pid, int, 0664);
+
+static struct ai_parcel parcel;
 
 /* NOTE better not use this directly */
 int sidx;
@@ -591,6 +594,18 @@ static long ht_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long __us
 	pr_debug("%s: cmd: %s %x, arg: %lu\n", __func__, ht_ioctl_str(cmd), cmd, arg);
 
 	switch (cmd) {
+	case HT_IOC_COLLECT:
+	{
+		memset(&parcel, 0, sizeof(parcel));
+		parcel.pid = current->tgid;
+		parcel.fps_align_ns = atomic64_read(&fps_align_ns);
+		parcel.fps = atomic_read(&cached_fps[0]);
+		parcel.efps = atomic_read(&cached_fps[1]);
+
+		if(copy_to_user((struct ai_parcel __user*)arg, &parcel, sizeof(parcel)))
+			return 0;
+		break;
+	}
 	case HT_IOC_SCHEDSTAT:
 	{
 		struct task_struct *task;
