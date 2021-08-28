@@ -1,0 +1,4 @@
+source "drivers/oneplus/coretech/Kconfig"
+source "drivers/oneplus/drivers/Kconfig"
+source "drivers/oneplus/fs/Kconfig"
+source "drivers/oneplus/op_freezer/Kconfig"

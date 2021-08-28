@@ -1,0 +1,269 @@
+/* Copyright (c) 2014-2018, 2020, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+#include <dt-bindings/pinctrl/qcom,pmic-mpp.h>
+
+&soc {
+	i2c@78b9000 {
+		synaptics@20 {
+			avdd-supply = <&pm8916_l17>;
+			vdd-supply = <&pm8916_l6>;
+		};
+	};
+
+	i2c@78b6000 {
+		nq@28 {
+			qcom,nq-clkreq = <&pm8916_gpios 2 0>;
+		};
+	};
+
+};
+
+&audio_codec_mtp {
+	qcom,model = "msm8909-pm8916-snd-card";
+	asoc-codec = <&stub_codec>, <&msm_dig_codec>, <&pmic_anlg_codec>;
+	asoc-codec-names = "msm-stub-codec.1", "msm-dig-codec", "analog-codec";
+};
+
+
+&pm8916_1 {
+	pmic_anlg_codec: analog-codec@f100 {
+		status = "okay";
+		compatible = "qcom,pmic-analog-codec";
+		reg = <0xf000 0x200>;
+		#address-cells = <2>;
+		#size-cells = <0>;
+		interrupt-parent = <&spmi_bus>;
+		interrupts =
+			<0x1 0xf0 0x0 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x1 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x2 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x3 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x4 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x5 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x6 IRQ_TYPE_NONE>,
+			<0x1 0xf0 0x7 IRQ_TYPE_NONE>,
+			<0x1 0xf1 0x0 IRQ_TYPE_NONE>,
+			<0x1 0xf1 0x1 IRQ_TYPE_NONE>,
+			<0x1 0xf1 0x2 IRQ_TYPE_NONE>,
+			<0x1 0xf1 0x3 IRQ_TYPE_NONE>,
+			<0x1 0xf1 0x4 IRQ_TYPE_NONE>,
+			<0x1 0xf1 0x5 IRQ_TYPE_NONE>;
+		interrupt-names =
+			"spk_cnp_int",
+			"spk_clip_int",
+			"spk_ocp_int",
+			"ins_rem_det1",
+			"but_rel_det",
+			"but_press_det",
+			"ins_rem_det",
+			"mbhc_int",
+			"ear_ocp_int",
+			"hphr_ocp_int",
+			"hphl_ocp_det",
+			"ear_cnp_int",
+			"hphr_cnp_int",
+			"hphl_cnp_int";
+
+		cdc-vdda-cp-supply = <&pm8916_s4>;
+		qcom,cdc-vdda-cp-voltage = <1800000 2200000>;
+		qcom,cdc-vdda-cp-current = <770000>;
+
+		cdc-vdda-h-supply = <&pm8916_l5>;
+		qcom,cdc-vdda-h-voltage = <1800000 1800000>;
+		qcom,cdc-vdda-h-current = <20000>;
+
+		cdc-vdd-px-supply = <&pm8916_s4>;
+		qcom,cdc-vdd-px-voltage = <1800000 2200000>;
+		qcom,cdc-vdd-px-current = <770000>;
+
+		cdc-vdd-pa-supply = <&pm8916_l5>;
+		qcom,cdc-vdd-pa-voltage = <1800000 1800000>;
+		qcom,cdc-vdd-pa-current = <5000>;
+
+		cdc-vdd-mic-bias-supply = <&pm8916_l13>;
+		qcom,cdc-vdd-mic-bias-voltage = <3075000 3075000>;
+		qcom,cdc-vdd-mic-bias-current = <25000>;
+
+		qcom,cdc-mclk-clk-rate = <9600000>;
+
+		qcom,cdc-static-supplies =
+					"cdc-vdda-h",
+					"cdc-vdd-px",
+					"cdc-vdd-pa",
+					"cdc-vdda-cp";
+
+		qcom,cdc-on-demand-supplies = "cdc-vdd-mic-bias";
+
+		msm_dig_codec: msm-dig-codec@f000 {
+			compatible = "qcom,msm-digital-codec";
+			reg = <0x771c000 0x100>;
+		};
+	};
+};
+
+&sdhc_1 {
+	vdd-supply = <&pm8916_l8>;
+	vdd-io-supply = <&pm8916_l5>;
+};
+
+&sdhc_2 {
+	vdd-supply = <&pm8916_l11>;
+	vdd-io-supply = <&pm8916_l12>;
+};
+
+&i2c_3 {
+	qcom,actuator@0 {
+		cam_vaf-supply = <&pm8916_l8>;
+	};
+
+
+	qcom,eeprom@6c{
+		cam_vdig-supply = <&pm8916_l2>;
+		cam_vana-supply = <&pm8916_l10>;
+		cam_vio-supply = <&pm8916_l6>;
+		cam_vaf-supply = <&pm8916_l8>;
+	};
+
+	qcom,camera@0 {
+		cam_vdig-supply = <&pm8916_l2>;
+		cam_vana-supply = <&pm8916_l10>;
+		cam_vio-supply = <&pm8916_l6>;
+		cam_vaf-supply = <&pm8916_l8>;
+	};
+
+	qcom,camera@1 {
+		cam_vana-supply = <&pm8916_l10>;
+		cam_vio-supply = <&pm8916_l6>;
+	};
+};
+
+&dsi_hx8394d_720_vid {
+	qcom,cont-splash-enabled;
+	qcom,mdss-dsi-pwm-gpio = <&pm8916_mpps 4 0>;
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+};
+
+&spmi_bus {
+	pm8916@0 {
+		qcom,leds@a300 {
+			status = "okay";
+			qcom,led_mpp_4 {
+				label = "mpp";
+				linux,name = "button-backlight";
+				linux,default-trigger = "none";
+				qcom,default-state = "off";
+				qcom,max-current = <40>;
+				qcom,current-setting = <5>;
+				qcom,id = <6>;
+				qcom,mode = "manual";
+				qcom,source-sel = <1>;
+				qcom,mode-ctrl = <0x60>;
+			};
+		};
+	};
+
+	pm8916@1 {
+		qcom,vibrator@c000 {
+			status = "okay";
+			qcom,vib-timeout-ms = <15000>;
+			qcom,vib-vtg-level-mV = <3100>;
+		};
+	};
+};
+
+&pm8916_mpps {
+	/* VDD_PX_BIAS_MPP_1 */
+	vdd_px_bias_mpp {
+		vdd_px_bias_mpp_default: vdd_px_bias_mpp_default {
+			pins = "mpp1";
+			function = "digital";
+			status = "disabled";
+		};
+	};
+
+	/* PMIC_MPP_2 */
+	pmic_mpp {
+		pmic_mpp_default: pmic_mpp_default {
+			pins = "mpp2";
+			function = "digital";
+			status = "disabled";
+		};
+	};
+
+	/* VREF_DAC_MPP_3 */
+	vref_dac_mpp {
+		vref_dac_mpp_default: vref_dac_mpp_default {
+			pins = "mpp3";
+			function = "digital";
+			status = "disabled";
+		};
+	};
+
+	/* WLED_PWM_MPP_4 */
+	wled_pwm_mpp {
+		wled_pwm_mpp_default: wled_pwm_mpp_default {
+			pins = "mpp3";
+			function = "digital";
+			output-enable;
+			power-source = <PM8916_MPP_VPH>;
+			status = "okay";
+		};
+	};
+};
+
+/* pm8916 gpio pinctrl configuration */
+&pm8916_gpios {
+	/* Battery UICC Alarm */
+	uim_batt_alarm { /* GPIO 1 */
+		uim_batt_alarm_default: uim_batt_alarm_default {
+			pins = "gpio1";
+			status = "disabled";
+		};
+	};
+
+	/* GPIO 2 (NFC_CLK_REQ) */
+	nfc_clk {
+		nfc_clk_default: nfc_clk_default {
+			pins = "gpio2";
+			function = "normal";
+			input-enable;
+			status = "disabled";
+		};
+	};
+
+	/*  WCN_LDO_EN_GPIO_3 */
+	wcn_ldo_en {
+		wcn_ldo_en_default: wcn_ldo_en_default {
+			pins = "gpio3";
+			function = "normal";
+			output-low;
+			qcom,drive-strength = <1>;
+			status = "disabled";
+		};
+	};
+
+	/* External regulator control for APC */
+	wcd_eldo_en { /* GPIO 4 */
+		wcd_eldo_en_default: wcd_eldo_en_default {
+			pins = "gpio4";
+			status = "disabled";
+		};
+	};
+};
+
+&vendor_fstab {
+	status = "ok";
+};
+
+&system_fstab {
+	status = "disabled";
+};
