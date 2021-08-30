@@ -565,6 +565,7 @@ static int game_info_show(char *buf, const struct kernel_param *kp)
 		cpu = -1;
 		fps = -1;
 	} else {
+		wake_up_interruptible(&ht_poll_waitq);
 		cpu = ohm_get_cur_cpuload(true);
 		gpu = get_gpu_percentage();
 		fps = game_fps_data.fps / 10;
@@ -596,6 +597,7 @@ static long ht_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long __us
 	switch (cmd) {
 	case HT_IOC_COLLECT:
 	{
+		wake_up_interruptible(&ht_poll_waitq);
 		memset(&parcel, 0, sizeof(parcel));
 		parcel.pid = current->tgid;
 		parcel.fps_align_ns = atomic64_read(&fps_align_ns);
