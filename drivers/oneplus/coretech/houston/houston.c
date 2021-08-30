@@ -445,7 +445,7 @@ void ht_register_cpu_util(unsigned int cpu, unsigned int first_cpu,
 		cpu %= HT_CPUS_PER_CLUS;
 	hus->utils[cpu] = util;
 	hus->hi_util = hi_util;
-	pr_info("ht register cpu %d util, first cpu %d\n", cpu, first_cpu);
+	pr_debug("ht register cpu %d util, first cpu %d\n", cpu, first_cpu);
 }
 
 /* fps stabilizer update & online config update */
@@ -459,7 +459,7 @@ static int ht_online_config_update_store(const char *buf, const struct kernel_pa
 	int ret;
 
 	ret = sscanf(buf, "%s\n", ht_online_config_buf);
-	pr_info("fpsst: %d, %s\n", ret, ht_online_config_buf);
+	pr_debug("fpsst: %d, %s\n", ret, ht_online_config_buf);
 	wake_up(&ht_fps_stabilizer_waitq);
 	return 0;
 }
@@ -588,7 +588,7 @@ static long ht_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long __us
 {
 	if (_IOC_TYPE(cmd) != HT_IOC_MAGIC) return 0;
 	if (_IOC_NR(cmd) > HT_IOC_MAX) return 0;
-	pr_info("%s: cmd: %s %x, arg: %lu\n", __func__, ht_ioctl_str(cmd), cmd, arg);
+	pr_debug("%s: cmd: %s %x, arg: %lu\n", __func__, ht_ioctl_str(cmd), cmd, arg);
 
 	switch (cmd) {
 	case HT_IOC_SCHEDSTAT:
@@ -623,7 +623,7 @@ static long ht_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long __us
 		freezable_schedule();
 		finish_wait(&ht_fps_stabilizer_waitq, &wait);
 
-		pr_info("fpsst: %s\n", ht_online_config_buf);
+		pr_debug("fpsst: %s\n", ht_online_config_buf);
 
 		if (ht_online_config_buf[0] == '\0') {
 			// force invalid config
@@ -640,7 +640,7 @@ static long ht_ctl_ioctl(struct file *file, unsigned int cmd, unsigned long __us
 		union power_supply_propval prop = {0, };
 		int ret;
 
-		if (ht_disable_fps_stabilizer_bat) {
+		if (ht_disable_fps_stabilizer_bat || rocket.psy==NULL) {
 			data.volt = data.curr = 0;
 		} else {
 			ht_update_battery();
@@ -798,10 +798,12 @@ static void ht_collect_resources(void)
 	if (pol_1) cpufreq_cpu_put(pol_1);
 
 	/* battery part */
-	ret = power_supply_get_property(rocket.psy, POWER_SUPPLY_PROP_VOLTAGE_NOW, &prop);
-	smps[idx][HT_BAT_VOLT_NOW] = ret >= 0? prop.intval: 0;
-	ret = power_supply_get_property(rocket.psy, POWER_SUPPLY_PROP_CURRENT_NOW, &prop);
-	smps[idx][HT_BAT_CURR_NOW] = ret >= 0? prop.intval: 0;
+	if(rocket.psy){
+		ret = power_supply_get_property(rocket.psy, POWER_SUPPLY_PROP_VOLTAGE_NOW, &prop);
+		smps[idx][HT_BAT_VOLT_NOW] = ret >= 0? prop.intval: 0;
+		ret = power_supply_get_property(rocket.psy, POWER_SUPPLY_PROP_CURRENT_NOW, &prop);
+		smps[idx][HT_BAT_CURR_NOW] = ret >= 0? prop.intval: 0;
+	}
 }
 
 static inline void ht_wake_up(void)
