@@ -116,6 +116,14 @@ MODULE_PARM_DESC(phy_bias2, "QUSB PHY v2 BIAS2");
 #define FORCED_UTMI_DPPULLDOWN	BIT(2)
 #define FORCED_UTMI_DMPULLDOWN	BIT(3)
 
+#undef dev_dbg
+
+#define dev_dbg dev_info
+
+#undef pr_debug
+
+#define pr_debug pr_info
+
 enum qusb_phy_reg {
 	PORT_TUNE1,
 	PLL_COMMON_STATUS_ONE,
@@ -466,8 +474,8 @@ static void qusb_phy_get_tune1_param(struct qusb_phy *qphy)
 	bit_mask = (bit_mask << qphy->efuse_num_of_bits) - 1;
 
 	/*
-	 * if efuse reg is updated (i.e non-zero) then use it to program
-	 * tune parameters
+	 * For 8nm zero is treated as a valid efuse value and driver
+	 * should program the tune1 reg based on efuse value
 	 */
 	qphy->tune_val = readl_relaxed(qphy->efuse_reg);
 	pr_debug("%s(): bit_mask:%d efuse based tune1 value:%d\n",
@@ -477,11 +485,8 @@ static void qusb_phy_get_tune1_param(struct qusb_phy *qphy)
 				qphy->efuse_bit_pos, bit_mask);
 	reg = readb_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1]);
 	pr_debug("%s(): tune1 value:0x%x before change\n", __func__, reg);
-	if (qphy->tune_val) {
-		reg = reg & 0x0f;
-		reg |= (qphy->tune_val << 4);
-	}
-
+	reg = reg & 0x0f;
+	reg |= (qphy->tune_val << 4);
 	qphy->tune_val = reg;
 }
 
@@ -492,7 +497,7 @@ static void qusb_phy_write_seq(void __iomem *base, u32 *seq, int cnt,
 
 	pr_debug("Seq count:%d\n", cnt);
 	for (i = 0; i < cnt; i = i+2) {
-		pr_debug("write 0x%02x to 0x%02x\n", seq[i], seq[i+1]);
+		pr_info("write 0x%02x to 0x%02x\n", seq[i], seq[i+1]);
 		writel_relaxed(seq[i], base + seq[i+1]);
 		if (delay)
 			usleep_range(delay, (delay + 2000));
@@ -778,6 +783,32 @@ static int qusb_phy_init(struct usb_phy *phy)
 
 	/* Ensure above write is completed before turning ON ref clk */
 	wmb();
+
+	pr_err("tune1 [0x%x], tune2 [0x%x], tune3 [0x%x], tune4 [0x%x], tune5 [0x%x], BIAS_CTRL2 [0x%x], PWR_CTRL1 [0x%x]",
+
+	readl_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1]),
+
+	readl_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1] + 4),
+
+	readl_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1] + 8),
+
+	readl_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1] + 12),
+
+	readl_relaxed(qphy->base + qphy->phy_reg[PORT_TUNE1] + 16),
+
+	readl_relaxed(qphy->base + qphy->phy_reg[BIAS_CTRL_2]),
+
+	readl_relaxed(qphy->base + qphy->phy_reg[PWR_CTRL1]));
+
+
+
+	pr_err("dump A:0x00780268 value:[0x%x],dump A:0x00780274 value:[0x%x], dump A:0x088E7014 value:[0x%x]",
+
+	readl_relaxed(qphy->efuse_reg),
+
+	readl_relaxed(qphy->efuse_reg + 12),
+
+	readl_relaxed(qphy->refgen_north_bg_reg));
 
 	/* Require to get phy pll lock successfully */
 	usleep_range(150, 160);
