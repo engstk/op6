@@ -670,18 +670,16 @@ static int qusb_phy_init(struct usb_phy *phy)
 			qphy->base + qphy->phy_reg[PWR_CTRL1]);
 
 /*2018/03/31 @BSP add host mode phy init parameters*/
-	if (qphy->qusb_phy_ophost_init_seq) {
-		if (qphy->phy.flags & PHY_HOST_MODE) {
+	if (qphy->qusb_phy_init_seq || qphy->qusb_phy_ophost_init_seq){
+		if ((qphy->phy.flags & PHY_HOST_MODE) && qphy->qusb_phy_ophost_init_seq){
 			dev_info(phy->dev, "%s PHY_HOST_MODE!\n", __func__);
 			qusb_phy_write_seq(qphy->base, qphy->qusb_phy_ophost_init_seq,
 					qphy->init_seq_len, 0);
 		}
+		else
+			qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq,
+					qphy->init_seq_len, 0);
 	}
-	else if (qphy->qusb_phy_init_seq)
-		qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq, qphy->init_seq_len, 0);
-	else
-		pr_err("%s(): no host init sequence identified\n", __func__);
-
 	if (qphy->efuse_reg) {
 		if (!qphy->tune_val)
 			qusb_phy_get_tune1_param(qphy);
