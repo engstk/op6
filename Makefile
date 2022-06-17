@@ -417,7 +417,8 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Wno-sizeof-pointer-memaccess -Wno-stringop-truncation \
 		   -Wformat=0 -Wno-address-of-packed-member -Wno-psabi -Wno-enum-compare -Wno-unused-result -Wno-pointer-to-int-cast \
 		   -Wno-sequence-point -Wno-unused-value -Wno-uninitialized -Wno-missing-attributes \
-		   -Wno-builtin-declaration-mismatch -Wno-restrict
+		   -Wno-builtin-declaration-mismatch -Wno-restrict \
+		   -Wno-deprecated-declarations -Wno-array-compare -Wno-address -Wno-stringop-overread
 
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
